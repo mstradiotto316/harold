@@ -7,6 +7,7 @@ import signal
 import pickle
 import os
 import sys
+import argparse
 
 # ===========================#
 #   USER CONFIGURATIONS     #
@@ -153,48 +154,6 @@ def emergency_shutdown(sig, frame):
     print("Exiting...")
     exit(0)
 
-def create_observation():
-    """Create an observation from IMU data"""
-    try:
-        # Import IMU reader
-        sys.path.append(os.path.join(os.path.dirname(SCRIPT_DIR), "sensors"))
-        from imu_reader import IMUReader
-        
-        # Initialize IMU reader if not already done
-        if not hasattr(create_observation, 'imu_reader'):
-            create_observation.imu_reader = IMUReader()
-            print("IMU reader initialized")
-        
-        # Get IMU data
-        imu_data = create_observation.imu_reader.get_filtered_data()
-        
-        # Format into observation vector
-        # NOTE: This needs to be configured based on your specific policy's observation format
-        obs = np.zeros(38, dtype=np.float32)
-        
-        # Add accelerometer data
-        obs[0:3] = imu_data['accel']
-        
-        # Add gyroscope data
-        obs[3:6] = imu_data['gyro']
-        
-        # Add orientation data (if available)
-        if 'orientation' in imu_data:
-            obs[6:8] = imu_data['orientation']
-        
-        # Reshape to match policy input format
-        return obs.reshape(1, -1)
-        
-    except Exception as e:
-        print(f"Warning: Error reading from IMU: {e}")
-        print("Using zero observation vector as fallback")
-        if not hasattr(create_observation, 'warned'):
-            print("TIP: If testing without IMU, consider using robot_controller_observations_playback.py instead")
-            create_observation.warned = True
-        
-        # Return zero observation as fallback
-        return np.zeros(38, dtype=np.float32).reshape(1, -1)
-
 def run_policy_step(observation):
     """Run a single step of the policy"""
     global policy_session, ACTION_REDUCTION_FACTOR
@@ -214,14 +173,23 @@ def run_policy_step(observation):
     return positions_command_str
 
 def main():
-    """Main function"""
+    """Main function for observation log playback"""
     global ser, policy_session, SERIAL_PORT
-    import argparse
     
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Harold Robot Controller")
+    parser = argparse.ArgumentParser(description="Harold Robot Observation Playback")
+    parser.add_argument('obs_log_file', type=str, help='Path to observation log file')
     parser.add_argument('--serial_port', type=str, help='Serial port for Arduino connection')
+    parser.add_argument('--loop', action='store_true', help='Loop the observation log continuously')
     args = parser.parse_args()
+    
+    obs_log_file_path = args.obs_log_file
+    loop_playback = args.loop
+    
+    # Check if observation log file exists
+    if not os.path.exists(obs_log_file_path):
+        print(f"Error: Observation log file not found: {obs_log_file_path}")
+        exit(1)
     
     # Override serial port if provided
     if args.serial_port:
@@ -230,9 +198,11 @@ def main():
     # Set up signal handler for Ctrl+C
     signal.signal(signal.SIGINT, emergency_shutdown)
     
-    print("=== Starting Harold Robot Controller ===")
+    print("=== Starting Harold Robot Observation Playback ===")
     print(f"Serial port: {SERIAL_PORT}")
+    print(f"Observation log file: {obs_log_file_path}")
     print(f"Action reduction factor: {ACTION_REDUCTION_FACTOR}")
+    print(f"Loop playback: {'Yes' if loop_playback else 'No'}")
     
     # Load policy and configuration
     print("\nLoading policy and configuration...")
@@ -260,33 +230,58 @@ def main():
     print("Waiting for servo initialization...")
     time.sleep(4.0)
     
-    # Main control loop
-    print("\n=== Robot Control Started ===")
+    # Main playback loop
+    print("\n=== Playback Started ===")
     try:
-        while True:
-            # Start timing
-            start_time = time.time()
+        while True:  # Outer loop for repeated playback
+            print(f"Playing observation log: {obs_log_file_path}")
+            line_count = 0
             
-            # Get observation from sensors
-            observation = create_observation()
+            with open(obs_log_file_path, 'r') as log_file:
+                for line in log_file:
+                    line_count += 1
+                    
+                    # Start timing
+                    start_time = time.time()
+                    
+                    # Parse observation from log line
+                    obs_list_str = line.strip().strip('[]').split(',')
+                    obs_list = [float(x) for x in obs_list_str]
+                    observation = np.array(obs_list, dtype=np.float32).reshape(1, -1)
+                    
+                    # Run policy to get joint positions
+                    positions_command_str = run_policy_step(observation)
+                    
+                    # Send command to Arduino
+                    send_to_arduino(ser, positions_command_str)
+                    
+                    # Print progress every 10 lines
+                    if line_count % 10 == 0:
+                        print(f"Processed {line_count} observations")
+                    
+                    # Maintain control frequency
+                    elapsed_time = time.time() - start_time
+                    control_rate_delay = max(0.0, CONTROL_PERIOD - elapsed_time)
+                    time.sleep(control_rate_delay)
             
-            # Run policy to get joint positions
-            positions_command_str = run_policy_step(observation)
+            print(f"Playback complete. Processed {line_count} observations.")
             
-            # Send command to Arduino
-            send_to_arduino(ser, positions_command_str)
+            # If not looping, exit after one playback
+            if not loop_playback:
+                break
             
-            # Maintain control frequency
-            elapsed_time = time.time() - start_time
-            control_rate_delay = max(0.0, CONTROL_PERIOD - elapsed_time)
-            time.sleep(control_rate_delay)
-            
+            print("Restarting playback...")
+    
     except Exception as e:
-        print(f"\n=== ERROR in Main Loop: {e} ===")
+        print(f"\n=== ERROR in Playback: {e} ===")
         emergency_shutdown(None, None)
     finally:
-        print("\n=== Robot Control Finished ===")
+        print("\n=== Playback Finished ===")
+        # Send safe positions before closing
         if ser is not None and ser.is_open:
+            print("Sending safe positions...")
+            send_to_arduino(ser, safe_positions_str)
+            time.sleep(0.5)
             ser.close()
 
 if __name__ == "__main__":

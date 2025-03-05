@@ -24,11 +24,25 @@ This repository contains the code for the Harold quadruped robot.
 
 ## Usage
 
-To run the robot with the neural network policy:
+### Running the Robot with Live IMU Data
+
+To run the robot with live IMU sensor data:
 
 ```bash
-python3 policy/robot_controller.py [--serial_port PORT] [--slow_mode] [--obs_log_file FILE]
+python3 policy/robot_controller.py [--serial_port PORT]
 ```
+
+### Running the Robot with Recorded Observation Logs
+
+To run the robot using pre-recorded observation logs from simulation:
+
+```bash
+python3 policy/robot_controller_observations_playback.py PATH_TO_LOG_FILE [--serial_port PORT] [--loop]
+```
+
+Options:
+- `--serial_port PORT`: Specify a custom serial port (default: /dev/ttyACM0)
+- `--loop`: Continuously loop the observation log file
 
 ## Hardware Requirements
 

@@ -46,6 +46,7 @@ float ANGLE_MIN[SERVO_COUNT] = {
 int currentServo = -1;  // No servo being tested initially
 int testStage = 0;      // 0=center, 1=min, 2=max, 3=center, 4=finished
 bool testInProgress = false;
+bool testAllJoints = false;  // Flag to indicate if we're testing all joints
 unsigned long lastMoveTime = 0;
 
 // ***** Function Prototypes *****
@@ -229,6 +230,7 @@ void processCommand(String command) {
     if (testInProgress) {
       Serial.println(F("Test stopped."));
       testInProgress = false;
+      testAllJoints = false;
       currentServo = -1;
     } else {
       Serial.println(F("No test currently running."));
@@ -247,6 +249,7 @@ void processCommand(String command) {
     currentServo = 0;
     testStage = 0;
     testInProgress = true;
+    testAllJoints = true;
     lastMoveTime = millis();
     return;
   }
@@ -282,7 +285,7 @@ void loop() {
     runTestSequence();
     
     // If testing all joints and current joint is done, move to next joint
-    if (!testInProgress && command.equals("all") && currentServo < SERVO_COUNT - 1) {
+    if (!testInProgress && testAllJoints && currentServo < SERVO_COUNT - 1) {
       currentServo++;
       testStage = 0;
       testInProgress = true;

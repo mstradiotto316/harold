@@ -4,7 +4,7 @@
 // ***** Configuration *****
 #define SERVO_COUNT     12      // Total number of servos (4 legs × 3 joints per leg)
 #define PWM_FREQUENCY   50      // 50 Hz for standard servos
-#define TEST_DELAY      2000    // Delay between movements in milliseconds
+#define TEST_DELAY      800     // Delay between movements in milliseconds
 
 // ***** Create the PWM Servo Driver Object *****
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
@@ -175,7 +175,14 @@ void runTestSequence() {
       Serial.print(F("Test complete for "));
       Serial.println(JOINT_NAMES[currentServo]);
       testInProgress = false;
-      currentServo = -1;
+      
+      // Store the completed servo number before resetting
+      int lastServo = currentServo;
+      
+      // If we're testing all joints, don't reset the currentServo
+      if (!testAllJoints) {
+        currentServo = -1;
+      }
       break;
   }
   
@@ -285,14 +292,22 @@ void loop() {
     runTestSequence();
     
     // If testing all joints and current joint is done, move to next joint
-    if (!testInProgress && testAllJoints && currentServo < SERVO_COUNT - 1) {
-      currentServo++;
-      testStage = 0;
-      testInProgress = true;
-      lastMoveTime = millis() + 1000;  // Add extra delay between joints
-      Serial.println();
-      Serial.print(F("Moving to next joint: "));
-      Serial.println(JOINT_NAMES[currentServo]);
+    if (!testInProgress && testAllJoints) {
+      if (currentServo < SERVO_COUNT - 1) {
+        // Move to the next joint
+        currentServo++;
+        testStage = 0;
+        testInProgress = true;
+        lastMoveTime = millis() + 400;  // Less delay between joints
+        Serial.println();
+        Serial.print(F("Moving to next joint: "));
+        Serial.println(JOINT_NAMES[currentServo]);
+      } else {
+        // All joints have been tested
+        Serial.println(F("\nAll joints tested. Test sequence complete!"));
+        testAllJoints = false;
+        currentServo = -1;
+      }
     }
   }
 }

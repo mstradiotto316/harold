@@ -18,10 +18,13 @@ SERIAL_PORT = '/dev/ttyACM0'  # Default serial port, can be overridden via comma
 BAUD_RATE = 115200
 HANDSHAKE_MSG = "ARDUINO_READY"
 
-# ONNX Policy Path
+# Path configurations
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(SCRIPT_DIR)
 ONNX_PATH = os.path.join(SCRIPT_DIR, "harold_policy.onnx")
 ACTION_CONFIG_PATH = os.path.join(SCRIPT_DIR, "action_config.pt")
+SIMULATION_LOGS_DIR = os.path.join(ROOT_DIR, "simulation_logs")
+DEFAULT_OBS_LOG_PATH = os.path.join(SIMULATION_LOGS_DIR, "observations.log")
 
 # Action Reduction Factor (for safety - set to 1.0 for full policy output)
 ACTION_REDUCTION_FACTOR = 1.0
@@ -178,17 +181,23 @@ def main():
     
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Harold Robot Observation Playback")
-    parser.add_argument('obs_log_file', type=str, help='Path to observation log file')
-    parser.add_argument('--serial_port', type=str, help='Serial port for Arduino connection')
-    parser.add_argument('--loop', action='store_true', help='Loop the observation log continuously')
+    parser.add_argument('--obs_log_file', type=str, 
+                        help=f'Path to observation log file (default: {DEFAULT_OBS_LOG_PATH})')
+    parser.add_argument('--serial_port', type=str, 
+                        help='Serial port for Arduino connection')
+    parser.add_argument('--loop', action='store_true', 
+                        help='Loop the observation log continuously')
     args = parser.parse_args()
     
-    obs_log_file_path = args.obs_log_file
+    # Use provided log file or default
+    obs_log_file_path = args.obs_log_file or DEFAULT_OBS_LOG_PATH
     loop_playback = args.loop
     
     # Check if observation log file exists
     if not os.path.exists(obs_log_file_path):
         print(f"Error: Observation log file not found: {obs_log_file_path}")
+        print(f"Please place an observations.log file in the simulation_logs directory")
+        print(f"or specify a file with --obs_log_file")
         exit(1)
     
     # Override serial port if provided

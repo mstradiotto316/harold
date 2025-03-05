@@ -76,34 +76,10 @@ def process_policy_action(raw_actions):
     global action_scale, default_positions
     scaled_actions = raw_actions * action_scale  # Apply scaling
 
-    # Get default positions from the config
-    joint_position_dict = dict(zip([
-        'fl_shoulder_joint', 'fr_shoulder_joint', 'bl_shoulder_joint', 'br_shoulder_joint',
-        'fl_thigh_joint', 'fr_thigh_joint', 'bl_thigh_joint', 'br_thigh_joint',
-        'fl_knee_joint', 'fr_knee_joint', 'bl_knee_joint', 'br_knee_joint',
-    ], default_positions))
-
-    # Joint mapping with multipliers to account for mirror symmetry
-    joint_mapping = {
-        0: ('fl_shoulder_joint', 1),
-        1: ('fr_shoulder_joint', 1),
-        2: ('bl_shoulder_joint', 1),
-        3: ('br_shoulder_joint', 1),
-        4: ('fl_thigh_joint', 1),
-        5: ('fr_thigh_joint', 1),
-        6: ('bl_thigh_joint', 1),
-        7: ('br_thigh_joint', 1),
-        8: ('fl_knee_joint', 1),
-        9: ('fr_knee_joint', 1),
-        10: ('bl_knee_joint', 1),
-        11: ('br_knee_joint', 1),
-    }
-
+    # Robot is wired to match simulation joint order directly
     reordered_positions = []
     for i in range(12):
-        joint_name, multiplier = joint_mapping[i]
-        reordered_positions.append(
-            (joint_position_dict[joint_name] + scaled_actions[i]) * multiplier)
+        reordered_positions.append(default_positions[i] + scaled_actions[i])
 
     # Clip final positions to safe bounds ([-1.5, 1.5])
     clipped_positions = np.clip(reordered_positions, -1.5, 1.5)

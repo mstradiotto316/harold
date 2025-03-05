@@ -8,10 +8,7 @@
 // ***** Create the PWM Servo Driver Object *****
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
-// Shoulders are on opposite sides of the robot, so their min / max values are mirrored
-//int servoMin[SERVO_COUNT]    = {315, 305, 290, 360,   190, 375, 385, 215,   185, 375, 395, 185};
-//int servoCenter[SERVO_COUNT] = {355, 265, 330, 320,   285, 280, 290, 310,   280, 280, 300, 280};
-//int servoMax[SERVO_COUNT]    = {395, 225, 370, 280,   380, 185, 195, 405,   375, 185, 205, 375};
+// Servo PWM values for min, center, and max positions
 
 int servoMin[SERVO_COUNT]    = {315, 305, 290, 360,   380, 185, 385, 215,   375, 185, 395, 185};
 int servoCenter[SERVO_COUNT] = {355, 265, 330, 320,   285, 280, 290, 310,   280, 280, 300, 280};

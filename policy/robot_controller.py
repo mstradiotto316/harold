@@ -6,19 +6,23 @@ from onnxruntime import InferenceSession
 import signal
 import pickle
 import argparse
+import os
+import sys
 
 # ===========================#
 #   USER CONFIGURATIONS     #
 # ===========================#
 
 # Serial port configuration for Arduino
-SERIAL_PORT = '/dev/ttyACM0'
+SERIAL_PORT = '/dev/ttyACM0'  # Default serial port, can be overridden via command line
 BAUD_RATE = 115200
 HANDSHAKE_MSG = "ARDUINO_READY"
 
 # ONNX Policy Path
-ONNX_PATH = "harold_policy.onnx"
-ACTION_CONFIG_PATH = "action_config.pt"
+import os
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ONNX_PATH = os.path.join(SCRIPT_DIR, "harold_policy.onnx")
+ACTION_CONFIG_PATH = os.path.join(SCRIPT_DIR, "action_config.pt")
 
 # Action Reduction Factor (for safety - set to 1.0 for full policy output)
 ACTION_REDUCTION_FACTOR = 1.0
@@ -140,7 +144,24 @@ def emergency_shutdown(sig, frame):
     exit(0)
 
 def create_observation():
-    # Placeholder observation function ? replace with actual IMU reading if available
+    # Placeholder observation function - replace with actual IMU reading
+    # You can uncomment the IMU reader code when ready to use real sensor data
+    """
+    # Import IMU reader
+    sys.path.append(os.path.join(os.path.dirname(SCRIPT_DIR), "sensors"))
+    from imu_reader import IMUReader
+    
+    # Initialize IMU reader if not already done
+    global imu_reader
+    if not hasattr(create_observation, 'imu_reader'):
+        create_observation.imu_reader = IMUReader()
+        
+    # Get IMU data
+    imu_data = create_observation.imu_reader.get_filtered_data()
+    # Format into observation vector (this would need to be adjusted based on your policy's expected format)
+    # ...
+    """
+    # For now, just return zeros
     return np.zeros(38, dtype=np.float32).reshape(1, -1)
 
 def run_policy_step(observation):
@@ -158,13 +179,18 @@ def run_policy_step(observation):
     return positions_command_str
 
 def main():
-    global ser, policy_session, slow_mode, obs_log_file_path
+    global ser, policy_session, slow_mode, obs_log_file_path, SERIAL_PORT
     parser = argparse.ArgumentParser(description="Harold Deployment Script")
     parser.add_argument('--slow_mode', action='store_true', help='Enable slower control loop for safer testing')
     parser.add_argument('--obs_log_file', type=str, help='Path to observation log file')
+    parser.add_argument('--serial_port', type=str, help='Serial port for Arduino connection')
     args = parser.parse_args()
     slow_mode = args.slow_mode
     obs_log_file_path = args.obs_log_file
+    
+    # Override serial port if provided
+    if args.serial_port:
+        SERIAL_PORT = args.serial_port
     signal.signal(signal.SIGINT, emergency_shutdown)
     print("Starting Harold Deployment Script...")
     if slow_mode:

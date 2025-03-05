@@ -2,6 +2,11 @@
 import smbus
 import time
 import numpy as np
+import os
+import sys
+
+# Add sensors directory to path for IMU reader access
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "sensors"))
 
 # ===========================#
 #   USER CONFIGURATIONS     #

@@ -6,8 +6,10 @@ import os
 
 def verify_onnx_policy():
     # Paths
-    ONNX_PATH = "/home/matteo/Desktop/Harold_V5/harold_policy.onnx"
-    CONFIG_PATH = os.path.join(os.path.dirname(ONNX_PATH), "action_config.pt")
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    policy_dir = os.path.join(os.path.dirname(script_dir), "policy")
+    ONNX_PATH = os.path.join(policy_dir, "harold_policy.onnx")
+    CONFIG_PATH = os.path.join(policy_dir, "action_config.pt")
     
     print("\n=== Verifying ONNX Policy ===")
     # Create inference session

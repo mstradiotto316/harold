@@ -50,3 +50,29 @@ Options:
 - Arduino microcontroller
 - MPU6050 IMU sensor
 - 12 servo motors
+
+## Hardware Configuration
+
+### Joint Configuration
+
+The robot's joint configuration matches the simulation directly:
+
+1. **Joint Order**:
+   - 0: Front Left Shoulder
+   - 1: Front Right Shoulder
+   - 2: Back Left Shoulder
+   - 3: Back Right Shoulder
+   - 4: Front Left Thigh
+   - 5: Front Right Thigh
+   - 6: Back Left Thigh
+   - 7: Back Right Thigh
+   - 8: Front Left Knee
+   - 9: Front Right Knee
+   - 10: Back Left Knee
+   - 11: Back Right Knee
+
+2. **Servo Direction**:
+   - Shoulders: Positive positions move upward from center, negative positions move downward
+   - Thighs and Knees: Positive positions move toward the front of the robot, negative positions move toward the rear
+
+This configuration ensures that the real robot's movements directly correspond to the simulation, with no need for joint remapping or direction inversions.

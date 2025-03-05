@@ -20,7 +20,7 @@ This repository contains the code for the Harold quadruped robot.
   - `verify_policy.py`: Verify the ONNX policy model
   - `test_imu.py`: Test the IMU sensor
 
-- `logs/`: Log files for debugging and analysis
+- `simulation_logs/`: Log files from simulation for playback testing
 
 ## Usage
 
@@ -37,10 +37,11 @@ python3 policy/robot_controller.py [--serial_port PORT]
 To run the robot using pre-recorded observation logs from simulation:
 
 ```bash
-python3 policy/robot_controller_observations_playback.py PATH_TO_LOG_FILE [--serial_port PORT] [--loop]
+python3 policy/robot_controller_observations_playback.py [--obs_log_file PATH] [--serial_port PORT] [--loop]
 ```
 
 Options:
+- `--obs_log_file PATH`: Specify a custom observation log file (default: simulation_logs/observations.log)
 - `--serial_port PORT`: Specify a custom serial port (default: /dev/ttyACM0)
 - `--loop`: Continuously loop the observation log file
 

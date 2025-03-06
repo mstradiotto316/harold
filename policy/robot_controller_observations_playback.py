@@ -41,8 +41,10 @@ policy_session = None
 action_scale = 2
 default_positions = None
 safe_positions_str = None  # Global safe command string
-last_clipped_raw_actions = None  # Store last clipped raw actions for printing
-last_scaled_actions = None  # Store last scaled actions for printing
+last_raw_actions = None  # Store raw policy outputs
+last_clipped_raw_actions = None  # Store clipped raw actions for printing
+last_scaled_actions = None  # Store scaled actions for printing
+last_final_positions = None  # Store final joint positions
 
 # ===========================#
 #   FUNCTIONS & CALLBACKS   #
@@ -79,7 +81,7 @@ def wait_for_arduino_handshake(ser_obj):
 
 def process_policy_action(raw_actions):
     """Process policy actions into joint position commands"""
-    global action_scale, default_positions
+    global action_scale, default_positions, last_final_positions
     scaled_actions = raw_actions * action_scale  # Apply scaling
 
     # Robot is wired to match simulation joint order directly
@@ -87,6 +89,9 @@ def process_policy_action(raw_actions):
     for i in range(12):
         reordered_positions.append(default_positions[i] + scaled_actions[i])
 
+    # Store final positions for printing
+    last_final_positions = np.array(reordered_positions)
+    
     # No additional clipping - allow full range of motion to match simulation
     positions_line = ','.join(f'{pos:.4f}' for pos in reordered_positions)
     return positions_line
@@ -136,16 +141,19 @@ def emergency_shutdown(sig, frame):
 
 def run_policy_step(observation):
     """Run a single step of the policy"""
-    global policy_session, ACTION_REDUCTION_FACTOR, last_clipped_raw_actions, last_scaled_actions, action_scale
+    global policy_session, ACTION_REDUCTION_FACTOR, last_raw_actions, last_clipped_raw_actions, last_scaled_actions, action_scale
     
     # Get raw action from policy
     action = policy_session.run(None, {'obs': observation})[0][0]
+    
+    # Store raw policy actions for printing
+    last_raw_actions = action.copy()
     
     # Clip raw actions to [-1, 1]
     clipped_raw_actions = np.clip(action, -1.0, 1.0)
     
     # Store clipped but unscaled actions for printing
-    last_clipped_raw_actions = clipped_raw_actions
+    last_clipped_raw_actions = clipped_raw_actions.copy()
     
     # Apply action reduction factor
     reduced_actions = clipped_raw_actions * ACTION_REDUCTION_FACTOR
@@ -244,11 +252,15 @@ def main():
                     # Run policy to get joint positions
                     positions_command_str = run_policy_step(observation)
                     
-                    # Print current observations and action outputs
+                    # Print current observations and all action outputs for comparison
+                    print("\n--- STEP DATA ---")
                     print(f"Observations: {observation[0]}")
-                    
-                    # Print the clipped and scaled action values
-                    print(f"Clipped and scaled action outputs: {last_scaled_actions}")
+                    print(f"Raw policy outputs: {last_raw_actions}")
+                    print(f"Clipped actions [-1,1]: {last_clipped_raw_actions}")
+                    print(f"Clipped + scaled actions: {last_scaled_actions}")
+                    print(f"Final joint positions: {last_final_positions}")
+                    print(f"Command string: {positions_command_str}")
+                    print("----------------")
                     
                     # Send command to Arduino
                     send_to_arduino(ser, positions_command_str)

@@ -41,6 +41,7 @@ policy_session = None
 action_scale = 2
 default_positions = None
 safe_positions_str = None  # Global safe command string
+last_clipped_raw_actions = None  # Store last clipped raw actions for printing
 
 # ===========================#
 #   FUNCTIONS & CALLBACKS   #
@@ -135,13 +136,16 @@ def emergency_shutdown(sig, frame):
 
 def run_policy_step(observation):
     """Run a single step of the policy"""
-    global policy_session, ACTION_REDUCTION_FACTOR
+    global policy_session, ACTION_REDUCTION_FACTOR, last_clipped_raw_actions
     
     # Get raw action from policy
     action = policy_session.run(None, {'obs': observation})[0][0]
     
     # Clip raw actions to [-1, 1]
     clipped_raw_actions = np.clip(action, -1.0, 1.0)
+    
+    # Store clipped but unscaled actions for printing
+    last_clipped_raw_actions = clipped_raw_actions
     
     # Apply action reduction factor
     reduced_actions = clipped_raw_actions * ACTION_REDUCTION_FACTOR
@@ -236,6 +240,13 @@ def main():
                     
                     # Run policy to get joint positions
                     positions_command_str = run_policy_step(observation)
+                    
+                    # Print current observations and action outputs
+                    print(f"Observations: {observation[0]}")
+                    
+                    # Extract clipped but unscaled action values for printing
+                    # This requires slight modification to run_policy_step to return additional info
+                    print(f"Clipped action outputs: {last_clipped_raw_actions}")
                     
                     # Send command to Arduino
                     send_to_arduino(ser, positions_command_str)

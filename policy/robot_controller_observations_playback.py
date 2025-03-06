@@ -42,6 +42,7 @@ action_scale = 2
 default_positions = None
 safe_positions_str = None  # Global safe command string
 last_clipped_raw_actions = None  # Store last clipped raw actions for printing
+last_scaled_actions = None  # Store last scaled actions for printing
 
 # ===========================#
 #   FUNCTIONS & CALLBACKS   #
@@ -136,7 +137,7 @@ def emergency_shutdown(sig, frame):
 
 def run_policy_step(observation):
     """Run a single step of the policy"""
-    global policy_session, ACTION_REDUCTION_FACTOR, last_clipped_raw_actions
+    global policy_session, ACTION_REDUCTION_FACTOR, last_clipped_raw_actions, last_scaled_actions, action_scale
     
     # Get raw action from policy
     action = policy_session.run(None, {'obs': observation})[0][0]
@@ -149,6 +150,9 @@ def run_policy_step(observation):
     
     # Apply action reduction factor
     reduced_actions = clipped_raw_actions * ACTION_REDUCTION_FACTOR
+    
+    # Store the scaled actions for printing
+    last_scaled_actions = reduced_actions * action_scale
     
     # Process actions into joint positions
     positions_command_str = process_policy_action(reduced_actions)
@@ -244,9 +248,8 @@ def main():
                     # Print current observations and action outputs
                     print(f"Observations: {observation[0]}")
                     
-                    # Extract clipped but unscaled action values for printing
-                    # This requires slight modification to run_policy_step to return additional info
-                    print(f"Clipped action outputs: {last_clipped_raw_actions}")
+                    # Print the clipped and scaled action values
+                    print(f"Clipped and scaled action outputs: {last_scaled_actions}")
                     
                     # Send command to Arduino
                     send_to_arduino(ser, positions_command_str)

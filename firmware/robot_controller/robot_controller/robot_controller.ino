@@ -13,9 +13,11 @@
 #define COMMAND_TIMEOUT 100    // If no valid command in 100 ms, revert to safe posture
 
 // PD Controller Gains for the discrete controller.
-// These values have been tuned for smooth tracking.
-float PD_Kp = 1.5;   // Proportional gain
-float PD_Kd = 0.50; //0.05;  // Derivative gain
+// These values have been updated to more closely match the simulation's implicit PD controller
+// Simulation values: stiffness=40.0, damping=75.0, effort_limit=0.8
+float PD_Kp = 4.0;      // Proportional gain - scaled from simulation stiffness
+float PD_Kd = 1.2;      // Derivative gain - scaled from simulation damping
+float PD_EFFORT_LIMIT = 0.8;  // Maximum control effort (matches simulation)
 
 //==========================//
 // SERVO & ANGLE VARIABLES  //
@@ -218,7 +220,14 @@ void updateServoPosWithPD() {
   for (int i = 0; i < 12; i++) {
     float error = targetPos[i] - currentPos[i];
     float velocity = (currentPos[i] - prevPos[i]) / dt;
+    
+    // Calculate control effort
     float control = PD_Kp * error - PD_Kd * velocity;
+    
+    // Apply effort limit (matches simulation's effort_limit)
+    if (control > PD_EFFORT_LIMIT) control = PD_EFFORT_LIMIT;
+    if (control < -PD_EFFORT_LIMIT) control = -PD_EFFORT_LIMIT;
+    
     prevPos[i] = currentPos[i];
     currentPos[i] = currentPos[i] + control * dt;
     setServoToPosition(i, currentPos[i]);

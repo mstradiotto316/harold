@@ -2,7 +2,7 @@
 
 This repository contains the code for the Harold quadruped robot.
 
-## Repository Structure
+## Repository Structure 
 
 - `firmware/`: Arduino code for the robot
   - `robot_controller/`: Main servo controller for the robot

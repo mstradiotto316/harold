@@ -87,9 +87,8 @@ def process_policy_action(raw_actions):
     for i in range(12):
         reordered_positions.append(default_positions[i] + scaled_actions[i])
 
-    # Clip final positions to safe bounds ([-1.5, 1.5])
-    clipped_positions = np.clip(reordered_positions, -1.5, 1.5)
-    positions_line = ','.join(f'{pos:.4f}' for pos in clipped_positions)
+    # No additional clipping - allow full range of motion to match simulation
+    positions_line = ','.join(f'{pos:.4f}' for pos in reordered_positions)
     return positions_line
 
 def load_policy_and_config():
@@ -151,8 +150,8 @@ def run_policy_step(observation):
     # Apply action reduction factor
     reduced_actions = clipped_raw_actions * ACTION_REDUCTION_FACTOR
     
-    # Store the scaled actions for printing
-    last_scaled_actions = reduced_actions * action_scale
+    # Store the scaled actions for printing 
+    last_scaled_actions = reduced_actions * action_scale  # Simple scaling with action_scale
     
     # Process actions into joint positions
     positions_command_str = process_policy_action(reduced_actions)

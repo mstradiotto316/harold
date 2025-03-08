@@ -254,11 +254,11 @@ def main():
                     
                     # Print current observations and all action outputs for comparison
                     print("\n--- STEP DATA ---")
-                    print(f"Observations: {observation[0]}")
-                    print(f"Raw policy outputs: {last_raw_actions}")
-                    print(f"Clipped actions [-1,1]: {last_clipped_raw_actions}")
-                    print(f"Clipped + scaled actions: {last_scaled_actions}")
-                    print(f"Final joint positions: {last_final_positions}")
+                    print(f"Observations: {np.array2string(observation[0], separator=' ')}")
+                    print(f"Raw policy outputs: {np.array2string(last_raw_actions, separator=' ')}")
+                    print(f"Clipped actions [-1,1]: {np.array2string(last_clipped_raw_actions, separator=' ')}")
+                    print(f"Clipped + scaled actions: {np.array2string(last_scaled_actions, separator=' ')}")
+                    print(f"Final joint positions: {np.array2string(last_final_positions, separator=' ')}")
                     print(f"Command string: {positions_command_str}")
                     print("----------------")
                     

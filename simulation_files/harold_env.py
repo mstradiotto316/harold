@@ -513,12 +513,12 @@ class HaroldEnv(DirectRLEnv):
         joint_torques = torch.sum(torch.square(self._robot.data.applied_torque), dim=1)
         
         rewards = {
-            "stay_in_place": stay_in_place_reward * self.step_dt * 5.0,
-            "no_rotation": no_rotation_reward * self.step_dt * 2.0,
+            "stay_in_place": stay_in_place_reward * self.step_dt * 0.5, #5.0,
+            "no_rotation": no_rotation_reward * self.step_dt * 0.5, #2.0,
             "height_position": height_position_reward * self.step_dt * 4.0,
             "velocity_control": torch.zeros_like(body_height),  # Zero placeholder for consistency
-            "flat_orientation": flat_orientation_reward * self.step_dt * 3.0,
-            "feet_on_ground": feet_on_ground * self.step_dt * 2.0,
+            "flat_orientation": flat_orientation_reward * self.step_dt * 0.5, #3.0,
+            "feet_on_ground": feet_on_ground * self.step_dt * 0.5, #2.0,
             "dof_torques_l2": joint_torques * self.step_dt * -1e-4,
         }
         

@@ -268,6 +268,24 @@ class HaroldEnv(DirectRLEnv):
         # sine_wave_2: period is double (0.4s)
         # frequency = 1/period = 1/0.4 = 2.5 Hz
         sine_wave_2 = torch.sin(2 * math.pi * 2.5 * self._time)  # 2.5 Hz frequency
+
+
+        # Pushup control observation
+        # Define push-up height parameters
+        min_height = 0.08 #0.05  # Lowest position in push-up
+        max_height = 0.16 #0.20  # Highest position in push-up
+        height_range = max_height - min_height
+        
+        # Define time-based target using sinusoidal pattern
+        # Complete one push-up cycle every 10 seconds
+        cycle_period = 10.0 #5.0
+        cycle_freq = 1.0 / cycle_period
+        
+        # Calculate target height based on time
+        # sin oscillates between -1 and 1, we rescale to oscillate between min_height and max_height
+        target_height = min_height + 0.5 * height_range * (1 + torch.sin(2 * math.pi * cycle_freq * self._time - math.pi/2))
+
+        actual_height = self._robot.data.root_pos_w[:, 2]
         
         obs = torch.cat(
             [
@@ -277,6 +295,8 @@ class HaroldEnv(DirectRLEnv):
                     self._robot.data.root_ang_vel_b,
                     self._robot.data.projected_gravity_b,
                     self._commands,
+                    target_height.unsqueeze(-1), # DONT FORGET TO REMOVE THIS LATER
+                    actual_height.unsqueeze(-1), # DONT FORGET TO REMOVE THIS LATER
                     self._robot.data.joint_pos,
                     self._robot.data.joint_vel,
                     sine_wave_1.unsqueeze(-1),
@@ -483,23 +503,32 @@ class HaroldEnv(DirectRLEnv):
         body_height = self._robot.data.root_pos_w[:, 2]
         
         # Define push-up height parameters
-        min_height = 0.05  # Lowest position in push-up
-        max_height = 0.20  # Highest position in push-up
+        min_height = 0.08 #0.05  # Lowest position in push-up
+        max_height = 0.16 #0.20  # Highest position in push-up
         height_range = max_height - min_height
         
         # Define time-based target using sinusoidal pattern
-        # Complete one push-up cycle every 5 seconds
-        cycle_period = 5.0
+        # Complete one push-up cycle every 10 seconds
+        cycle_period = 10.0 #5.0
         cycle_freq = 1.0 / cycle_period
         
         # Calculate target height based on time
         # sin oscillates between -1 and 1, we rescale to oscillate between min_height and max_height
         target_height = min_height + 0.5 * height_range * (1 + torch.sin(2 * math.pi * cycle_freq * self._time - math.pi/2))
         
+        # Calculate the desired velocity direction (derivative of the height function)
+        target_velocity_direction = torch.cos(2 * math.pi * cycle_freq * self._time - math.pi/2)
+        actual_velocity = self._robot.data.root_lin_vel_b[:, 2]
+        
+        # Penalize velocity in wrong direction: if target_velocity_direction > 0, robot should move up (v > 0)
+        # if target_velocity_direction < 0, robot should move down (v < 0)
+        # When sign doesn't match, apply penalty
+        wrong_direction = (target_velocity_direction * actual_velocity) < 0
+        velocity_direction_penalty = torch.where(wrong_direction, torch.ones_like(body_height) * -1.0, torch.zeros_like(body_height))
+        
         # Reward being close to target height
         height_position_error = torch.abs(body_height - target_height)
-        height_position_reward = torch.exp(-height_position_error / 0.05)
-        
+        height_position_reward = torch.exp(-height_position_error / 0.05)  # Changed from 0.05 to 0.015 for sharper falloff
         # Maintain proper orientation (body flat/parallel to ground)
         flat_orientation = torch.sum(torch.square(self._robot.data.projected_gravity_b[:, :2]), dim=1)
         flat_orientation_reward = torch.exp(-flat_orientation / 0.25)
@@ -513,12 +542,12 @@ class HaroldEnv(DirectRLEnv):
         joint_torques = torch.sum(torch.square(self._robot.data.applied_torque), dim=1)
         
         rewards = {
-            "stay_in_place": stay_in_place_reward * self.step_dt * 0.5, #5.0,
-            "no_rotation": no_rotation_reward * self.step_dt * 0.5, #2.0,
+            "stay_in_place": stay_in_place_reward * self.step_dt * 1.25, #0.125, #0.5, #5.0,
+            "no_rotation": no_rotation_reward * self.step_dt * 0.0125, #2.0,
             "height_position": height_position_reward * self.step_dt * 4.0,
-            "velocity_control": torch.zeros_like(body_height),  # Zero placeholder for consistency
-            "flat_orientation": flat_orientation_reward * self.step_dt * 0.5, #3.0,
-            "feet_on_ground": feet_on_ground * self.step_dt * 0.5, #2.0,
+            "velocity_control": velocity_direction_penalty * self.step_dt * 4.0,  # Increased from 2.0 to 4.0
+            "flat_orientation": flat_orientation_reward * self.step_dt * 1.0, #3.0,
+            "feet_on_ground": feet_on_ground * self.step_dt * 0.125, #2.0,
             "dof_torques_l2": joint_torques * self.step_dt * -1e-4,
         }
         

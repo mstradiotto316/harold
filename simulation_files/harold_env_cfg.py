@@ -18,7 +18,7 @@ class HaroldEnvCfg(DirectRLEnvCfg):
     decimation = 18
     action_scale = 2.0
     num_actions = 12
-    num_observations = 38
+    num_observations = 40 #38
     num_states = 0
 
     # simulation

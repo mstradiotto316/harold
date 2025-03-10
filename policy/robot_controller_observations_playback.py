@@ -102,6 +102,7 @@ def load_policy_and_config():
         config = pickle.load(f)
     
     action_scale = config['action_scale']
+    print(f"Action scale: {action_scale}")
     
     # Get default joint positions from config
     default_positions = np.array([
@@ -112,6 +113,7 @@ def load_policy_and_config():
             'fl_knee_joint', 'fr_knee_joint', 'bl_knee_joint', 'br_knee_joint',
         ]
     ], dtype=np.float32)
+    print(f"Default positions: {default_positions}")
     
     print("Policy and Action Config loaded successfully")
     
@@ -143,11 +145,8 @@ def run_policy_step(observation):
     # Clip raw actions to [-1, 1]
     clipped_actions = np.clip(action, -1.0, 1.0)
     
-    # Scale actions
-    scaled_actions = clipped_actions * action_scale
-    
     # Process actions into joint positions
-    positions_command_str = process_policy_action(scaled_actions)
+    positions_command_str = process_policy_action(clipped_actions)
     
     return positions_command_str
 
@@ -159,7 +158,6 @@ def main():
     if not os.path.exists(SIMULATION_LOGS_DIR):
         print(f"Error: Observation log file not found: {SIMULATION_LOGS_DIR}")
         print(f"Please place an observations.log file in the simulation_logs directory")
-        print(f"or specify a file with --obs_log_file")
         exit(1)
     
     # Set up signal handler for Ctrl+C
@@ -199,46 +197,42 @@ def main():
     print("\n=== Playback Started ===")
     try:
 
-    line_count = 0
-    
-    with open(SIMULATION_LOGS_DIR, 'r') as log_file:
-        for line in log_file:
-            line_count += 1
-            
-            # Start timing
-            start_time = time.time()
-            
-            # Parse observation from log line
-            obs_list_str = line.strip().strip('[]').split(',')
-            obs_list = [float(x) for x in obs_list_str]
-            observation = np.array(obs_list, dtype=np.float32).reshape(1, -1)
-            
-            # Run policy to get joint positions
-            positions_command_str = run_policy_step(observation)
-            
-            # Print current observations and all action outputs for comparison
-            print("\n--- STEP DATA ---")
-            print(f"Observations: {observation[0]}")
-            print(f"Raw policy outputs: {last_raw_actions}")
-            print(f"Clipped actions [-1,1]: {last_clipped_raw_actions}")
-            print(f"Clipped + scaled actions: {last_scaled_actions}")
-            print(f"Final joint positions: {last_final_positions}")
-            print(f"Command string: {positions_command_str}")
-            print("----------------")
-            
-            # Send command to Arduino
-            send_to_arduino(ser, positions_command_str)
-            
-            # Print progress every 10 lines
-            if line_count % 10 == 0:
-                print(f"Processed {line_count} observations")
-            
-            # Maintain control frequency
-            elapsed_time = time.time() - start_time
-            control_rate_delay = max(0.0, CONTROL_PERIOD - elapsed_time)
-            time.sleep(control_rate_delay)
-    
-    print(f"Playback complete. Processed {line_count} observations.")
+        line_count = 0
+        
+        with open(SIMULATION_LOGS_DIR, 'r') as log_file:
+            for line in log_file:
+                line_count += 1
+                
+                # Start timing
+                start_time = time.time()
+               
+                # Parse observation from log line
+                obs_list_str = line.strip().strip('[]').split(',')
+                obs_list = [float(x) for x in obs_list_str]
+                observation = np.array(obs_list, dtype=np.float32).reshape(1, -1)
+
+                print("\n--- STEP DATA ---")
+                print(f"Observations: {observation[0]}")
+                
+                # Run policy to get joint positions
+                positions_command_str = run_policy_step(observation)
+                
+                print(f"Command string: {positions_command_str}")
+                print("----------------")
+                
+                # Send command to Arduino
+                send_to_arduino(ser, positions_command_str)
+                
+                # Print progress every 10 lines
+                if line_count % 10 == 0:
+                    print(f"Processed {line_count} observations")
+                
+                # Maintain control frequency
+                elapsed_time = time.time() - start_time
+                control_rate_delay = max(0.0, CONTROL_PERIOD - elapsed_time)
+                time.sleep(control_rate_delay)
+        
+        print(f"Playback complete. Processed {line_count} observations.")
     
     except Exception as e:
         print(f"\n=== ERROR in Playback: {e} ===")

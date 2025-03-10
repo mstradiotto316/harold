@@ -7,7 +7,6 @@ import signal
 import pickle
 import os
 import sys
-import argparse
 
 # ===========================#
 #   USER CONFIGURATIONS     #
@@ -21,13 +20,12 @@ HANDSHAKE_MSG = "ARDUINO_READY"
 # Path configurations
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SCRIPT_DIR)
+
 ONNX_PATH = os.path.join(SCRIPT_DIR, "harold_policy.onnx")
 ACTION_CONFIG_PATH = os.path.join(SCRIPT_DIR, "action_config.pt")
-SIMULATION_LOGS_DIR = os.path.join(ROOT_DIR, "simulation_logs")
-DEFAULT_OBS_LOG_PATH = os.path.join(SIMULATION_LOGS_DIR, "observations.log")
 
-# Action Reduction Factor (for safety - set to 1.0 for full policy output)
-ACTION_REDUCTION_FACTOR = 1.0
+SIMULATION_LOGS_DIR = os.path.join(ROOT_DIR, "simulation_logs/observations.log")
+ACTION_LOGS_DIR = os.path.join(ROOT_DIR, "simulation_logs/actions.log")
 
 # Control Loop Target Frequency (MATCH Isaac Lab Simulation - 20Hz)
 CONTROL_FREQUENCY = 20.0
@@ -41,10 +39,6 @@ policy_session = None
 action_scale = 2
 default_positions = None
 safe_positions_str = None  # Global safe command string
-last_raw_actions = None  # Store raw policy outputs
-last_clipped_raw_actions = None  # Store clipped raw actions for printing
-last_scaled_actions = None  # Store scaled actions for printing
-last_final_positions = None  # Store final joint positions
 
 # ===========================#
 #   FUNCTIONS & CALLBACKS   #
@@ -141,68 +135,39 @@ def emergency_shutdown(sig, frame):
 
 def run_policy_step(observation):
     """Run a single step of the policy"""
-    global policy_session, ACTION_REDUCTION_FACTOR, last_raw_actions, last_clipped_raw_actions, last_scaled_actions, action_scale
+    global policy_session, action_scale
     
     # Get raw action from policy
     action = policy_session.run(None, {'obs': observation})[0][0]
     
-    # Store raw policy actions for printing
-    last_raw_actions = action.copy()
-    
     # Clip raw actions to [-1, 1]
-    clipped_raw_actions = np.clip(action, -1.0, 1.0)
+    clipped_actions = np.clip(action, -1.0, 1.0)
     
-    # Store clipped but unscaled actions for printing
-    last_clipped_raw_actions = clipped_raw_actions.copy()
-    
-    # Apply action reduction factor
-    reduced_actions = clipped_raw_actions * ACTION_REDUCTION_FACTOR
-    
-    # Store the scaled actions for printing 
-    last_scaled_actions = reduced_actions * action_scale  # Simple scaling with action_scale
+    # Scale actions
+    scaled_actions = clipped_actions * action_scale
     
     # Process actions into joint positions
-    positions_command_str = process_policy_action(reduced_actions)
+    positions_command_str = process_policy_action(scaled_actions)
     
     return positions_command_str
 
 def main():
     """Main function for observation log playback"""
     global ser, policy_session, SERIAL_PORT
-    
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Harold Robot Observation Playback")
-    parser.add_argument('--obs_log_file', type=str, 
-                        help=f'Path to observation log file (default: {DEFAULT_OBS_LOG_PATH})')
-    parser.add_argument('--serial_port', type=str, 
-                        help='Serial port for Arduino connection')
-    parser.add_argument('--loop', action='store_true', 
-                        help='Loop the observation log continuously')
-    args = parser.parse_args()
-    
-    # Use provided log file or default
-    obs_log_file_path = args.obs_log_file or DEFAULT_OBS_LOG_PATH
-    loop_playback = args.loop
-    
+  
     # Check if observation log file exists
-    if not os.path.exists(obs_log_file_path):
-        print(f"Error: Observation log file not found: {obs_log_file_path}")
+    if not os.path.exists(SIMULATION_LOGS_DIR):
+        print(f"Error: Observation log file not found: {SIMULATION_LOGS_DIR}")
         print(f"Please place an observations.log file in the simulation_logs directory")
         print(f"or specify a file with --obs_log_file")
         exit(1)
-    
-    # Override serial port if provided
-    if args.serial_port:
-        SERIAL_PORT = args.serial_port
     
     # Set up signal handler for Ctrl+C
     signal.signal(signal.SIGINT, emergency_shutdown)
     
     print("=== Starting Harold Robot Observation Playback ===")
     print(f"Serial port: {SERIAL_PORT}")
-    print(f"Observation log file: {obs_log_file_path}")
-    print(f"Action reduction factor: {ACTION_REDUCTION_FACTOR}")
-    print(f"Loop playback: {'Yes' if loop_playback else 'No'}")
+    print(f"Observation log file: {SIMULATION_LOGS_DIR}")
     
     # Load policy and configuration
     print("\nLoading policy and configuration...")
@@ -233,54 +198,47 @@ def main():
     # Main playback loop
     print("\n=== Playback Started ===")
     try:
-        while True:  # Outer loop for repeated playback
-            print(f"Playing observation log: {obs_log_file_path}")
-            line_count = 0
+
+    line_count = 0
+    
+    with open(SIMULATION_LOGS_DIR, 'r') as log_file:
+        for line in log_file:
+            line_count += 1
             
-            with open(obs_log_file_path, 'r') as log_file:
-                for line in log_file:
-                    line_count += 1
-                    
-                    # Start timing
-                    start_time = time.time()
-                    
-                    # Parse observation from log line
-                    obs_list_str = line.strip().strip('[]').split(',')
-                    obs_list = [float(x) for x in obs_list_str]
-                    observation = np.array(obs_list, dtype=np.float32).reshape(1, -1)
-                    
-                    # Run policy to get joint positions
-                    positions_command_str = run_policy_step(observation)
-                    
-                    # Print current observations and all action outputs for comparison
-                    print("\n--- STEP DATA ---")
-                    print(f"Observations: {np.array2string(observation[0], separator=' ')}")
-                    print(f"Raw policy outputs: {np.array2string(last_raw_actions, separator=' ')}")
-                    print(f"Clipped actions [-1,1]: {np.array2string(last_clipped_raw_actions, separator=' ')}")
-                    print(f"Clipped + scaled actions: {np.array2string(last_scaled_actions, separator=' ')}")
-                    print(f"Final joint positions: {np.array2string(last_final_positions, separator=' ')}")
-                    print(f"Command string: {positions_command_str}")
-                    print("----------------")
-                    
-                    # Send command to Arduino
-                    send_to_arduino(ser, positions_command_str)
-                    
-                    # Print progress every 10 lines
-                    if line_count % 10 == 0:
-                        print(f"Processed {line_count} observations")
-                    
-                    # Maintain control frequency
-                    elapsed_time = time.time() - start_time
-                    control_rate_delay = max(0.0, CONTROL_PERIOD - elapsed_time)
-                    time.sleep(control_rate_delay)
+            # Start timing
+            start_time = time.time()
             
-            print(f"Playback complete. Processed {line_count} observations.")
+            # Parse observation from log line
+            obs_list_str = line.strip().strip('[]').split(',')
+            obs_list = [float(x) for x in obs_list_str]
+            observation = np.array(obs_list, dtype=np.float32).reshape(1, -1)
             
-            # If not looping, exit after one playback
-            if not loop_playback:
-                break
+            # Run policy to get joint positions
+            positions_command_str = run_policy_step(observation)
             
-            print("Restarting playback...")
+            # Print current observations and all action outputs for comparison
+            print("\n--- STEP DATA ---")
+            print(f"Observations: {observation[0]}")
+            print(f"Raw policy outputs: {last_raw_actions}")
+            print(f"Clipped actions [-1,1]: {last_clipped_raw_actions}")
+            print(f"Clipped + scaled actions: {last_scaled_actions}")
+            print(f"Final joint positions: {last_final_positions}")
+            print(f"Command string: {positions_command_str}")
+            print("----------------")
+            
+            # Send command to Arduino
+            send_to_arduino(ser, positions_command_str)
+            
+            # Print progress every 10 lines
+            if line_count % 10 == 0:
+                print(f"Processed {line_count} observations")
+            
+            # Maintain control frequency
+            elapsed_time = time.time() - start_time
+            control_rate_delay = max(0.0, CONTROL_PERIOD - elapsed_time)
+            time.sleep(control_rate_delay)
+    
+    print(f"Playback complete. Processed {line_count} observations.")
     
     except Exception as e:
         print(f"\n=== ERROR in Playback: {e} ===")

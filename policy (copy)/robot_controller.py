@@ -13,20 +13,17 @@ import sys
 # ===========================#
 
 # Serial port configuration for Arduino
-SERIAL_PORT = '/dev/ttyACM0'  # Default serial port
+SERIAL_PORT = '/dev/ttyACM0'  # Default serial port, can be overridden via command line
 BAUD_RATE = 115200
 HANDSHAKE_MSG = "ARDUINO_READY"
 
-# Path configurations
+# ONNX Policy Path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(SCRIPT_DIR)
-
 ONNX_PATH = os.path.join(SCRIPT_DIR, "harold_policy.onnx")
 ACTION_CONFIG_PATH = os.path.join(SCRIPT_DIR, "action_config.pt")
 
-SIMULATION_LOGS_DIR = os.path.join(ROOT_DIR, "simulation_logs/observations.log")
-ACTION_LOGS_DIR = os.path.join(ROOT_DIR, "simulation_logs/actions.log")
-SCALED_ACTION_LOGS_DIR = os.path.join(ROOT_DIR, "simulation_logs/processed_actions.log")
+# Action Reduction Factor (for safety - set to 1.0 for full policy output)
+ACTION_REDUCTION_FACTOR = 1.0
 
 # Control Loop Target Frequency (MATCH Isaac Lab Simulation - 20Hz)
 CONTROL_FREQUENCY = 20.0
@@ -77,15 +74,16 @@ def wait_for_arduino_handshake(ser_obj):
 def process_policy_action(raw_actions):
     """Process policy actions into joint position commands"""
     global action_scale, default_positions
-
     scaled_actions = raw_actions * action_scale  # Apply scaling
-    print(f"Scaled actions: {scaled_actions}")
 
-    # No reordering needed - robot joint order matches simulation
-    final_positions = default_positions + scaled_actions
-    print(f"Final positions: {final_positions}")
-    
-    positions_line = ','.join(f'{pos:.4f}' for pos in final_positions)
+    # Robot is wired to match simulation joint order directly
+    reordered_positions = []
+    for i in range(12):
+        reordered_positions.append(default_positions[i] + scaled_actions[i])
+
+    # Clip final positions to safe bounds ([-1.5, 1.5])
+    clipped_positions = np.clip(reordered_positions, -1.5, 1.5)
+    positions_line = ','.join(f'{pos:.4f}' for pos in clipped_positions)
     return positions_line
 
 def load_policy_and_config():
@@ -100,7 +98,6 @@ def load_policy_and_config():
         config = pickle.load(f)
     
     action_scale = config['action_scale']
-    print(f"Action scale: {action_scale}")
     
     # Get default joint positions from config
     default_positions = np.array([
@@ -111,7 +108,6 @@ def load_policy_and_config():
             'fl_knee_joint', 'fr_knee_joint', 'bl_knee_joint', 'br_knee_joint',
         ]
     ], dtype=np.float32)
-    print(f"Default positions: {default_positions}")
     
     print("Policy and Action Config loaded successfully")
     
@@ -133,50 +129,88 @@ def emergency_shutdown(sig, frame):
     print("Exiting...")
     exit(0)
 
+def create_observation():
+    """Create an observation from IMU data"""
+    try:
+        # Import IMU reader
+        sys.path.append(os.path.join(os.path.dirname(SCRIPT_DIR), "sensors"))
+        from imu_reader import IMUReader
+        
+        # Initialize IMU reader if not already done
+        if not hasattr(create_observation, 'imu_reader'):
+            create_observation.imu_reader = IMUReader()
+            print("IMU reader initialized")
+        
+        # Get IMU data
+        imu_data = create_observation.imu_reader.get_filtered_data()
+        
+        # Format into observation vector
+        # NOTE: This needs to be configured based on your specific policy's observation format
+        obs = np.zeros(38, dtype=np.float32)
+        
+        # Add accelerometer data
+        obs[0:3] = imu_data['accel']
+        
+        # Add gyroscope data
+        obs[3:6] = imu_data['gyro']
+        
+        # Add orientation data (if available)
+        if 'orientation' in imu_data:
+            obs[6:8] = imu_data['orientation']
+        
+        # Reshape to match policy input format
+        return obs.reshape(1, -1)
+        
+    except Exception as e:
+        print(f"Warning: Error reading from IMU: {e}")
+        print("Using zero observation vector as fallback")
+        if not hasattr(create_observation, 'warned'):
+            print("TIP: If testing without IMU, consider using robot_controller_observations_playback.py instead")
+            create_observation.warned = True
+        
+        # Return zero observation as fallback
+        return np.zeros(38, dtype=np.float32).reshape(1, -1)
+
 def run_policy_step(observation):
     """Run a single step of the policy"""
-    global policy_session, action_scale
+    global policy_session, ACTION_REDUCTION_FACTOR
     
     # Get raw action from policy
     action = policy_session.run(None, {'obs': observation})[0][0]
-    print(f"Raw action: {action}")
     
     # Clip raw actions to [-1, 1]
-    clipped_actions = np.clip(action, -1.0, 1.0)
-    print(f"Clipped action: {clipped_actions}")
+    clipped_raw_actions = np.clip(action, -1.0, 1.0)
+    
+    # Apply action reduction factor
+    reduced_actions = clipped_raw_actions * ACTION_REDUCTION_FACTOR
     
     # Process actions into joint positions
-    positions_command_str = process_policy_action(clipped_actions)
+    positions_command_str = process_policy_action(reduced_actions)
     
     return positions_command_str
 
 def main():
-    """Main function for observation log playback"""
+    """Main function"""
     global ser, policy_session, SERIAL_PORT
-  
-    # Check if observation log file exists
-    if not os.path.exists(SIMULATION_LOGS_DIR):
-        print(f"Error: Observation log file not found: {SIMULATION_LOGS_DIR}")
-        print(f"Please place an observations.log file in the simulation_logs directory")
-        exit(1)
-    elif not os.path.exists(ACTION_LOGS_DIR):
-        print(f"Error: Action log file not found: {ACTION_LOGS_DIR}")
-        print(f"Please place an actions.log file in the simulation_logs directory")
-        exit(1)
-    elif not os.path.exists(SCALED_ACTION_LOGS_DIR):
-        print(f"Error: Scaled action log file not found: {SCALED_ACTION_LOGS_DIR}")
-        print(f"Please place an scaled_actions.log file in the simulation_logs directory")
-        exit(1)
+    import argparse
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Harold Robot Controller")
+    parser.add_argument('--serial_port', type=str, help='Serial port for Arduino connection')
+    args = parser.parse_args()
+    
+    # Override serial port if provided
+    if args.serial_port:
+        SERIAL_PORT = args.serial_port
     
     # Set up signal handler for Ctrl+C
     signal.signal(signal.SIGINT, emergency_shutdown)
     
-    print("=== Starting Harold Robot Observation Playback ===")
+    print("=== Starting Harold Robot Controller ===")
     print(f"Serial port: {SERIAL_PORT}")
-    print(f"Simulated observations log file: {SIMULATION_LOGS_DIR}")
-    print(f"Simulated actions log file: {ACTION_LOGS_DIR}")
-    print(f"Simulated scaled actions log file: {SCALED_ACTION_LOGS_DIR}")
-
+    print(f"Action reduction factor: {ACTION_REDUCTION_FACTOR}")
+    
+    # Load policy and configuration
     print("\nLoading policy and configuration...")
     load_policy_and_config()
     
@@ -202,69 +236,33 @@ def main():
     print("Waiting for servo initialization...")
     time.sleep(4.0)
     
-    # Main playback loop
-    print("\n=== Playback Started ===")
+    # Main control loop
+    print("\n=== Robot Control Started ===")
     try:
-
-        line_count = 0
-        
-        with open(SIMULATION_LOGS_DIR, 'r') as obs_log_file, \
-             open(ACTION_LOGS_DIR, 'r') as action_log_file, \
-             open(SCALED_ACTION_LOGS_DIR, 'r') as scaled_action_log_file:
+        while True:
+            # Start timing
+            start_time = time.time()
             
-            for obs_line, action_line, scaled_action_line in zip(obs_log_file, action_log_file, scaled_action_log_file):
-                line_count += 1
-                
-                # Start timing
-                start_time = time.time()
-               
-                # Parse observation from log line
-                obs_list_str = obs_line.strip().strip('[]').split(',')
-                obs_list = [float(x) for x in obs_list_str]
-                observation = np.array(obs_list, dtype=np.float32).reshape(1, -1)
-
-                # Parse action and scaled action (optional, for logging/comparison)
-                action_list_str = action_line.strip().strip('[]').split(',')
-                action_list = [float(x) for x in action_list_str]
-                
-                scaled_action_list_str = scaled_action_line.strip().strip('[]').split(',')
-                scaled_action_list = [float(x) for x in scaled_action_list_str]
-
-                print("\n--- STEP DATA ---")
-                print(f"Simulated Observations: {observation[0]}")
-                print(f"Simulated Actions: {action_list}")
-                print(f"Simulated Scaled Actions: {scaled_action_list}")
-                
-                # Run policy to get joint positions
-                positions_command_str = run_policy_step(observation)
-                
-                print(f"Command string: {positions_command_str}")
-                print("----------------")
-                
-                # Send command to Arduino
-                send_to_arduino(ser, positions_command_str)
-                
-                # Print progress every 10 lines
-                if line_count % 10 == 0:
-                    print(f"Processed {line_count} observations")
-                
-                # Maintain control frequency
-                elapsed_time = time.time() - start_time
-                control_rate_delay = max(0.0, CONTROL_PERIOD - elapsed_time)
-                time.sleep(control_rate_delay)
-        
-        print(f"Playback complete. Processed {line_count} observations.")
-    
+            # Get observation from sensors
+            observation = create_observation()
+            
+            # Run policy to get joint positions
+            positions_command_str = run_policy_step(observation)
+            
+            # Send command to Arduino
+            send_to_arduino(ser, positions_command_str)
+            
+            # Maintain control frequency
+            elapsed_time = time.time() - start_time
+            control_rate_delay = max(0.0, CONTROL_PERIOD - elapsed_time)
+            time.sleep(control_rate_delay)
+            
     except Exception as e:
-        print(f"\n=== ERROR in Playback: {e} ===")
+        print(f"\n=== ERROR in Main Loop: {e} ===")
         emergency_shutdown(None, None)
     finally:
-        print("\n=== Playback Finished ===")
-        # Send safe positions before closing
+        print("\n=== Robot Control Finished ===")
         if ser is not None and ser.is_open:
-            print("Sending safe positions...")
-            send_to_arduino(ser, safe_positions_str)
-            time.sleep(0.5)
             ser.close()
 
 if __name__ == "__main__":

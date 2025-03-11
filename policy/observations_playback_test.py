@@ -13,7 +13,7 @@ import sys
 # ===========================#
 
 # Serial port configuration for Arduino
-SERIAL_PORT = '/dev/ttyACM0'  # Default serial port, can be overridden via command line
+SERIAL_PORT = '/dev/ttyACM0'  # Default serial port
 BAUD_RATE = 115200
 HANDSHAKE_MSG = "ARDUINO_READY"
 
@@ -26,6 +26,7 @@ ACTION_CONFIG_PATH = os.path.join(SCRIPT_DIR, "action_config.pt")
 
 SIMULATION_LOGS_DIR = os.path.join(ROOT_DIR, "simulation_logs/observations.log")
 ACTION_LOGS_DIR = os.path.join(ROOT_DIR, "simulation_logs/actions.log")
+SCALED_ACTION_LOGS_DIR = os.path.join(ROOT_DIR, "simulation_logs/scaled_actions.log")
 
 # Control Loop Target Frequency (MATCH Isaac Lab Simulation - 20Hz)
 CONTROL_FREQUENCY = 20.0
@@ -75,19 +76,16 @@ def wait_for_arduino_handshake(ser_obj):
 
 def process_policy_action(raw_actions):
     """Process policy actions into joint position commands"""
-    global action_scale, default_positions, last_final_positions
+    global action_scale, default_positions
+
     scaled_actions = raw_actions * action_scale  # Apply scaling
+    print(f"Scaled actions: {scaled_actions}")
 
-    # Robot is wired to match simulation joint order directly
-    reordered_positions = []
-    for i in range(12):
-        reordered_positions.append(default_positions[i] + scaled_actions[i])
-
-    # Store final positions for printing
-    last_final_positions = np.array(reordered_positions)
+    # No reordering needed - robot joint order matches simulation
+    final_positions = default_positions + scaled_actions
+    print(f"Final positions: {final_positions}")
     
-    # No additional clipping - allow full range of motion to match simulation
-    positions_line = ','.join(f'{pos:.4f}' for pos in reordered_positions)
+    positions_line = ','.join(f'{pos:.4f}' for pos in final_positions)
     return positions_line
 
 def load_policy_and_config():
@@ -141,9 +139,11 @@ def run_policy_step(observation):
     
     # Get raw action from policy
     action = policy_session.run(None, {'obs': observation})[0][0]
+    print(f"Raw action: {action}")
     
     # Clip raw actions to [-1, 1]
     clipped_actions = np.clip(action, -1.0, 1.0)
+    print(f"Clipped action: {clipped_actions}")
     
     # Process actions into joint positions
     positions_command_str = process_policy_action(clipped_actions)
@@ -159,15 +159,24 @@ def main():
         print(f"Error: Observation log file not found: {SIMULATION_LOGS_DIR}")
         print(f"Please place an observations.log file in the simulation_logs directory")
         exit(1)
+    elif not os.path.exists(ACTION_LOGS_DIR):
+        print(f"Error: Action log file not found: {ACTION_LOGS_DIR}")
+        print(f"Please place an actions.log file in the simulation_logs directory")
+        exit(1)
+    elif not os.path.exists(SCALED_ACTION_LOGS_DIR):
+        print(f"Error: Scaled action log file not found: {SCALED_ACTION_LOGS_DIR}")
+        print(f"Please place an scaled_actions.log file in the simulation_logs directory")
+        exit(1)
     
     # Set up signal handler for Ctrl+C
     signal.signal(signal.SIGINT, emergency_shutdown)
     
     print("=== Starting Harold Robot Observation Playback ===")
     print(f"Serial port: {SERIAL_PORT}")
-    print(f"Observation log file: {SIMULATION_LOGS_DIR}")
-    
-    # Load policy and configuration
+    print(f"Simulated observations log file: {SIMULATION_LOGS_DIR}")
+    print(f"Simulated actions log file: {ACTION_LOGS_DIR}")
+    print(f"Simulated scaled actions log file: {SCALED_ACTION_LOGS_DIR}")
+
     print("\nLoading policy and configuration...")
     load_policy_and_config()
     
@@ -199,20 +208,32 @@ def main():
 
         line_count = 0
         
-        with open(SIMULATION_LOGS_DIR, 'r') as log_file:
-            for line in log_file:
+        with open(SIMULATION_LOGS_DIR, 'r') as obs_log_file, \
+             open(ACTION_LOGS_DIR, 'r') as action_log_file, \
+             open(SCALED_ACTION_LOGS_DIR, 'r') as scaled_action_log_file:
+            
+            for obs_line, action_line, scaled_action_line in zip(obs_log_file, action_log_file, scaled_action_log_file):
                 line_count += 1
                 
                 # Start timing
                 start_time = time.time()
                
                 # Parse observation from log line
-                obs_list_str = line.strip().strip('[]').split(',')
+                obs_list_str = obs_line.strip().strip('[]').split(',')
                 obs_list = [float(x) for x in obs_list_str]
                 observation = np.array(obs_list, dtype=np.float32).reshape(1, -1)
 
+                # Parse action and scaled action (optional, for logging/comparison)
+                action_list_str = action_line.strip().strip('[]').split(',')
+                action_list = [float(x) for x in action_list_str]
+                
+                scaled_action_list_str = scaled_action_line.strip().strip('[]').split(',')
+                scaled_action_list = [float(x) for x in scaled_action_list_str]
+
                 print("\n--- STEP DATA ---")
-                print(f"Observations: {observation[0]}")
+                print(f"Simulated Observations: {observation[0]}")
+                print(f"Simulated Actions: {action_list}")
+                print(f"Simulated Scaled Actions: {scaled_action_list}")
                 
                 # Run policy to get joint positions
                 positions_command_str = run_policy_step(observation)

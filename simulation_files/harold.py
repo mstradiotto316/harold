@@ -55,7 +55,7 @@ HAROLD_V4_CFG = ArticulationCfg(
             angular_damping=0.0,
             max_linear_velocity=1000.0,
             max_angular_velocity=1000.0,
-            max_depenetration_velocity=2, #1.5,
+            max_depenetration_velocity=2,
         ),
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
             enabled_self_collisions=False, solver_position_iteration_count=4, solver_velocity_iteration_count=0
@@ -86,7 +86,7 @@ HAROLD_V4_CFG = ArticulationCfg(
         "all_joints": ImplicitActuatorCfg(
             joint_names_expr=[".*"],
             effort_limit=0.8, #0.92 is the quoted real world value
-            stiffness=30, #40.0,
+            stiffness=30.0,
             damping=75.0, 
         ),
     },

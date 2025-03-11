@@ -135,9 +135,6 @@ class HaroldEnv(DirectRLEnv):
                 "total_reward"
             ]
         }
-    
-        
-        
 
     def _setup_scene(self) -> None:
         """Creates and configures the robot, sensors, and terrain."""
@@ -214,8 +211,14 @@ class HaroldEnv(DirectRLEnv):
     def _get_observations(self) -> dict:
         """Gather all the relevant states for the policy's observation."""
 
-        # Update previous actions
-        self._previous_processed_actions = self._processed_actions.clone()
+        # Calculate sinusoidal values
+        self._time += self.step_dt
+        
+        # sine_wave_1: period matches target air time (0.2s)
+        sine_wave_1 = torch.sin(2 * math.pi * 5 * self._time)  # 5 Hz frequency
+        
+        # sine_wave_2: period is double (0.4s)
+        sine_wave_2 = torch.sin(2 * math.pi * 2.5 * self._time)  # 2.5 Hz frequency
 
         obs = torch.cat(
             [
@@ -227,7 +230,9 @@ class HaroldEnv(DirectRLEnv):
                     self._robot.data.joint_pos,
                     self._robot.data.joint_vel,
                     self._commands,
-                    self._previous_processed_actions,
+                    self._previous_actions,
+                    sine_wave_1.unsqueeze(-1),
+                    sine_wave_2.unsqueeze(-1),
                 )
                 if tensor is not None
             ],
@@ -236,11 +241,16 @@ class HaroldEnv(DirectRLEnv):
 
         observations = {"policy": obs}
 
+        # Update previous actions
+        self._previous_actions = self._processed_actions.clone()
+
 
         # ================================= PRINT REWARD STATISTICS ================================
         # Call info function to print reward statistics
         self._get_info()
 
+        # ============================== ROS2 JOINT STATE STREAMING ================================
+        #self.publish_ROS2_joint_states()
 
         # ============================ LOGGING FOR SIMULATION PLAYBACK =============================
         # Log observations to a file
@@ -250,10 +260,6 @@ class HaroldEnv(DirectRLEnv):
             with open(log_dir + "observations.log", "a") as f:
                 f.write(f"{obs[0].tolist()}\n")
         """
-
-
-        # ============================== ROS2 JOINT STATE STREAMING ================================
-        #self.publish_ROS2_joint_states()
 
 
         return observations
@@ -378,15 +384,15 @@ class HaroldEnv(DirectRLEnv):
         )
 
         rewards = {
-            "track_lin_vel_xy_exp": lin_vel_error_mapped * self.step_dt * 5.0,
-            "lin_vel_z_l2": z_vel_error * self.step_dt * -2.0,
+            "track_lin_vel_xy_exp": lin_vel_error_mapped * self.step_dt * 10.0, #5.0,
+            "lin_vel_z_l2": z_vel_error * self.step_dt * -20.0,
             "direction_reward": direction_reward * self.step_dt * 0.5,
             "track_ang_vel_z_exp": yaw_rate_error_mapped * self.step_dt * 0.5,
             "ang_vel_xy_l2": ang_vel_error * self.step_dt * -0.05,
-            "dof_torques_l2": joint_torques * self.step_dt * -1e-1,
+            "dof_torques_l2": joint_torques * self.step_dt * -0.05,
             #"dof_acc_l2": joint_accel * self.step_dt * -2.5e-7, #-2.5e-7,
             #"action_rate_l2": action_rate * self.step_dt * -0.01, #-0.01,
-            "feet_air_time": air_time * self.step_dt * 3.0,
+            "feet_air_time": air_time * self.step_dt * 10.0, #6.0, #3.0,
             "diagonal_feet_coordination": diagonal_coordination * self.step_dt * 0.5,
             #"undesired_contacts": contacts * self.step_dt * -1.0, #-1.0,
             #"flat_orientation_l2": flat_orientation * self.step_dt * -20.0 #-20.0,

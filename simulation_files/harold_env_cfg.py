@@ -14,7 +14,7 @@ from omni.isaac.lab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: sk
 @configclass
 class HaroldEnvCfg(DirectRLEnvCfg):
     # env parameters
-    episode_length_s = 20.0 #30.0
+    episode_length_s = 30.0
     decimation = 18
     action_scale = 2.0
     num_actions = 12

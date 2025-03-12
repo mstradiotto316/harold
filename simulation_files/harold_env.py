@@ -7,7 +7,6 @@ import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.sensors import ContactSensor
 import math
 from .harold_env_cfg import HaroldEnvCfg
-from omni.isaac.lab.utils.math import quat_conjugate, quat_mul
 
 # Ros Imports
 import rclpy
@@ -29,55 +28,52 @@ class HaroldEnv(DirectRLEnv):
     def __init__(self, cfg: HaroldEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
-        # Actions tensor holds the raw torque commands outputted by the policy
+        # Actions tensor holds the raw position commands outputted by the policy
         self._actions = torch.zeros(self.num_envs, self.cfg.num_actions, device=self.device)
         self._previous_actions = torch.zeros(self.num_envs, self.cfg.num_actions, device=self.device)
 
-        # Commands tensor has shape [num_envs, 3], the three dimensions are:
-        # 1. X linear velocity
-        # 2. Y linear velocity
-        # 3. Yaw angular velocity
+        # Commands tensor has shape [num_envs, 3], the three dimensions are: X lin vel, Y lin vel, Yaw rate
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
-
-        # Print body names
-        print("Body Names: ", self._robot.data.body_names)
-
-        # Print joint names
-        print("Joint Names: ", self._robot.data.joint_names)
 
         # Contact sensor IDs (for debugging or specialized foot contact checks)
         self._contact_ids, _ = self._contact_sensor.find_bodies(".*")
-        print("CONTACT IDS: ", self._contact_ids)
         self._body_contact_id, _ = self._contact_sensor.find_bodies(".*body")
-        print("BODY CONTACT ID: ", self._body_contact_id)
         self._shoulder_contact_ids, _ = self._contact_sensor.find_bodies(".*shoulder")
-        print("SHOULDER CONTACT IDS: ", self._shoulder_contact_ids)
         self._thigh_contact_ids, _ = self._contact_sensor.find_bodies(".*thigh")
-        print("THIGH CONTACT IDS: ", self._thigh_contact_ids)
         self._knee_contact_ids, _ = self._contact_sensor.find_bodies(".*knee")
-        print("KNEE CONTACT IDS: ", self._knee_contact_ids)
         self._undesired_contact_body_ids, _ = self._contact_sensor.find_bodies(".*thigh")
+        
+        print("CONTACT IDS: ", self._contact_ids)
+        print("BODY CONTACT ID: ", self._body_contact_id)
+        print("SHOULDER CONTACT IDS: ", self._shoulder_contact_ids)
+        print("THIGH CONTACT IDS: ", self._thigh_contact_ids)
+        print("KNEE CONTACT IDS: ", self._knee_contact_ids)
         print("UNDESIRED CONTACT BODY IDS: ", self._undesired_contact_body_ids)
 
-        # Print body masses
+        # Print body names and masses
+        print("Body Names: ", self._robot.data.body_names)
         print("Body Masses: ", self._robot.data.default_mass[0])
 
-        # Print joint positions
+        # Print joint names and positions
+        print("Joint Names: ", self._robot.data.joint_names)
         print("Joint Positions: ", torch.round(self._robot.data.joint_pos[0] * 100) / 100)
 
         # Prepare processed actions tensor
         self._processed_actions = self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
 
-        # Add time tracking for sinusoidal observation
+        # Add time tracking for temporal (sinusoidal) observations
         self._time = torch.zeros(self.num_envs, device=self.device)
 
+        """
         # Randomize robot friction 
         # TODO: IS THIS ACTUALLY DOING ANYTHING? WE HAVE SEVERAL MATERIALS DEFINED IN THE USD FILE, ARE WE MODIFYING ALL OF THEM?
         env_ids = self._robot._ALL_INDICES
         mat_props = self._robot.root_physx_view.get_material_properties()
         mat_props[:, :, :2].uniform_(1.0, 2.0)
         self._robot.root_physx_view.set_material_properties(mat_props, env_ids.cpu())
+        """
 
+        """
         # Initialize ROS 2
         rclpy.init()
         self.ros2_node = rclpy.create_node('joint_state_publisher')
@@ -87,6 +83,7 @@ class HaroldEnv(DirectRLEnv):
         self.ros2_thread = threading.Thread(target=rclpy.spin, args=(self.ros2_node,), daemon=True)
         self.ros2_thread.start()
         self.ros2_counter = 0
+        """
 
         # Decimation counter (For action and observation logging)
         self._decimation_counter = 0
@@ -96,8 +93,8 @@ class HaroldEnv(DirectRLEnv):
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
             for key in [
                 "track_lin_vel_xy_exp",
-                "direction_reward",
                 "track_ang_vel_z_exp",
+                "direction_reward",
                 "lin_vel_z_l2",
                 "ang_vel_xy_l2",
                 "dof_torques_l2",
@@ -106,7 +103,6 @@ class HaroldEnv(DirectRLEnv):
                 "feet_air_time",
                 "diagonal_feet_coordination",
                 "undesired_contacts",
-                "flat_orientation_l2",
             ]
         }
 
@@ -121,8 +117,8 @@ class HaroldEnv(DirectRLEnv):
             key: deque(maxlen=1000)  # Store last 1000 episodes' means
             for key in [
                 "track_lin_vel_xy_exp",
-                "direction_reward",
                 "track_ang_vel_z_exp",
+                "direction_reward",
                 "lin_vel_z_l2",
                 "ang_vel_xy_l2",
                 "dof_torques_l2",
@@ -131,7 +127,6 @@ class HaroldEnv(DirectRLEnv):
                 "feet_air_time",
                 "diagonal_feet_coordination",
                 "undesired_contacts",
-                "flat_orientation_l2",
                 "total_reward"
             ]
         }
@@ -165,12 +160,10 @@ class HaroldEnv(DirectRLEnv):
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         """Called before physics steps. Used to process and scale actions."""
         self._actions = actions.clone()
-        # self._actions = self._actions * self.cfg.action_scale
-        self._processed_actions = self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
+        self._processed_actions = (self.cfg.action_scale * self._actions) + self._robot.data.default_joint_pos
 
     def _apply_action(self) -> None:
         """Actually apply the actions to the joints."""
-
         
         # Log raw actions to a file
         """
@@ -186,7 +179,6 @@ class HaroldEnv(DirectRLEnv):
                 f.write(f"{self._processed_actions.tolist()}\n") # Write tensor data only
         """
         
-
         self._robot.set_joint_position_target(self._processed_actions)
         self._decimation_counter += 1 # Increment counter
 
@@ -215,10 +207,8 @@ class HaroldEnv(DirectRLEnv):
         self._time += self.step_dt
         
         # sine_wave_1: period matches target air time (0.2s)
-        sine_wave_1 = torch.sin(2 * math.pi * 5 * self._time)  # 5 Hz frequency
-        
-        # sine_wave_2: period is double (0.4s)
-        sine_wave_2 = torch.sin(2 * math.pi * 2.5 * self._time)  # 2.5 Hz frequency
+        sine_wave_1 = torch.sin(2 * math.pi * 5 * self._time)  # (0.2s) 5 Hz frequency
+        sine_wave_2 = torch.sin(2 * math.pi * 2.5 * self._time)  # (0.4s) 2.5 Hz frequency
 
         obs = torch.cat(
             [
@@ -227,7 +217,7 @@ class HaroldEnv(DirectRLEnv):
                     self._robot.data.root_lin_vel_b,
                     self._robot.data.root_ang_vel_b,
                     self._robot.data.projected_gravity_b,
-                    self._robot.data.joint_pos,
+                    self._robot.data.joint_pos - self._robot.data.default_joint_pos,
                     self._robot.data.joint_vel,
                     self._commands,
                     self._previous_actions,
@@ -243,7 +233,6 @@ class HaroldEnv(DirectRLEnv):
 
         # Update previous actions
         self._previous_actions = self._processed_actions.clone()
-
 
         # ================================= PRINT REWARD STATISTICS ================================
         # Call info function to print reward statistics
@@ -261,7 +250,6 @@ class HaroldEnv(DirectRLEnv):
                 f.write(f"{obs[0].tolist()}\n")
         """
 
-
         return observations
 
     def _get_rewards(self) -> torch.Tensor:
@@ -271,7 +259,8 @@ class HaroldEnv(DirectRLEnv):
         """
 
         lin_vel_error = torch.sum(torch.square(self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]), dim=1)
-        lin_vel_error_mapped = torch.exp(-lin_vel_error / 0.25)
+        # lin_vel_error_mapped = torch.exp(-lin_vel_error / 0.25)
+        lin_vel_error_mapped = torch.exp(-lin_vel_error / 0.5)
 
         """
         # Yaw rate tracking
@@ -306,29 +295,39 @@ class HaroldEnv(DirectRLEnv):
         action_rate = torch.sum(torch.square(self._actions - self._previous_actions), dim=1)
 
         """
-        # Get feet air time
+        # Get feet air time (Note that the "knee" body parts are actually the feet due to my bad naming convention)
         """
-
         # Get the contact forces on all body parts
-        contact_forces = torch.norm(self._contact_sensor.data.net_forces_w, dim=-1)
-        # Shape: [num_envs, num_bodies]
+        contact_forces = torch.norm(self._contact_sensor.data.net_forces_w, dim=-1) # Shape: [num_envs, num_bodies]
 
         # Get the contact forces on the feet
-        knee_contact_forces = contact_forces[:, self._knee_contact_ids]
-        # Shape: [num_envs, 4] where 4 = number of feet
+        knee_contact_forces = contact_forces[:, self._knee_contact_ids] # Shape: [num_envs, 4] where 4 = number of feet
         
         # Get air time for diagonal pairs explicitly
         paired_air_time = torch.stack([
             self._contact_sensor.data.last_air_time[:, [0, 3]],  # FL + BR
             self._contact_sensor.data.last_air_time[:, [1, 2]]   # FR + BL
-        ], dim=1)
-        # Shape: [num_envs, 2, 2]
+        ], dim=1) # Shape: [num_envs, 2, 2]
 
-        target_air_time = 0.5 #0.2
+        target_air_time = 0.2
         # Calculate the error between the average air time of the diagonal pairs and the target air time
         pair_air_time_error = torch.abs(paired_air_time.mean(dim=-1) - target_air_time)
         # Calculate the air time reward as the negative of the error
         air_time = -torch.sum(pair_air_time_error, dim=1)
+
+
+
+
+        # (NEW) feet air time
+        target_air_time = 0.2
+        first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._knee_contact_ids]
+        last_air_time = self._contact_sensor.data.last_air_time[:, self._knee_contact_ids]
+        air_time = torch.sum((last_air_time - target_air_time) * first_contact, dim=1) * (
+            torch.norm(self._commands[:, :2], dim=1) > 0.1
+        )
+
+
+
 
 
         """
@@ -384,18 +383,17 @@ class HaroldEnv(DirectRLEnv):
         )
 
         rewards = {
-            "track_lin_vel_xy_exp": lin_vel_error_mapped * self.step_dt * 10.0, #5.0,
-            "lin_vel_z_l2": z_vel_error * self.step_dt * -20.0,
-            "direction_reward": direction_reward * self.step_dt * 0.5,
+            "track_lin_vel_xy_exp": lin_vel_error_mapped * self.step_dt * 1.5, #3.0,
             "track_ang_vel_z_exp": yaw_rate_error_mapped * self.step_dt * 0.5,
+            "lin_vel_z_l2": z_vel_error * self.step_dt * -20.0,
+            "direction_reward": direction_reward * self.step_dt * 0.0, #0.5,
             "ang_vel_xy_l2": ang_vel_error * self.step_dt * -0.05,
-            "dof_torques_l2": joint_torques * self.step_dt * -0.05,
+            "dof_torques_l2": joint_torques * self.step_dt * -0.005,
             #"dof_acc_l2": joint_accel * self.step_dt * -2.5e-7, #-2.5e-7,
             #"action_rate_l2": action_rate * self.step_dt * -0.01, #-0.01,
-            "feet_air_time": air_time * self.step_dt * 10.0, #6.0, #3.0,
-            "diagonal_feet_coordination": diagonal_coordination * self.step_dt * 0.5,
+            "feet_air_time": air_time * self.step_dt * 3.0,
+            "diagonal_feet_coordination": diagonal_coordination * self.step_dt * 0, #0.5,
             #"undesired_contacts": contacts * self.step_dt * -1.0, #-1.0,
-            #"flat_orientation_l2": flat_orientation * self.step_dt * -20.0 #-20.0,
         }
         
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
@@ -455,8 +453,7 @@ class HaroldEnv(DirectRLEnv):
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
 
         # Reset time for sinusoidal observation
-        if env_ids is not None:
-            self._time[env_ids] = 0
+        self._time[env_ids] = 0
 
     def _get_info(self) -> dict:
         info = {}

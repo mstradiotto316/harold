@@ -30,6 +30,9 @@ ros2 topic echo /joint_states
 
 How to start Tensorboard:
 tensorboard --logdir /home/matteo/IsaacLab/logs/rl_games/harold_direct
+(NEW)
+python3 -m tensorboard.main --logdir /home/matteo/IsaacLab/logs/rl_games/harold_direct
+
 
 Edit USD file:
 usdedit Harold_V4_STABLE_V2.usd

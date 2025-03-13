@@ -101,7 +101,6 @@ class HaroldEnv(DirectRLEnv):
                 "dof_acc_l2",
                 "action_rate_l2",
                 "feet_air_time",
-                "diagonal_feet_coordination",
                 "undesired_contacts",
             ]
         }
@@ -125,7 +124,6 @@ class HaroldEnv(DirectRLEnv):
                 "dof_acc_l2",
                 "action_rate_l2",
                 "feet_air_time",
-                "diagonal_feet_coordination",
                 "undesired_contacts",
                 "total_reward"
             ]
@@ -257,17 +255,19 @@ class HaroldEnv(DirectRLEnv):
         """
         # Linear velocity tracking
         """
-
         lin_vel_error = torch.sum(torch.square(self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]), dim=1)
-        # lin_vel_error_mapped = torch.exp(-lin_vel_error / 0.25)
-        lin_vel_error_mapped = torch.exp(-lin_vel_error / 0.5)
+        #lin_vel_error_mapped = torch.exp(-lin_vel_error / 0.5) # Exponential penalty
+        #lin_vel_error_mapped = -lin_vel_error  # Linear penalty
+        lin_vel_error_mapped = 1.0 / (1.0 + lin_vel_error)  # Maps error to (0, 1]
 
         """
         # Yaw rate tracking
         """
 
         yaw_rate_error = torch.square(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
-        yaw_rate_error_mapped = torch.exp(-yaw_rate_error / 0.25)
+        #yaw_rate_error_mapped = torch.exp(-yaw_rate_error / 0.25) # Exponential penalty
+        #yaw_rate_error_mapped = -yaw_rate_error  # Linear penalty
+        yaw_rate_error_mapped = 1.0 / (1.0 + yaw_rate_error)  # Maps error to (0, 1]
 
         """
         # z velocity tracking
@@ -297,61 +297,12 @@ class HaroldEnv(DirectRLEnv):
         """
         # Get feet air time (Note that the "knee" body parts are actually the feet due to my bad naming convention)
         """
-        # Get the contact forces on all body parts
-        contact_forces = torch.norm(self._contact_sensor.data.net_forces_w, dim=-1) # Shape: [num_envs, num_bodies]
-
-        # Get the contact forces on the feet
-        knee_contact_forces = contact_forces[:, self._knee_contact_ids] # Shape: [num_envs, 4] where 4 = number of feet
-        
-        # Get air time for diagonal pairs explicitly
-        paired_air_time = torch.stack([
-            self._contact_sensor.data.last_air_time[:, [0, 3]],  # FL + BR
-            self._contact_sensor.data.last_air_time[:, [1, 2]]   # FR + BL
-        ], dim=1) # Shape: [num_envs, 2, 2]
-
-        target_air_time = 0.2
-        # Calculate the error between the average air time of the diagonal pairs and the target air time
-        pair_air_time_error = torch.abs(paired_air_time.mean(dim=-1) - target_air_time)
-        # Calculate the air time reward as the negative of the error
-        air_time = -torch.sum(pair_air_time_error, dim=1)
-
-
-
-
-        # (NEW) feet air time
         target_air_time = 0.2
         first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._knee_contact_ids]
         last_air_time = self._contact_sensor.data.last_air_time[:, self._knee_contact_ids]
         air_time = torch.sum((last_air_time - target_air_time) * first_contact, dim=1) * (
             torch.norm(self._commands[:, :2], dim=1) > 0.1
         )
-
-
-
-
-
-        """
-        # Diagonal coordination
-        """
-        
-        # Get diagonal pairs of feet (FL+BR, FR+BL)
-        diagonal_pairs = torch.stack([
-            knee_contact_forces[:, [0, 3]],  # FL + BR
-            knee_contact_forces[:, [1, 2]]   # FR + BL
-        ], dim=1)
-        # Shape: [num_envs, 2, 2] where 2,2 represents two diagonal pairs
-        
-        # Convert to binary air status (1 for air, 0 for ground)
-        diagonal_pairs_in_air = (diagonal_pairs < 0.2).float()
-        # Shape: [num_envs, 2, 2]
-
-        # Reward when diagonal pairs are coordinated (both air or both ground)
-        diagonal_coordination = torch.sum(
-            (diagonal_pairs_in_air.prod(dim=-1) + (1 - diagonal_pairs_in_air).prod(dim=-1)),
-            dim=1
-        )
-        # Shape: [num_envs]
-
 
         """
         # Undersired contacts
@@ -383,16 +334,15 @@ class HaroldEnv(DirectRLEnv):
         )
 
         rewards = {
-            "track_lin_vel_xy_exp": lin_vel_error_mapped * self.step_dt * 1.5, #3.0,
+            "track_lin_vel_xy_exp": lin_vel_error_mapped * self.step_dt * 3.0,
             "track_ang_vel_z_exp": yaw_rate_error_mapped * self.step_dt * 0.5,
-            "lin_vel_z_l2": z_vel_error * self.step_dt * -20.0,
+            "lin_vel_z_l2": z_vel_error * self.step_dt * -10.0,
             "direction_reward": direction_reward * self.step_dt * 0.0, #0.5,
             "ang_vel_xy_l2": ang_vel_error * self.step_dt * -0.05,
             "dof_torques_l2": joint_torques * self.step_dt * -0.005,
             #"dof_acc_l2": joint_accel * self.step_dt * -2.5e-7, #-2.5e-7,
             #"action_rate_l2": action_rate * self.step_dt * -0.01, #-0.01,
             "feet_air_time": air_time * self.step_dt * 3.0,
-            "diagonal_feet_coordination": diagonal_coordination * self.step_dt * 0, #0.5,
             #"undesired_contacts": contacts * self.step_dt * -1.0, #-1.0,
         }
         

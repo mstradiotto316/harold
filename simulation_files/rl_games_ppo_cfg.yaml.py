@@ -65,12 +65,12 @@ params:
     save_best_after: 50
     save_frequency: 25
     grad_norm: 1.0
-    entropy_coef: 0.015
+    entropy_coef: 0.01 #0.015 (2)
     truncate_grads: True
     e_clip: 0.2
     horizon_length: 128
     minibatch_size: 8192
-    mini_epochs: 8 #15
+    mini_epochs: 8 #15 (1)
     critic_coef: 1
     clip_value: True
     seq_length: 4

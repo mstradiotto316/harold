@@ -92,9 +92,8 @@ class HaroldEnv(DirectRLEnv):
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
             for key in [
-                "track_lin_vel_xy_exp",
-                "track_ang_vel_z_exp",
-                "direction_reward",
+                "track_xy_lin_commands",
+                "track_yaw_commands",
                 "lin_vel_z_l2",
                 "ang_vel_xy_l2",
                 "dof_torques_l2",
@@ -102,6 +101,7 @@ class HaroldEnv(DirectRLEnv):
                 "action_rate_l2",
                 "feet_air_time",
                 "undesired_contacts",
+                "direction_reward",
             ]
         }
 
@@ -115,9 +115,8 @@ class HaroldEnv(DirectRLEnv):
         self.reward_history = {
             key: deque(maxlen=1000)  # Store last 1000 episodes' means
             for key in [
-                "track_lin_vel_xy_exp",
-                "track_ang_vel_z_exp",
-                "direction_reward",
+                "track_xy_lin_commands",
+                "track_yaw_commands",
                 "lin_vel_z_l2",
                 "ang_vel_xy_l2",
                 "dof_torques_l2",
@@ -125,6 +124,7 @@ class HaroldEnv(DirectRLEnv):
                 "action_rate_l2",
                 "feet_air_time",
                 "undesired_contacts",
+                "direction_reward",
                 "total_reward"
             ]
         }
@@ -256,8 +256,6 @@ class HaroldEnv(DirectRLEnv):
         # Linear velocity tracking
         """
         lin_vel_error = torch.sum(torch.square(self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]), dim=1)
-        #lin_vel_error_mapped = torch.exp(-lin_vel_error / 0.5) # Exponential penalty
-        #lin_vel_error_mapped = -lin_vel_error  # Linear penalty
         lin_vel_error_mapped = 1.0 / (1.0 + lin_vel_error)  # Maps error to (0, 1]
 
         """
@@ -265,8 +263,6 @@ class HaroldEnv(DirectRLEnv):
         """
 
         yaw_rate_error = torch.square(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
-        #yaw_rate_error_mapped = torch.exp(-yaw_rate_error / 0.25) # Exponential penalty
-        #yaw_rate_error_mapped = -yaw_rate_error  # Linear penalty
         yaw_rate_error_mapped = 1.0 / (1.0 + yaw_rate_error)  # Maps error to (0, 1]
 
         """
@@ -297,26 +293,35 @@ class HaroldEnv(DirectRLEnv):
         """
         # Get feet air time (Note that the "knee" body parts are actually the feet due to my bad naming convention)
         """
-        target_air_time = 0.2
-        first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._knee_contact_ids]
-        last_air_time = self._contact_sensor.data.last_air_time[:, self._knee_contact_ids]
-        air_time = torch.sum((last_air_time - target_air_time) * first_contact, dim=1) * (
-            torch.norm(self._commands[:, :2], dim=1) > 0.1
-        )
-
-        """
-        # Undersired contacts
-        """
-        net_contact_forces = self._contact_sensor.data.net_forces_w_history
-        is_contact = (
-            torch.max(torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1)[0] > 1.0
-        )
-        contacts = torch.sum(is_contact, dim=1)
         
         """
-        # Flat orientation
+        target_air_time = 0.2
+        sigma = 0.1 #0.05  # Tolerance around target
+        air_time_diff = self._contact_sensor.data.current_air_time[:, self._knee_contact_ids] - target_air_time
+        air_time_reward = torch.sum(torch.exp(-(air_time_diff / sigma)**2), dim=1)  # Gaussian reward
+        air_time_reward *= (torch.norm(self._commands[:, :2], dim=1) > 0.01)  # Only when commanded to move
         """
-        flat_orientation = torch.sum(torch.square(self._robot.data.projected_gravity_b[:, :2]), dim=1)
+
+
+        target_air_time = 0.2
+        sigma = 0.1  # Tolerance around target
+        air_time_diff = self._contact_sensor.data.current_air_time[:, self._knee_contact_ids] - target_air_time
+        # Calculate air time reward for each foot
+        foot_air_time_rewards = torch.exp(-(air_time_diff / sigma)**2)
+
+        # Count how many feet are in contact with the ground
+        feet_in_contact = (self._contact_sensor.data.current_air_time[:, self._knee_contact_ids] <= 0.05).sum(dim=1)
+        # Penalize having too many feet on ground (optimal is 2-3 for quadruped)
+        contact_penalty = torch.clamp(feet_in_contact - 2.5, min=0, max=1.5)
+
+        # Use mean instead of sum for more balanced gait
+        air_time_reward = torch.mean(foot_air_time_rewards, dim=1) - 0.2 * contact_penalty  
+        air_time_reward *= (torch.norm(self._commands[:, :2], dim=1) > 0.01)  # Only when commanded to move
+
+
+        """
+        # Direction Reward
+        """
 
         # Direction reward: Reward moving in the commanded direction
         direction_reward = torch.where(
@@ -333,16 +338,29 @@ class HaroldEnv(DirectRLEnv):
             )
         )
 
+
+
+        
+        """
+        # Undersired contacts
+        """
+        net_contact_forces = self._contact_sensor.data.net_forces_w_history
+        is_contact = (
+            torch.max(torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1)[0] > 1.0
+        )
+        contacts = torch.sum(is_contact, dim=1)
+
+
         rewards = {
-            "track_lin_vel_xy_exp": lin_vel_error_mapped * self.step_dt * 3.0,
-            "track_ang_vel_z_exp": yaw_rate_error_mapped * self.step_dt * 0.5,
+            "track_xy_lin_commands": lin_vel_error_mapped * self.step_dt * 3.0,
+            "track_yaw_commands": yaw_rate_error_mapped * self.step_dt * 0.1, #0.25, #0.5,
             "lin_vel_z_l2": z_vel_error * self.step_dt * -10.0,
-            "direction_reward": direction_reward * self.step_dt * 0.0, #0.5,
             "ang_vel_xy_l2": ang_vel_error * self.step_dt * -0.05,
             "dof_torques_l2": joint_torques * self.step_dt * -0.005,
+            "direction_reward": direction_reward * self.step_dt * 1.0,
             #"dof_acc_l2": joint_accel * self.step_dt * -2.5e-7, #-2.5e-7,
             #"action_rate_l2": action_rate * self.step_dt * -0.01, #-0.01,
-            "feet_air_time": air_time * self.step_dt * 3.0,
+            "feet_air_time": air_time_reward * self.step_dt * 1.0, #2.5, #5.0,
             #"undesired_contacts": contacts * self.step_dt * -1.0, #-1.0,
         }
         
@@ -384,13 +402,13 @@ class HaroldEnv(DirectRLEnv):
         self._actions[env_ids] = 0.0
         self._previous_actions[env_ids] = 0.0
 
-        
-        # TODO: Add random command sampling
-        #self._commands[env_ids] = torch.zeros_like(self._commands[env_ids]).uniform_(-1.0, 1.0)
-        #self._commands[env_ids] = torch.zeros_like(self._commands[env_ids]).uniform_(0.0, 1.0)
-        self._commands[env_ids, 0] = 0.2 #0.5 # FORWARD VELOCITY
-        self._commands[env_ids, 1] = 0.0 #0.5 # LEFT/RIGHT VELOCITY
-        self._commands[env_ids, 2] = 0.0 #0.5 # YAW RATE
+        # Randomize commands
+        temp = self._commands[env_ids].clone()
+        #temp[:, 0].uniform_(0.0, 0.2)
+        temp[:, 0].uniform_(0.2, 0.5)
+        temp[:, 1].uniform_(0.0, 0.0)
+        temp[:, 2].uniform_(0.0, 0.0)
+        self._commands[env_ids] = temp
         
 
         # Reset to default root pose/vel and joint state

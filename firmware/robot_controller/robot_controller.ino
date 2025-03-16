@@ -14,9 +14,9 @@
 
 // PD Controller Gains for the discrete controller.
 // Simulation values: stiffness=40.0, damping=75.0, effort_limit=0.8
-float PD_Kp = 4.0;      // Proportional gain
-float PD_Kd = 1.2;      // Derivative gain
-float PD_EFFORT_LIMIT = 0.8;  // Maximum control effort
+float PD_Kp = 6.0; //3.0;      // Proportional gain
+float PD_Kd = 3; //1.2;      // Derivative gain
+float PD_EFFORT_LIMIT = 1.25; //0.8;  // Maximum control effort
 
 //==========================//
 // SERVO & ANGLE VARIABLES  //

@@ -2,7 +2,8 @@ import torch
 import sys
 
 # Load the current action_config.pt file
-config_path = "../policy/action_config.pt"
+config_path = "/home/matteo/Desktop/harold/policy/action_config.pt"
+print("Loading config file...")
 action_config = torch.load(config_path)
 
 # Display current joint positions

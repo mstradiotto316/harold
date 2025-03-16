@@ -10,7 +10,7 @@
 
 // Control loop interval and command timeout (in ms)
 #define CONTROL_INTERVAL 5     // Control loop interval (5 ms)
-#define COMMAND_TIMEOUT 100    // If no valid command in 100 ms, revert to safe posture
+#define COMMAND_TIMEOUT 250    // If no valid command in 100 ms, revert to safe posture
 
 // PD Controller Gains for the discrete controller.
 // Simulation values: stiffness=40.0, damping=75.0, effort_limit=0.8

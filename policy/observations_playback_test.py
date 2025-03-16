@@ -125,10 +125,10 @@ def load_policy_and_config():
     # 8: fl_knee_joint, 9: fr_knee_joint, 10: bl_knee_joint, 11: br_knee_joint
     
     # Example: Modify front left shoulder joint
-    # default_positions[0] = 0.2  # adjust value as needed
+    default_positions[9] = -0.75  # adjust value as needed
     
     # Example: Modify all shoulder joints
-    # default_positions[0:4] = [0.2, 0.2, 0.2, 0.2]
+    #default_positions[0:12] = [0,0,0,0,0,0,0,0,0,0,0,0]
     
     # After any modifications, print the updated values
     if any(np.array(default_positions) != np.array([

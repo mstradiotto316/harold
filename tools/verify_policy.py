@@ -15,15 +15,15 @@ def verify_onnx_policy():
     # Create inference session
     ort_session = InferenceSession(ONNX_PATH)
     
-    # Create dummy input (38 dimensions)
-    dummy_input = np.random.randn(1, 38).astype(np.float32)
+    # Create dummy input (50 dimensions)
+    dummy_input = np.random.randn(1, 50).astype(np.float32)
     
     # Run inference
     outputs = ort_session.run(None, {'obs': dummy_input})
     
     print("Input shape:", dummy_input.shape)
     print("Output shape:", outputs[0].shape)
-    print("Sample output:", outputs[0][0][:3])
+    print("Sample output:", outputs[0][0])
     print("=== ONNX Policy Verification Successful ===")
     
     # Load and verify action config

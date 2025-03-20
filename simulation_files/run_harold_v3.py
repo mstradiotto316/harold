@@ -94,7 +94,7 @@ def export_policy(agent, env, export_path="/home/matteo/Desktop/Harold_V5/policy
     wrapped_network.eval()
 
     # 5. Create dummy input on CPU - SIMPLIFIED for MLP - NO RNN STATES
-    dummy_input = torch.randn(1, 38).cpu()  # Match observation dimensions - NO RNN STATES NEEDED FOR MLP
+    dummy_input = torch.randn(1, 50).cpu()  # Match observation dimensions - NO RNN STATES NEEDED FOR MLP
 
 
     # 6. Export to ONNX - SIMPLIFIED for MLP - NO RNN INPUT/OUTPUT

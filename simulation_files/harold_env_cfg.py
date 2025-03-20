@@ -16,7 +16,7 @@ class HaroldEnvCfg(DirectRLEnvCfg):
     # env parameters
     episode_length_s = 30.0
     decimation = 18
-    action_scale = 2.0
+    action_scale = 1.0 #2.0
     num_actions = 12
     num_observations = 50 #38
     num_states = 0

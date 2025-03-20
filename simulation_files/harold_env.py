@@ -35,6 +35,10 @@ class HaroldEnv(DirectRLEnv):
         # Commands tensor has shape [num_envs, 3], the three dimensions are: X lin vel, Y lin vel, Yaw rate
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
 
+        # Angle limits for each joint
+        self._JOINT_ANGLE_MAX = torch.tensor([0.3491, 0.3491, 0.3491, 0.3491, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853], device=self.device)
+        self._JOINT_ANGLE_MIN = torch.tensor([-0.3491, -0.3491, -0.3491, -0.3491, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853], device=self.device)
+
         # Contact sensor IDs (for debugging or specialized foot contact checks)
         self._contact_ids, _ = self._contact_sensor.find_bodies(".*")
         self._body_contact_id, _ = self._contact_sensor.find_bodies(".*body")
@@ -158,7 +162,12 @@ class HaroldEnv(DirectRLEnv):
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         """Called before physics steps. Used to process and scale actions."""
         self._actions = actions.clone()
-        self._processed_actions = (self.cfg.action_scale * self._actions) + self._robot.data.default_joint_pos
+        #self._processed_actions = (self.cfg.action_scale * self._actions) + self._robot.data.default_joint_pos
+        self._processed_actions = torch.clamp(
+            (self.cfg.action_scale * self._actions), # + self._robot.data.default_joint_pos,
+            self._JOINT_ANGLE_MIN,
+            self._JOINT_ANGLE_MAX,
+        )
 
     def _apply_action(self) -> None:
         """Actually apply the actions to the joints."""
@@ -175,7 +184,9 @@ class HaroldEnv(DirectRLEnv):
         if self._decimation_counter % 18 == 0: # Log every 18 steps
             with open(log_dir + "processed_actions.log", "a") as f:
                 f.write(f"{self._processed_actions.tolist()}\n") # Write tensor data only
+        
         """
+        
         
         self._robot.set_joint_position_target(self._processed_actions)
         self._decimation_counter += 1 # Increment counter
@@ -215,7 +226,7 @@ class HaroldEnv(DirectRLEnv):
                     self._robot.data.root_lin_vel_b,
                     self._robot.data.root_ang_vel_b,
                     self._robot.data.projected_gravity_b,
-                    self._robot.data.joint_pos - self._robot.data.default_joint_pos,
+                    self._robot.data.joint_pos, #- self._robot.data.default_joint_pos,
                     self._robot.data.joint_vel,
                     self._commands,
                     self._previous_actions,
@@ -241,12 +252,14 @@ class HaroldEnv(DirectRLEnv):
 
         # ============================ LOGGING FOR SIMULATION PLAYBACK =============================
         # Log observations to a file
+        
         """
         log_dir = "/home/matteo/Desktop/Harold_V5/policy_playback_test/"
         if self._decimation_counter % 18 == 0: # Log every 18 steps
             with open(log_dir + "observations.log", "a") as f:
                 f.write(f"{obs[0].tolist()}\n")
         """
+        
 
         return observations
 
@@ -352,15 +365,15 @@ class HaroldEnv(DirectRLEnv):
 
 
         rewards = {
-            "track_xy_lin_commands": lin_vel_error_mapped * self.step_dt * 3.0,
+            "track_xy_lin_commands": lin_vel_error_mapped * self.step_dt * 9.0, #3.0,
             "track_yaw_commands": yaw_rate_error_mapped * self.step_dt * 0.1, #0.25, #0.5,
             "lin_vel_z_l2": z_vel_error * self.step_dt * -10.0,
             "ang_vel_xy_l2": ang_vel_error * self.step_dt * -0.05,
             "dof_torques_l2": joint_torques * self.step_dt * -0.005,
-            "direction_reward": direction_reward * self.step_dt * 1.0,
+            "direction_reward": direction_reward * self.step_dt * 2.0,#1.0,
             #"dof_acc_l2": joint_accel * self.step_dt * -2.5e-7, #-2.5e-7,
             #"action_rate_l2": action_rate * self.step_dt * -0.01, #-0.01,
-            "feet_air_time": air_time_reward * self.step_dt * 1.0, #2.5, #5.0,
+            "feet_air_time": air_time_reward * self.step_dt * 7.5, #2.5, #5.0,
             #"undesired_contacts": contacts * self.step_dt * -1.0, #-1.0,
         }
         

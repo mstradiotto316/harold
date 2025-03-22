@@ -29,8 +29,6 @@ How to listen to ROS2 Bridge joint states:
 ros2 topic echo /joint_states
 
 How to start Tensorboard:
-tensorboard --logdir /home/matteo/IsaacLab/logs/rl_games/harold_direct
-(NEW)
 python3 -m tensorboard.main --logdir /home/matteo/IsaacLab/logs/rl_games/harold_direct
 
 
@@ -89,8 +87,8 @@ HAROLD_V4_CFG = ArticulationCfg(
         "all_joints": ImplicitActuatorCfg(
             joint_names_expr=[".*"],
             effort_limit=0.8, #0.92 is the quoted real world value
-            stiffness=200.0,#100.0, #50.0, #30.0,
-            damping=100.0, #50.0, #25.0, #75.0, 
+            stiffness=300.0, #200.0,
+            damping=100.0,
         ),
     },
 )

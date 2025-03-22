@@ -275,14 +275,13 @@ class HaroldEnv(DirectRLEnv):
         # Linear velocity tracking
         """
         lin_vel_error = torch.sum(torch.square(self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]), dim=1)
-        lin_vel_error_mapped = 1.0 / (1.0 + lin_vel_error)  # Maps error to (0, 1]
+        lin_vel_reward = torch.exp(-lin_vel_error)  # Exponential decay from 1 to 0 based on error
 
         """
         # Yaw rate tracking
         """
-
         yaw_rate_error = torch.square(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
-        yaw_rate_error_mapped = 1.0 / (1.0 + yaw_rate_error)  # Maps error to (0, 1]
+        yaw_rate_reward = torch.exp(-yaw_rate_error)  # Exponential decay from 1 to 0 based on error
 
         """
         # z velocity tracking
@@ -312,15 +311,6 @@ class HaroldEnv(DirectRLEnv):
         """
         # Get feet air time (Note that the "knee" body parts are actually the feet due to my bad naming convention)
         """
-        
-        """
-        target_air_time = 0.2
-        sigma = 0.1 #0.05  # Tolerance around target
-        air_time_diff = self._contact_sensor.data.current_air_time[:, self._knee_contact_ids] - target_air_time
-        air_time_reward = torch.sum(torch.exp(-(air_time_diff / sigma)**2), dim=1)  # Gaussian reward
-        air_time_reward *= (torch.norm(self._commands[:, :2], dim=1) > 0.01)  # Only when commanded to move
-        """
-
 
         target_air_time = 0.2
         sigma = 0.1  # Tolerance around target
@@ -357,8 +347,6 @@ class HaroldEnv(DirectRLEnv):
             )
         )
 
-
-
         
         """
         # Undersired contacts
@@ -387,18 +375,28 @@ class HaroldEnv(DirectRLEnv):
         #print('Height reward: ', height_reward)
         
         rewards = {
-            "track_xy_lin_commands": lin_vel_error_mapped * self.step_dt * 9.0, #3.0,
-            "track_yaw_commands": yaw_rate_error_mapped * self.step_dt * 0.1, #0.25, #0.5,
-            "lin_vel_z_l2": z_vel_error * self.step_dt * -10.0,
-            "ang_vel_xy_l2": ang_vel_error * self.step_dt * -0.05,
-            "dof_torques_l2": joint_torques * self.step_dt * -0.01, #-0.005,
-            "direction_reward": direction_reward * self.step_dt * 2.0,#1.0,
-            #"dof_acc_l2": joint_accel * self.step_dt * -2.5e-7, #-2.5e-7,
+            "track_xy_lin_commands": lin_vel_reward * self.step_dt * 9.0, #4.5,
+            "track_yaw_commands": yaw_rate_reward * self.step_dt * 3.0, #1.0,
+            "lin_vel_z_l2": z_vel_error * self.step_dt * 0.0, #-10.0,
+            "ang_vel_xy_l2": ang_vel_error * self.step_dt * -0.5, #-0.05,
+            "dof_torques_l2": joint_torques * self.step_dt * -0.1, #-0.01,
+            "direction_reward": direction_reward * self.step_dt * 2.0,
+            "dof_acc_l2": joint_accel * self.step_dt * -1.0e-6, #-2.5e-7,
             #"action_rate_l2": action_rate * self.step_dt * -0.01, #-0.01,
-            "feet_air_time": air_time_reward * self.step_dt * 7.5, #2.5, #5.0,
+            "feet_air_time": air_time_reward * self.step_dt * 10.0, #7.5,
             #"undesired_contacts": contacts * self.step_dt * -1.0, #-1.0,
-            "height_reward": height_reward * self.step_dt * 200.0,  # Increased scale for more emphasis
+            "height_reward": height_reward * self.step_dt * 400.0, #200.0,
         }
+
+        #print("track_xy_lin_commands: ", rewards["track_xy_lin_commands"][0])
+        #print("track_yaw_commands: ", rewards["track_yaw_commands"][0])
+        #print("lin_vel_z_l2: ", rewards["lin_vel_z_l2"][0])
+        #print("ang_vel_xy_l2: ", rewards["ang_vel_xy_l2"][0])
+        #print("dof_torques_l2: ", rewards["dof_torques_l2"][0])
+        #print("direction_reward: ", rewards["direction_reward"][0])
+        #print("feet_air_time: ", rewards["feet_air_time"][0])
+        #print("height_reward: ", rewards["height_reward"][0])
+        #print()
         
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
 
@@ -440,9 +438,9 @@ class HaroldEnv(DirectRLEnv):
         # Randomize commands
         temp = self._commands[env_ids].clone()
         #temp[:, 0].uniform_(0.0, 0.2)
-        temp[:, 0].uniform_(0.2, 0.5)
-        temp[:, 1].uniform_(0.0, 0.0)
-        temp[:, 2].uniform_(0.0, 0.0)
+        temp[:, 0].uniform_(-0.5, 0.5)
+        temp[:, 1].uniform_(-0.5, 0.5)
+        temp[:, 2].uniform_(-0.5, 0.5)
         self._commands[env_ids] = temp
         
 

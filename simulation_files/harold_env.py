@@ -4,7 +4,7 @@ from omni.isaac.lab.assets import Articulation
 from omni.isaac.lab.envs import DirectRLEnv
 from omni.isaac.lab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 import omni.isaac.lab.sim as sim_utils
-from omni.isaac.lab.sensors import ContactSensor
+from omni.isaac.lab.sensors import ContactSensor, ContactSensorCfg, RayCaster, RayCasterCfg, patterns
 import math
 from .harold_env_cfg import HaroldEnvCfg
 
@@ -106,6 +106,7 @@ class HaroldEnv(DirectRLEnv):
                 "feet_air_time",
                 "undesired_contacts",
                 "direction_reward",
+                "height_reward",
             ]
         }
 
@@ -129,6 +130,7 @@ class HaroldEnv(DirectRLEnv):
                 "feet_air_time",
                 "undesired_contacts",
                 "direction_reward",
+                "height_reward",
                 "total_reward"
             ]
         }
@@ -151,6 +153,10 @@ class HaroldEnv(DirectRLEnv):
         self.cfg.terrain.env_spacing = self.scene.cfg.env_spacing
         self._terrain = self.cfg.terrain.class_type(self.cfg.terrain)
 
+        # Create height scanner (add this after terrain setup)
+        self._height_scanner = RayCaster(self.cfg.height_scanner)
+        self.scene.sensors["height_scanner"] = self._height_scanner
+
         # Clone, filter, and replicate
         self.scene.clone_environments(copy_from_source=False)
         self.scene.filter_collisions(global_prim_paths=[self.cfg.terrain.prim_path])
@@ -158,6 +164,7 @@ class HaroldEnv(DirectRLEnv):
         # Add lights
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
+
 
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         """Called before physics steps. Used to process and scale actions."""
@@ -226,7 +233,7 @@ class HaroldEnv(DirectRLEnv):
                     self._robot.data.root_lin_vel_b,
                     self._robot.data.root_ang_vel_b,
                     self._robot.data.projected_gravity_b,
-                    self._robot.data.joint_pos, #- self._robot.data.default_joint_pos,
+                    self._robot.data.joint_pos,
                     self._robot.data.joint_vel,
                     self._commands,
                     self._previous_actions,
@@ -264,7 +271,6 @@ class HaroldEnv(DirectRLEnv):
         return observations
 
     def _get_rewards(self) -> torch.Tensor:
-
         """
         # Linear velocity tracking
         """
@@ -364,17 +370,34 @@ class HaroldEnv(DirectRLEnv):
         contacts = torch.sum(is_contact, dim=1)
 
 
+        """
+        # Height Reward
+        """
+        # Get height data from scanner
+        height_data = (
+            self._height_scanner.data.pos_w[:, 2].unsqueeze(1) - self._height_scanner.data.ray_hits_w[..., 2] - 0.5
+        ).clip(-1.0, 1.0)
+
+        # Calculate mean height for each environment
+        current_height = torch.mean(height_data, dim=1)  # Always comes out starting at -0.31 and going up to 0.39
+        height_reward = current_height + 0.31
+
+        #print("Current height from scanner: ", current_height[0], " Height reward: ", height_reward[0])
+        #print("Height data shape:", height_data.shape)
+        #print('Height reward: ', height_reward)
+        
         rewards = {
             "track_xy_lin_commands": lin_vel_error_mapped * self.step_dt * 9.0, #3.0,
             "track_yaw_commands": yaw_rate_error_mapped * self.step_dt * 0.1, #0.25, #0.5,
             "lin_vel_z_l2": z_vel_error * self.step_dt * -10.0,
             "ang_vel_xy_l2": ang_vel_error * self.step_dt * -0.05,
-            "dof_torques_l2": joint_torques * self.step_dt * -0.005,
+            "dof_torques_l2": joint_torques * self.step_dt * -0.01, #-0.005,
             "direction_reward": direction_reward * self.step_dt * 2.0,#1.0,
             #"dof_acc_l2": joint_accel * self.step_dt * -2.5e-7, #-2.5e-7,
             #"action_rate_l2": action_rate * self.step_dt * -0.01, #-0.01,
             "feet_air_time": air_time_reward * self.step_dt * 7.5, #2.5, #5.0,
             #"undesired_contacts": contacts * self.step_dt * -1.0, #-1.0,
+            "height_reward": height_reward * self.step_dt * 200.0,  # Increased scale for more emphasis
         }
         
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
@@ -383,7 +406,6 @@ class HaroldEnv(DirectRLEnv):
         for key, value in rewards.items():
             self._episode_sums[key] += value
         return reward
-
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
 

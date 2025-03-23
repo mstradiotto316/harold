@@ -25,9 +25,9 @@ params:
         sigma_init:
           name: const_initializer
           val: 0
-        fixed_sigma: False  #True
+        fixed_sigma: True #False  #True
     mlp:
-      units: [512, 256, 256, 256]
+      units: [512, 256, 128] #[512, 256, 256, 256]
       activation: elu
       d2rl: False
 

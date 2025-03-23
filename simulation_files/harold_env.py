@@ -68,6 +68,13 @@ class HaroldEnv(DirectRLEnv):
         # Add time tracking for temporal (sinusoidal) observations
         self._time = torch.zeros(self.num_envs, device=self.device)
 
+        # Add velocity history buffer after other initializations
+        self._vel_history_length = 10
+        self._lin_vel_history = torch.zeros(
+            (self.num_envs, self._vel_history_length, 3),
+            device=self.device
+        )
+
         """
         # Randomize robot friction 
         # TODO: IS THIS ACTUALLY DOING ANYTHING? WE HAVE SEVERAL MATERIALS DEFINED IN THE USD FILE, ARE WE MODIFYING ALL OF THEM?
@@ -105,7 +112,7 @@ class HaroldEnv(DirectRLEnv):
                 "action_rate_l2",
                 "feet_air_time",
                 "undesired_contacts",
-                "direction_reward",
+                #"direction_reward",
                 "height_reward",
             ]
         }
@@ -129,7 +136,7 @@ class HaroldEnv(DirectRLEnv):
                 "action_rate_l2",
                 "feet_air_time",
                 "undesired_contacts",
-                "direction_reward",
+                #"direction_reward",
                 "height_reward",
                 "total_reward"
             ]
@@ -271,11 +278,25 @@ class HaroldEnv(DirectRLEnv):
         return observations
 
     def _get_rewards(self) -> torch.Tensor:
+
         """
-        # Linear velocity tracking
+        # Linear velocity tracking (using averaged velocity)
         """
-        lin_vel_error = torch.sum(torch.square(self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]), dim=1)
-        lin_vel_reward = torch.exp(-lin_vel_error)  # Exponential decay from 1 to 0 based on error
+
+        # Update velocity history by rolling and adding new velocity
+        self._lin_vel_history = torch.roll(self._lin_vel_history, shifts=-1, dims=1)
+        self._lin_vel_history[:, -1] = self._robot.data.root_lin_vel_b
+
+        # Calculate average velocity over history
+        avg_lin_vel = torch.mean(self._lin_vel_history, dim=1)
+
+        # Calculate relative velocity error
+        vel_diff = self._commands[:, :2] - avg_lin_vel[:, :2]
+        commanded_magnitude = torch.norm(self._commands[:, :2], dim=1) + 1e-8 # 1e-8 to avoid division by zero
+        rel_error = torch.norm(vel_diff, dim=1) / commanded_magnitude
+
+        # Calculate reward using exponential decay
+        lin_vel_reward = torch.exp(-5.0 * rel_error)
 
         """
         # Yaw rate tracking
@@ -332,6 +353,7 @@ class HaroldEnv(DirectRLEnv):
         # Direction Reward
         """
 
+        """
         # Direction reward: Reward moving in the commanded direction
         direction_reward = torch.where(
             self._commands[:, 0] == 0.0,  # First check if command is zero
@@ -346,6 +368,7 @@ class HaroldEnv(DirectRLEnv):
                 -20.0  # Penalty for wrong direction
             )
         )
+        """
 
         
         """
@@ -375,28 +398,30 @@ class HaroldEnv(DirectRLEnv):
         #print('Height reward: ', height_reward)
         
         rewards = {
-            "track_xy_lin_commands": lin_vel_reward * self.step_dt * 9.0, #4.5,
+            "track_xy_lin_commands": lin_vel_reward * self.step_dt * 90.0, #9.0, #4.5,
             "track_yaw_commands": yaw_rate_reward * self.step_dt * 3.0, #1.0,
             "lin_vel_z_l2": z_vel_error * self.step_dt * 0.0, #-10.0,
             "ang_vel_xy_l2": ang_vel_error * self.step_dt * -0.5, #-0.05,
-            "dof_torques_l2": joint_torques * self.step_dt * -0.1, #-0.01,
-            "direction_reward": direction_reward * self.step_dt * 2.0,
-            "dof_acc_l2": joint_accel * self.step_dt * -1.0e-6, #-2.5e-7,
+            "dof_torques_l2": joint_torques * self.step_dt * -0.3, #-0.01,
+            #"direction_reward": direction_reward * self.step_dt * 2.0,
+            "dof_acc_l2": joint_accel * self.step_dt * -0.5e-6, #-1.0e-6, #-2.5e-7,
             #"action_rate_l2": action_rate * self.step_dt * -0.01, #-0.01,
-            "feet_air_time": air_time_reward * self.step_dt * 10.0, #7.5,
+            "feet_air_time": air_time_reward * self.step_dt * 5.0, #10.0, #7.5,
             #"undesired_contacts": contacts * self.step_dt * -1.0, #-1.0,
-            "height_reward": height_reward * self.step_dt * 400.0, #200.0,
+            "height_reward": height_reward * self.step_dt * 200.0, #400.0, #200.0,
         }
 
-        #print("track_xy_lin_commands: ", rewards["track_xy_lin_commands"][0])
-        #print("track_yaw_commands: ", rewards["track_yaw_commands"][0])
-        #print("lin_vel_z_l2: ", rewards["lin_vel_z_l2"][0])
-        #print("ang_vel_xy_l2: ", rewards["ang_vel_xy_l2"][0])
-        #print("dof_torques_l2: ", rewards["dof_torques_l2"][0])
+        print("Commands: ", self._commands[0].tolist())
+        print("Avg lin vel: ", avg_lin_vel[0].tolist())
+        print("track_xy_lin_commands: ", rewards["track_xy_lin_commands"][0])
+        print("track_yaw_commands: ", rewards["track_yaw_commands"][0])
+        print("lin_vel_z_l2: ", rewards["lin_vel_z_l2"][0])
+        print("ang_vel_xy_l2: ", rewards["ang_vel_xy_l2"][0])
+        print("dof_torques_l2: ", rewards["dof_torques_l2"][0])
         #print("direction_reward: ", rewards["direction_reward"][0])
-        #print("feet_air_time: ", rewards["feet_air_time"][0])
-        #print("height_reward: ", rewards["height_reward"][0])
-        #print()
+        print("feet_air_time: ", rewards["feet_air_time"][0])
+        print("height_reward: ", rewards["height_reward"][0])
+        print()
         
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
 
@@ -437,10 +462,9 @@ class HaroldEnv(DirectRLEnv):
 
         # Randomize commands
         temp = self._commands[env_ids].clone()
-        #temp[:, 0].uniform_(0.0, 0.2)
-        temp[:, 0].uniform_(-0.5, 0.5)
-        temp[:, 1].uniform_(-0.5, 0.5)
-        temp[:, 2].uniform_(-0.5, 0.5)
+        temp[:, 0].uniform_(0.0, 0.5)
+        temp[:, 1].uniform_(-0.0, 0.0)
+        temp[:, 2].uniform_(-0.0, 0.0)
         self._commands[env_ids] = temp
         
 
@@ -455,6 +479,9 @@ class HaroldEnv(DirectRLEnv):
 
         # Reset time for sinusoidal observation
         self._time[env_ids] = 0
+
+        # Reset velocity history for reset environments
+        self._lin_vel_history[env_ids] = 0.0
 
     def _get_info(self) -> dict:
         info = {}

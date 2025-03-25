@@ -69,9 +69,13 @@ class HaroldEnv(DirectRLEnv):
         self._time = torch.zeros(self.num_envs, device=self.device)
 
         # Add velocity history buffer after other initializations
-        self._vel_history_length = 10
+        self._vel_history_length = 1 #10
         self._lin_vel_history = torch.zeros(
             (self.num_envs, self._vel_history_length, 3),
+            device=self.device
+        )
+        self._yaw_vel_history = torch.zeros(
+            (self.num_envs, self._vel_history_length),
             device=self.device
         )
 
@@ -112,8 +116,8 @@ class HaroldEnv(DirectRLEnv):
                 "action_rate_l2",
                 "feet_air_time",
                 "undesired_contacts",
-                #"direction_reward",
                 "height_reward",
+                "xy_acceleration_l2"
             ]
         }
 
@@ -136,8 +140,8 @@ class HaroldEnv(DirectRLEnv):
                 "action_rate_l2",
                 "feet_air_time",
                 "undesired_contacts",
-                #"direction_reward",
                 "height_reward",
+                "xy_acceleration_l2",
                 "total_reward"
             ]
         }
@@ -290,19 +294,34 @@ class HaroldEnv(DirectRLEnv):
         # Calculate average velocity over history
         avg_lin_vel = torch.mean(self._lin_vel_history, dim=1)
 
-        # Calculate relative velocity error
-        vel_diff = self._commands[:, :2] - avg_lin_vel[:, :2]
-        commanded_magnitude = torch.norm(self._commands[:, :2], dim=1) + 1e-8 # 1e-8 to avoid division by zero
-        rel_error = torch.norm(vel_diff, dim=1) / commanded_magnitude
+        # Simple absolute error between command and actual (for x,y components)
+        vel_error = torch.norm(self._commands[:, :2] - avg_lin_vel[:, :2], dim=1)
 
-        # Calculate reward using exponential decay
-        lin_vel_reward = torch.exp(-5.0 * rel_error)
+        # Convert to reward
+        lin_vel_reward = torch.exp(-5.0 * vel_error)
+
+        #print("commands: ", self._commands[0].tolist())
+        #print("avg_lin_vel: ", avg_lin_vel[0].tolist())
+        #print("vel_error: ", vel_error[0])
+        #print("lin_vel_reward: ", lin_vel_reward[0])
+        #print()
+        
 
         """
         # Yaw rate tracking
         """
-        yaw_rate_error = torch.square(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
-        yaw_rate_reward = torch.exp(-yaw_rate_error)  # Exponential decay from 1 to 0 based on error
+        # Update yaw velocity history by rolling and adding new velocity
+        self._yaw_vel_history = torch.roll(self._yaw_vel_history, shifts=-1, dims=1)
+        self._yaw_vel_history[:, -1] = self._robot.data.root_ang_vel_b[:, 2]
+
+        # Calculate average yaw velocity over history
+        avg_yaw_vel = torch.mean(self._yaw_vel_history, dim=1)
+
+        # Simple absolute error between command and actual
+        yaw_error = torch.abs(self._commands[:, 2] - avg_yaw_vel)
+
+        # Convert to reward
+        yaw_rate_reward = torch.exp(-5.0 * yaw_error)
 
         """
         # z velocity tracking
@@ -348,28 +367,6 @@ class HaroldEnv(DirectRLEnv):
         air_time_reward = torch.mean(foot_air_time_rewards, dim=1) - 0.2 * contact_penalty  
         air_time_reward *= (torch.norm(self._commands[:, :2], dim=1) > 0.01)  # Only when commanded to move
 
-
-        """
-        # Direction Reward
-        """
-
-        """
-        # Direction reward: Reward moving in the commanded direction
-        direction_reward = torch.where(
-            self._commands[:, 0] == 0.0,  # First check if command is zero
-            torch.where(
-                torch.abs(self._robot.data.root_lin_vel_b[:, 0]) < 0.1,  # If command is zero, check if robot is nearly stationary
-                1.0,  # Reward for being still when commanded to be still
-                -20.0  # Penalty for moving when commanded to be still
-            ),
-            torch.where(
-                self._commands[:, 0] * self._robot.data.root_lin_vel_b[:, 0] > 0.0,  # If command is non-zero, check direction
-                1.0,  # Reward for matching direction
-                -20.0  # Penalty for wrong direction
-            )
-        )
-        """
-
         
         """
         # Undersired contacts
@@ -386,42 +383,62 @@ class HaroldEnv(DirectRLEnv):
         """
         # Get height data from scanner
         height_data = (
-            self._height_scanner.data.pos_w[:, 2].unsqueeze(1) - self._height_scanner.data.ray_hits_w[..., 2] - 0.5
+            self._height_scanner.data.pos_w[:, 2].unsqueeze(1) - self._height_scanner.data.ray_hits_w[..., 2]
         ).clip(-1.0, 1.0)
 
         # Calculate mean height for each environment
-        current_height = torch.mean(height_data, dim=1)  # Always comes out starting at -0.31 and going up to 0.39
-        height_reward = current_height + 0.31
+        current_height = torch.mean(height_data, dim=1)
+
+        # Define target height and calculate error
+        target_height = 0.20  # meters from ground
+        height_error = torch.abs(current_height - target_height)
+
+        # Convert to reward using same exponential form as velocity rewards
+        height_reward = torch.exp(-5.0 * height_error)
 
         #print("Current height from scanner: ", current_height[0], " Height reward: ", height_reward[0])
-        #print("Height data shape:", height_data.shape)
+        #print("Target height: ", target_height)
         #print('Height reward: ', height_reward)
         
+        """
+        # XY acceleration penalty
+        """
+        # Get root body xy acceleration (first 2 components of linear acceleration)
+        xy_acceleration = self._robot.data.body_acc_w[:, 0, :2]  # Shape: [num_envs, 2]
+        xy_acceleration_error = torch.sum(torch.square(xy_acceleration), dim=1)
+
+        #print("xy_acceleration: ", xy_acceleration[0].tolist())
+        #print("xy_acceleration_error: ", xy_acceleration_error[0])
+
         rewards = {
-            "track_xy_lin_commands": lin_vel_reward * self.step_dt * 90.0, #9.0, #4.5,
-            "track_yaw_commands": yaw_rate_reward * self.step_dt * 3.0, #1.0,
+            "track_xy_lin_commands": lin_vel_reward * self.step_dt * 3.0, #10.0, #9.0, #4.5,
+            "track_yaw_commands": yaw_rate_reward * self.step_dt * 2.0, #1.0,
             "lin_vel_z_l2": z_vel_error * self.step_dt * 0.0, #-10.0,
-            "ang_vel_xy_l2": ang_vel_error * self.step_dt * -0.5, #-0.05,
-            "dof_torques_l2": joint_torques * self.step_dt * -0.3, #-0.01,
-            #"direction_reward": direction_reward * self.step_dt * 2.0,
+            "ang_vel_xy_l2": ang_vel_error * self.step_dt * -5, #-0.05,
+            "dof_torques_l2": joint_torques * self.step_dt * -0.05, #-0.1, #-0.4 #-0.15, #-0.01,
             "dof_acc_l2": joint_accel * self.step_dt * -0.5e-6, #-1.0e-6, #-2.5e-7,
-            #"action_rate_l2": action_rate * self.step_dt * -0.01, #-0.01,
-            "feet_air_time": air_time_reward * self.step_dt * 5.0, #10.0, #7.5,
+            "action_rate_l2": action_rate * self.step_dt * -0.01, #-0.01,
+            "feet_air_time": air_time_reward * self.step_dt * 2.5, #5.0, #10.0, #7.5,
             #"undesired_contacts": contacts * self.step_dt * -1.0, #-1.0,
-            "height_reward": height_reward * self.step_dt * 200.0, #400.0, #200.0,
+            "height_reward": height_reward * self.step_dt * 0.5, #1.0, #2.5, #20.0, #400.0, #200.0,
+            "xy_acceleration_l2": xy_acceleration_error * self.step_dt * 0 #-0.5 #-0.15,
         }
 
-        print("Commands: ", self._commands[0].tolist())
-        print("Avg lin vel: ", avg_lin_vel[0].tolist())
-        print("track_xy_lin_commands: ", rewards["track_xy_lin_commands"][0])
-        print("track_yaw_commands: ", rewards["track_yaw_commands"][0])
-        print("lin_vel_z_l2: ", rewards["lin_vel_z_l2"][0])
-        print("ang_vel_xy_l2: ", rewards["ang_vel_xy_l2"][0])
-        print("dof_torques_l2: ", rewards["dof_torques_l2"][0])
-        #print("direction_reward: ", rewards["direction_reward"][0])
-        print("feet_air_time: ", rewards["feet_air_time"][0])
-        print("height_reward: ", rewards["height_reward"][0])
-        print()
+        #print("Commands: ", self._commands[0].tolist())
+        #print()
+        #print("Avg lin vel: ", avg_lin_vel[0].tolist())
+        #print("track_xy_lin_commands: ", rewards["track_xy_lin_commands"][0])
+        #print()
+        #print("Avg yaw vel: ", avg_yaw_vel[0].tolist())
+        #print("track_yaw_commands: ", rewards["track_yaw_commands"][0])
+        #print()
+        #print("lin_vel_z_l2: ", rewards["lin_vel_z_l2"][0])
+        #print("ang_vel_xy_l2: ", rewards["ang_vel_xy_l2"][0])
+        #print("dof_torques_l2: ", rewards["dof_torques_l2"][0])
+        #print("feet_air_time: ", rewards["feet_air_time"][0])
+        #print("height_reward: ", rewards["height_reward"][0])
+        #print("------------------------------------------------------------------")
+        #print()
         
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
 
@@ -463,8 +480,8 @@ class HaroldEnv(DirectRLEnv):
         # Randomize commands
         temp = self._commands[env_ids].clone()
         temp[:, 0].uniform_(0.0, 0.5)
-        temp[:, 1].uniform_(-0.0, 0.0)
-        temp[:, 2].uniform_(-0.0, 0.0)
+        temp[:, 1].uniform_(0.0, 0.5)
+        temp[:, 2].uniform_(0.0, 0.3)
         self._commands[env_ids] = temp
         
 
@@ -482,6 +499,7 @@ class HaroldEnv(DirectRLEnv):
 
         # Reset velocity history for reset environments
         self._lin_vel_history[env_ids] = 0.0
+        self._yaw_vel_history[env_ids] = 0.0
 
     def _get_info(self) -> dict:
         info = {}

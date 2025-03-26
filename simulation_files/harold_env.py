@@ -287,6 +287,7 @@ class HaroldEnv(DirectRLEnv):
         # Linear velocity tracking (using averaged velocity)
         """
 
+        """
         # Update velocity history by rolling and adding new velocity
         self._lin_vel_history = torch.roll(self._lin_vel_history, shifts=-1, dims=1)
         self._lin_vel_history[:, -1] = self._robot.data.root_lin_vel_b
@@ -298,13 +299,22 @@ class HaroldEnv(DirectRLEnv):
         vel_error = torch.norm(self._commands[:, :2] - avg_lin_vel[:, :2], dim=1)
 
         # Convert to reward
-        lin_vel_reward = torch.exp(-5.0 * vel_error)
+        #lin_vel_reward = torch.exp(-5.0 * vel_error)
+        #lin_vel_reward = torch.exp(-3.5 * vel_error)
+        #lin_vel_reward = torch.exp(-2.0 * vel_error)
+        lin_vel_reward = torch.exp(-1.0 * vel_error)
 
-        #print("commands: ", self._commands[0].tolist())
-        #print("avg_lin_vel: ", avg_lin_vel[0].tolist())
-        #print("vel_error: ", vel_error[0])
-        #print("lin_vel_reward: ", lin_vel_reward[0])
-        #print()
+        print("commands: ", self._commands[0].tolist())
+        print("avg_lin_vel: ", avg_lin_vel[0].tolist())
+        print("vel_error: ", vel_error[0])
+        print("lin_vel_reward: ", lin_vel_reward[0])
+        print()
+        """
+
+        lin_vel_error = torch.sum(torch.square(self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]), dim=1)
+        lin_vel_error_mapped = torch.exp(-lin_vel_error / 0.25)
+
+        
         
 
         """
@@ -321,7 +331,8 @@ class HaroldEnv(DirectRLEnv):
         yaw_error = torch.abs(self._commands[:, 2] - avg_yaw_vel)
 
         # Convert to reward
-        yaw_rate_reward = torch.exp(-5.0 * yaw_error)
+        #yaw_rate_reward = torch.exp(-5.0 * yaw_error)
+        yaw_rate_reward = torch.exp(-3.5 * yaw_error)
 
         """
         # z velocity tracking
@@ -411,17 +422,17 @@ class HaroldEnv(DirectRLEnv):
         #print("xy_acceleration_error: ", xy_acceleration_error[0])
 
         rewards = {
-            "track_xy_lin_commands": lin_vel_reward * self.step_dt * 3.0, #10.0, #9.0, #4.5,
-            "track_yaw_commands": yaw_rate_reward * self.step_dt * 2.0, #1.0,
+            "track_xy_lin_commands": lin_vel_error_mapped * self.step_dt * 2.0, #3.0, #10.0, #9.0, #4.5,
+            "track_yaw_commands": yaw_rate_reward * self.step_dt * 0.0, #1.0, #2.0, #1.0,
             "lin_vel_z_l2": z_vel_error * self.step_dt * 0.0, #-10.0,
-            "ang_vel_xy_l2": ang_vel_error * self.step_dt * -5, #-0.05,
-            "dof_torques_l2": joint_torques * self.step_dt * -0.05, #-0.1, #-0.4 #-0.15, #-0.01,
-            "dof_acc_l2": joint_accel * self.step_dt * -0.5e-6, #-1.0e-6, #-2.5e-7,
-            "action_rate_l2": action_rate * self.step_dt * -0.01, #-0.01,
-            "feet_air_time": air_time_reward * self.step_dt * 2.5, #5.0, #10.0, #7.5,
+            "ang_vel_xy_l2": ang_vel_error * self.step_dt * 0.0, #-5, #-0.05,
+            "dof_torques_l2": joint_torques * self.step_dt * 0.0, #-0.02, #-0.05, #-0.1, #-0.4 #-0.15, #-0.01,
+            "dof_acc_l2": joint_accel * self.step_dt * 0.0, #-0.5e-6, #-1.0e-6, #-2.5e-7,
+            "action_rate_l2": action_rate * self.step_dt * 0.0, #-0.01, #-0.01,
+            "feet_air_time": air_time_reward * self.step_dt * 0.0, #1.25, #2.5, #5.0, #10.0, #7.5,
             #"undesired_contacts": contacts * self.step_dt * -1.0, #-1.0,
-            "height_reward": height_reward * self.step_dt * 0.5, #1.0, #2.5, #20.0, #400.0, #200.0,
-            "xy_acceleration_l2": xy_acceleration_error * self.step_dt * 0 #-0.5 #-0.15,
+            "height_reward": height_reward * self.step_dt * 2.0, #2.5, #20.0, #400.0, #200.0,
+            "xy_acceleration_l2": xy_acceleration_error * self.step_dt * 0.0 #-0.5 #-0.15,
         }
 
         #print("Commands: ", self._commands[0].tolist())
@@ -477,12 +488,12 @@ class HaroldEnv(DirectRLEnv):
         self._actions[env_ids] = 0.0
         self._previous_actions[env_ids] = 0.0
 
-        # Randomize commands
-        temp = self._commands[env_ids].clone()
-        temp[:, 0].uniform_(0.0, 0.5)
-        temp[:, 1].uniform_(0.0, 0.5)
-        temp[:, 2].uniform_(0.0, 0.3)
-        self._commands[env_ids] = temp
+        # Randomize commands only for environments that are resetting
+        temp_commands = self._commands[env_ids]  # Get commands for resetting envs
+        temp_commands[:, 0].uniform_(0.25, 0.25)  # X velocity
+        temp_commands[:, 1].uniform_(-0.0, 0.0)  # Y velocity
+        temp_commands[:, 2].uniform_(-0.0, 0.0)  # Yaw rate
+        self._commands[env_ids] = temp_commands  # Write back the randomized commands
         
 
         # Reset to default root pose/vel and joint state

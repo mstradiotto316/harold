@@ -215,21 +215,21 @@ void updateServoPosWithPD() {
     }
   }
   
-  float dt = CONTROL_INTERVAL / 1000.0;  // Convert ms to seconds.
+  float dt = CONTROL_INTERVAL / 1000.0;
   for (int i = 0; i < 12; i++) {
-    float error = targetPos[i] - currentPos[i];
-    float velocity = (currentPos[i] - prevPos[i]) / dt;
-    
-    // Calculate control effort
-    float control = PD_Kp * error - PD_Kd * velocity;
-    
-    // Apply effort limit (matches simulation's effort_limit)
-    if (control > PD_EFFORT_LIMIT) control = PD_EFFORT_LIMIT;
-    if (control < -PD_EFFORT_LIMIT) control = -PD_EFFORT_LIMIT;
-    
-    prevPos[i] = currentPos[i];
-    currentPos[i] = currentPos[i] + control * dt;
-    setServoToPosition(i, currentPos[i]);
+      float error = targetPos[i] - currentPos[i];
+      float velocity = (currentPos[i] - prevPos[i]) / dt;
+      
+      // Calculate desired velocity from PD
+      float desired_velocity = PD_Kp * error - PD_Kd * velocity;
+      
+      // Rate limit the position change
+      float max_change = PD_EFFORT_LIMIT * dt;
+      float position_change = constrain(desired_velocity * dt, -max_change, max_change);
+      
+      prevPos[i] = currentPos[i];
+      currentPos[i] = constrain(currentPos[i] + position_change, ANGLE_MIN[i], ANGLE_MAX[i]);
+      setServoToPosition(i, currentPos[i]);
   }
 }
 

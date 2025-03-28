@@ -247,7 +247,8 @@ class HaroldEnv(DirectRLEnv):
                     self._robot.data.joint_pos,
                     self._robot.data.joint_vel,
                     self._commands,
-                    self._previous_actions,
+                    self._actions,
+                    #self._previous_actions,
                     sine_wave_1.unsqueeze(-1),
                     sine_wave_2.unsqueeze(-1),
                 )
@@ -311,11 +312,27 @@ class HaroldEnv(DirectRLEnv):
         print()
         """
 
+        # OK SO THIS ONLY WORKS IF THE REWARD IS NEGATIVE AND IF THE COMMANDS ARE NEGATIVE???
+        """
         lin_vel_error = torch.sum(torch.square(self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]), dim=1)
         lin_vel_error_mapped = torch.exp(-lin_vel_error / 0.25)
 
-        
-        
+        print("commands: ", self._commands[0].tolist())
+        print("Lin Vel: ", self._robot.data.root_lin_vel_b[:, :2][0].tolist())
+        difference = self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]
+        print("Difference: ", difference[0].tolist())
+        squared_difference = torch.square(difference[0])
+        print("Difference squared: ", squared_difference.tolist())
+        summed_difference = torch.sum(squared_difference)
+        print("Difference squared and summed: ", summed_difference.tolist())
+        print("squared lin vel error mapped: ", lin_vel_error_mapped[0])
+        """
+
+        lin_vel_error_abs = torch.sum(torch.abs(self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]), dim=1)
+
+        #print("abs lin vel error: ", lin_vel_error_abs[0])
+        #print("abs lin vel error mapped: ", lin_vel_error_abs_mapped[0])
+        #print()
 
         """
         # Yaw rate tracking
@@ -422,16 +439,17 @@ class HaroldEnv(DirectRLEnv):
         #print("xy_acceleration_error: ", xy_acceleration_error[0])
 
         rewards = {
-            "track_xy_lin_commands": lin_vel_error_mapped * self.step_dt * 2.0, #3.0, #10.0, #9.0, #4.5,
+            #"track_xy_lin_commands": lin_vel_error_mapped * self.step_dt * -2.0, #3.0, #10.0, #9.0, #4.5,
+            "track_xy_lin_commands": lin_vel_error_abs * self.step_dt * -4.0, #3.0, #10.0, #9.0, #4.5,
             "track_yaw_commands": yaw_rate_reward * self.step_dt * 0.0, #1.0, #2.0, #1.0,
             "lin_vel_z_l2": z_vel_error * self.step_dt * 0.0, #-10.0,
             "ang_vel_xy_l2": ang_vel_error * self.step_dt * 0.0, #-5, #-0.05,
-            "dof_torques_l2": joint_torques * self.step_dt * 0.0, #-0.02, #-0.05, #-0.1, #-0.4 #-0.15, #-0.01,
+            "dof_torques_l2": joint_torques * self.step_dt * -0.01, #-0.02, #-0.05, #-0.1, #-0.4 #-0.15, #-0.01,
             "dof_acc_l2": joint_accel * self.step_dt * 0.0, #-0.5e-6, #-1.0e-6, #-2.5e-7,
-            "action_rate_l2": action_rate * self.step_dt * 0.0, #-0.01, #-0.01,
-            "feet_air_time": air_time_reward * self.step_dt * 0.0, #1.25, #2.5, #5.0, #10.0, #7.5,
+            "action_rate_l2": action_rate * self.step_dt * -0.01, #-0.01, #-0.01,
+            "feet_air_time": air_time_reward * self.step_dt * 0.3, #1.25, #2.5, #5.0, #10.0, #7.5,
             #"undesired_contacts": contacts * self.step_dt * -1.0, #-1.0,
-            "height_reward": height_reward * self.step_dt * 2.0, #2.5, #20.0, #400.0, #200.0,
+            "height_reward": height_reward * self.step_dt * 1.5, #2.0, #2.5, #20.0, #400.0, #200.0,
             "xy_acceleration_l2": xy_acceleration_error * self.step_dt * 0.0 #-0.5 #-0.15,
         }
 

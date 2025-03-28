@@ -79,11 +79,11 @@ def process_policy_action(raw_actions):
     global action_scale, default_positions
 
     scaled_actions = raw_actions * action_scale  # Apply scaling
-    print(f"Scaled actions: {scaled_actions}")
+    print(f"Scaled actions: {np.array2string(scaled_actions, precision=4, suppress_small=True)}")
 
     # No reordering needed - robot joint order matches simulation
     final_positions = default_positions + scaled_actions
-    print(f"Final positions: {final_positions}")
+    print(f"Final positions: {np.array2string(final_positions, precision=4, suppress_small=True)}")
     
     positions_line = ','.join(f'{pos:.4f}' for pos in final_positions)
     return positions_line
@@ -100,7 +100,7 @@ def load_policy_and_config():
         config = pickle.load(f)
     
     action_scale = config['action_scale']
-    print(f"Action scale: {action_scale}")
+    print(f"Action scale: {action_scale:.4f}")
     
     # Get default joint positions from config
     default_positions = np.array([
@@ -111,11 +111,7 @@ def load_policy_and_config():
             'fl_knee_joint', 'fr_knee_joint', 'bl_knee_joint', 'br_knee_joint',
         ]
     ], dtype=np.float32)
-    print(f"Default positions: {default_positions}")
-
-
-
-
+    print(f"Default positions: {np.array2string(default_positions, precision=4, suppress_small=True)}")
 
     # JOINT MAPPING DIAGNOSTICS
     # Uncomment and modify to test specific joints
@@ -125,10 +121,10 @@ def load_policy_and_config():
     # 8: fl_knee_joint, 9: fr_knee_joint, 10: bl_knee_joint, 11: br_knee_joint
     
     # Example: Modify front left shoulder joint
-    # default_positions[0] = 0.2  # adjust value as needed
+    default_positions[9] = -0.75  # adjust value as needed
     
     # Example: Modify all shoulder joints
-    # default_positions[0:4] = [0.2, 0.2, 0.2, 0.2]
+    #default_positions[0:12] = [0,0,0,0,0,0,0,0,0,0,0,0]
     
     # After any modifications, print the updated values
     if any(np.array(default_positions) != np.array([
@@ -140,12 +136,8 @@ def load_policy_and_config():
         ]
     ])):
         print("WARNING: Default positions have been manually overridden for diagnostic purposes!")
-        print(f"Modified positions: {default_positions}")
+        print(f"Modified positions: {np.array2string(default_positions, precision=4, suppress_small=True)}")
 
-
-
-
-    
     print("Policy and Action Config loaded successfully")
     
     # Compute the safe default command: zero raw action means default positions
@@ -156,12 +148,10 @@ def load_policy_and_config():
 
 def emergency_shutdown(sig, frame):
     """Handle emergency shutdown (Ctrl+C)"""
-    global ser, safe_positions_str
+    global ser
     print("\nEmergency Shutdown Initiated!")
     if ser is not None and ser.is_open:
-        print("Sending safe default positions and closing serial...")
-        send_to_arduino(ser, safe_positions_str)
-        time.sleep(0.1)
+        print("Closing serial connection...")
         ser.close()
     print("Exiting...")
     exit(0)
@@ -172,11 +162,11 @@ def run_policy_step(observation):
     
     # Get raw action from policy
     action = policy_session.run(None, {'obs': observation})[0][0]
-    print(f"Raw action: {action}")
+    print(f"Raw action: {np.array2string(action, precision=4, suppress_small=True)}")
     
     # Clip raw actions to [-1, 1]
     clipped_actions = np.clip(action, -1.0, 1.0)
-    print(f"Clipped action: {clipped_actions}")
+    print(f"Clipped action: {np.array2string(clipped_actions, precision=4, suppress_small=True)}")
     
     # Process actions into joint positions
     positions_command_str = process_policy_action(clipped_actions)
@@ -264,9 +254,9 @@ def main():
                 scaled_action_list = [float(x) for x in scaled_action_list_str]
 
                 print("\n--- STEP DATA ---")
-                print(f"Simulated Observations: {observation[0]}")
-                print(f"Simulated Actions: {action_list}")
-                print(f"Simulated Scaled Actions: {scaled_action_list}")
+                print(f"Simulated Observations: {np.array2string(observation[0], precision=4, suppress_small=True)}")
+                print(f"Simulated Actions: {', '.join([f'{x:.4f}' for x in action_list])}")
+                print(f"Simulated Scaled Actions: {', '.join([f'{x:.4f}' for x in scaled_action_list])}")
                 
                 # Run policy to get joint positions
                 positions_command_str = run_policy_step(observation)
@@ -299,6 +289,9 @@ def main():
             send_to_arduino(ser, safe_positions_str)
             time.sleep(0.5)
             ser.close()
+        
+        print("Program completed successfully")
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()

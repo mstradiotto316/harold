@@ -37,7 +37,7 @@ CONTROL_PERIOD = 1.0 / CONTROL_FREQUENCY
 # ===========================#
 ser = None
 policy_session = None
-action_scale = 2
+action_scale = 1
 default_positions = None
 safe_positions_str = None  # Global safe command string
 

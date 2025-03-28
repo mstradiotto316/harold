@@ -78,14 +78,11 @@ def process_policy_action(raw_actions):
     """Process policy actions into joint position commands"""
     global action_scale, default_positions
 
-    scaled_actions = raw_actions * action_scale  # Apply scaling
+    # Apply scaling
+    scaled_actions = raw_actions * action_scale
     print(f"Scaled actions: {np.array2string(scaled_actions, precision=4, suppress_small=True)}")
-
-    # No reordering needed - robot joint order matches simulation
-    final_positions = default_positions + scaled_actions
-    print(f"Final positions: {np.array2string(final_positions, precision=4, suppress_small=True)}")
     
-    positions_line = ','.join(f'{pos:.4f}' for pos in final_positions)
+    positions_line = ','.join(f'{pos:.4f}' for pos in scaled_actions)
     return positions_line
 
 def load_policy_and_config():
@@ -112,33 +109,7 @@ def load_policy_and_config():
         ]
     ], dtype=np.float32)
     print(f"Default positions: {np.array2string(default_positions, precision=4, suppress_small=True)}")
-
-    # JOINT MAPPING DIAGNOSTICS
-    # Uncomment and modify to test specific joints
-    # Joint indices:
-    # 0: fl_shoulder_joint, 1: fr_shoulder_joint, 2: bl_shoulder_joint, 3: br_shoulder_joint
-    # 4: fl_thigh_joint, 5: fr_thigh_joint, 6: bl_thigh_joint, 7: br_thigh_joint
-    # 8: fl_knee_joint, 9: fr_knee_joint, 10: bl_knee_joint, 11: br_knee_joint
-    
-    # Example: Modify front left shoulder joint
-    default_positions[9] = -0.75  # adjust value as needed
-    
-    # Example: Modify all shoulder joints
-    #default_positions[0:12] = [0,0,0,0,0,0,0,0,0,0,0,0]
-    
-    # After any modifications, print the updated values
-    if any(np.array(default_positions) != np.array([
-        config['default_joint_pos'][name]
-        for name in [
-            'fl_shoulder_joint', 'fr_shoulder_joint', 'bl_shoulder_joint', 'br_shoulder_joint',
-            'fl_thigh_joint', 'fr_thigh_joint', 'bl_thigh_joint', 'br_thigh_joint',
-            'fl_knee_joint', 'fr_knee_joint', 'bl_knee_joint', 'br_knee_joint',
-        ]
-    ])):
-        print("WARNING: Default positions have been manually overridden for diagnostic purposes!")
-        print(f"Modified positions: {np.array2string(default_positions, precision=4, suppress_small=True)}")
-
-    print("Policy and Action Config loaded successfully")
+    print("Policy and Action Config loaded successfully!")
     
     # Compute the safe default command: zero raw action means default positions
     safe_actions = np.zeros(12, dtype=np.float32)

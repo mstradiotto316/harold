@@ -218,9 +218,12 @@ void setup() {
     freeMemory = ((int) &freeMemory) - ((int) __brkval);
   }
   
-  // Send handshake message to host immediately
-  Serial.println(HANDSHAKE_MSG);
-  Serial.println(HANDSHAKE_MSG);  // Send twice to increase chances of detection
+  // Send handshake message to host immediately and repeatedly
+  for (int i = 0; i < 10; i++) {
+    Serial.println(HANDSHAKE_MSG);
+    delay(50);
+  }
+  
   Serial.print("Free memory: ");
   Serial.println(freeMemory);
   Serial.println("Harold robot controller initialized");
@@ -230,15 +233,26 @@ void setup() {
  * MAIN LOOP
  *********************************************************************/
 void loop() {
+  static uint32_t lastHandshakeSent = 0;
+  uint32_t now = millis();
+    
+  // Periodically send handshake message when no commands received
+  if (now - lastCommandMillis > 1000 && now - lastHandshakeSent > 500) {
+    lastHandshakeSent = now;
+    Serial.println(HANDSHAKE_MSG);
+  }
+  
   // Check for direct handshake request (high priority)
   if (Serial.available() > 4) {  // At least 5 bytes for "READY"
     // Peek at incoming data without removing it
     if (Serial.find("READY")) {
       // Found handshake request, clear the buffer and respond
       while (Serial.available()) Serial.read(); // Clear remaining data
-      Serial.println(HANDSHAKE_MSG);
-      Serial.println(HANDSHAKE_MSG);
-      Serial.println(HANDSHAKE_MSG);
+      for (int i = 0; i < 5; i++) {
+        Serial.println(HANDSHAKE_MSG);
+        delay(10);
+      }
+      lastHandshakeSent = now;
     } else {
       // Process regular commands
       processSerialData();

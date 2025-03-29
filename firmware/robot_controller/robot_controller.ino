@@ -72,9 +72,12 @@ const int legJointMap[NUM_LEGS][JOINTS_PER_LEG] = {
 
 // Servo calibration values (min, max pulse width for each servo)
 // These values map from -1.0 to +1.0 in joint space
-// Ensure min < max for proper mapping
-int servoMin[NUM_SERVOS] = {315, 305, 290, 360, 380, 185, 385, 215, 185, 185, 205, 185};
-int servoMax[NUM_SERVOS] = {395, 225, 370, 280, 190, 375, 195, 405, 375, 375, 395, 375};
+// Ensure min < max for proper mapping (except for inverted joints)
+// Indices: 0-3=shoulders, 4-7=thighs, 8-11=knees
+// Knee order: 8=FL, 9=FR, 10=BL, 11=BR
+// For left knees (8, 10), invert min/max to make negative positions point backward
+int servoMin[NUM_SERVOS] = {315, 305, 290, 360, 380, 185, 385, 215, 375, 185, 395, 185};
+int servoMax[NUM_SERVOS] = {395, 225, 370, 280, 190, 375, 195, 405, 185, 375, 205, 375};
 
 // Angular limits (radians) for each joint type - DEPRECATED, use jointLimits struct instead
 const float jointAngles[JOINTS_PER_LEG][2] = {
@@ -426,6 +429,14 @@ float mapAngleToServo(int jointIdx, float angle) {
   // Clamp to 0.0 - 1.0 range
   if (normalizedPos < 0.0) normalizedPos = 0.0;
   if (normalizedPos > 1.0) normalizedPos = 1.0;
+  
+  // Check if this is a left knee joint which has inverted direction
+  // (joint 8 = front left knee, joint 10 = back left knee)
+  bool isLeftKnee = (jointIdx == 8 || jointIdx == 10);
+  if (isLeftKnee) {
+    // Invert the normalized position for left knees
+    normalizedPos = 1.0 - normalizedPos;
+  }
   
   // Map to servo pulse range
   return (normalizedPos * (servoMax[jointIdx] - servoMin[jointIdx])) + servoMin[jointIdx];

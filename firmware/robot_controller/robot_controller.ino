@@ -76,8 +76,8 @@ const int legJointMap[NUM_LEGS][JOINTS_PER_LEG] = {
 int servoMin[NUM_SERVOS] = {315, 305, 290, 360, 380, 185, 385, 215, 185, 185, 205, 185};
 int servoMax[NUM_SERVOS] = {395, 225, 370, 280, 190, 375, 195, 405, 375, 375, 395, 375};
 
-// Angular limits (radians) for each joint type
-const float jointLimits[JOINTS_PER_LEG][2] = {
+// Angular limits (radians) for each joint type - DEPRECATED, use jointLimits struct instead
+const float jointAngles[JOINTS_PER_LEG][2] = {
   {-0.35, 0.35},  // Shoulder min/max
   {-0.79, 0.79},  // Thigh min/max
   {-0.79, 0.79}   // Knee min/max
@@ -590,9 +590,11 @@ bool validatePositions() {
   bool allValid = true;
   
   for (int i = 0; i < NUM_SERVOS; i++) {
+    uint8_t limitIdx = joints[i].limitIndex;
+    
     // Constrain target to valid range
-    if (joints[i].targetPos < joints[i].minAngle || 
-        joints[i].targetPos > joints[i].maxAngle) {
+    if (joints[i].targetPos < jointLimits[limitIdx].minAngle || 
+        joints[i].targetPos > jointLimits[limitIdx].maxAngle) {
         
       // Clamp to valid range
       joints[i].targetPos = constrainJointAngle(i, joints[i].targetPos);

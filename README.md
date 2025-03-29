@@ -1,59 +1,65 @@
-# Harold Robot
+# Harold Quadruped Robot
 
-This repository contains the code for the Harold quadruped robot.
+This repository contains the code for the Harold quadruped robot, a small legged robot platform for reinforcement learning research and experimentation.
 
 ## Repository Structure 
 
 - `firmware/`: Arduino code for the robot
   - `robot_controller/`: Main servo controller for the robot
-  - `calibration/`: Servo calibration utility
+  - `servo_calibration/`: Servo calibration utility
+  - `joint_test/`: Test individual robot joints
 
 - `policy/`: Neural network policy for robot control
   - `harold_policy.onnx`: ONNX model for the control policy
   - `action_config.pt`: Configuration for action scaling
-  - `robot_controller.py`: Main script for deploying the policy on the robot
+  - `observations_playback_test.py`: Test policy with recorded observations
 
 - `sensors/`: Code for interfacing with sensors
   - `imu_reader.py`: Class for MPU6050 IMU sensor integration
+  - `smbus_example.py`: Example for I2C communication
 
 - `tools/`: Utility scripts
   - `verify_policy.py`: Verify the ONNX policy model
   - `test_imu.py`: Test the IMU sensor
+  - `edit_action_config.py`: Tool to edit action configuration
+
+- `simulation_files/` & `pushup_simulation_files/`: Simulation environments
+  - Contains simulation code for training and testing the robot
 
 - `simulation_logs/`: Log files from simulation for playback testing
+  - `observations.log`: Recorded sensor observations
+  - `actions.log`: Recorded policy actions
+  - `processed_actions.log`: Actions processed for deployment
 
-## Usage
+## Hardware Components
 
-### Running the Robot with Live IMU Data
+### Computing
+- **Jetson Nano**: Main computing platform running the neural network policy
+  - Communicates with IMU via I2C bus 1
+  - Connects to Arduino via USB (typically /dev/ttyACM0)
 
-To run the robot with live IMU sensor data:
+### Sensors
+- **MPU6050 IMU**: 6-axis inertial measurement unit
+  - I2C address: 0x68
+  - Provides acceleration and gyroscope measurements
+  - Connected to I2C bus 1 on Jetson Nano
 
-```bash
-python3 policy/robot_controller.py [--serial_port PORT]
-```
+### Actuators
+- **Arduino**: Motor controller board
+  - Serial communication at 115200 baud rate
+  - Runs control loop at 200Hz (5ms intervals)
 
-### Running the Robot with Recorded Observation Logs
+- **Adafruit PCA9685**: PWM Servo Driver
+  - I2C address: 0x40
+  - Oscillator frequency: 27MHz
+  - PWM frequency: 50Hz for standard servos
 
-To run the robot using pre-recorded observation logs from simulation:
+- **12 Servo Motors**: For quadruped locomotion
+  - 3 servos per leg (shoulder, thigh, knee)
+  - Custom calibration values for each servo
+  - Safety features include command timeout (250ms) and position limits
 
-```bash
-python3 policy/robot_controller_observations_playback.py [--obs_log_file PATH] [--serial_port PORT] [--loop]
-```
-
-Options:
-- `--obs_log_file PATH`: Specify a custom observation log file (default: simulation_logs/observations.log)
-- `--serial_port PORT`: Specify a custom serial port (default: /dev/ttyACM0)
-- `--loop`: Continuously loop the observation log file
-
-## Hardware Requirements
-
-- Arduino microcontroller
-- MPU6050 IMU sensor
-- 12 servo motors
-
-## Hardware Configuration
-
-### Joint Configuration
+## Joint Configuration
 
 The robot's joint configuration matches the simulation directly:
 
@@ -76,3 +82,26 @@ The robot's joint configuration matches the simulation directly:
    - Thighs and Knees: Positive positions move toward the front of the robot, negative positions move toward the rear
 
 This configuration ensures that the real robot's movements directly correspond to the simulation, with no need for joint remapping or direction inversions.
+
+## Usage
+
+### Running with Live IMU Data
+
+To run the robot with live IMU sensor data:
+
+```bash
+python3 policy/robot_controller.py [--serial_port PORT]
+```
+
+### Running with Recorded Observations
+
+To run the robot using pre-recorded observation logs from simulation:
+
+```bash
+python3 policy/observations_playback_test.py [--obs_log_file PATH] [--serial_port PORT] [--loop]
+```
+
+Options:
+- `--obs_log_file PATH`: Specify a custom observation log file (default: simulation_logs/observations.log)
+- `--serial_port PORT`: Specify a custom serial port (default: /dev/ttyACM0)
+- `--loop`: Continuously loop the observation log file

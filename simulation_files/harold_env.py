@@ -180,9 +180,8 @@ class HaroldEnv(DirectRLEnv):
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         """Called before physics steps. Used to process and scale actions."""
         self._actions = actions.clone()
-        #self._processed_actions = (self.cfg.action_scale * self._actions) + self._robot.data.default_joint_pos
         self._processed_actions = torch.clamp(
-            (self.cfg.action_scale * self._actions), # + self._robot.data.default_joint_pos,
+            (self.cfg.action_scale * self._actions),
             self._JOINT_ANGLE_MIN,
             self._JOINT_ANGLE_MAX,
         )
@@ -202,7 +201,6 @@ class HaroldEnv(DirectRLEnv):
         if self._decimation_counter % 18 == 0: # Log every 18 steps
             with open(log_dir + "processed_actions.log", "a") as f:
                 f.write(f"{self._processed_actions.tolist()}\n") # Write tensor data only
-        
         """
         
         
@@ -439,7 +437,6 @@ class HaroldEnv(DirectRLEnv):
         #print("xy_acceleration_error: ", xy_acceleration_error[0])
 
         rewards = {
-            #"track_xy_lin_commands": lin_vel_error_mapped * self.step_dt * -2.0, #3.0, #10.0, #9.0, #4.5,
             "track_xy_lin_commands": lin_vel_error_abs * self.step_dt * -4.0, #3.0, #10.0, #9.0, #4.5,
             "track_yaw_commands": yaw_rate_reward * self.step_dt * 0.0, #1.0, #2.0, #1.0,
             "lin_vel_z_l2": z_vel_error * self.step_dt * 0.0, #-10.0,

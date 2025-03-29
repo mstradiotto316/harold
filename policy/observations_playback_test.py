@@ -131,30 +131,43 @@ def load_policy_and_config():
 
 def emergency_shutdown(sig, frame):
     """Handle emergency shutdown (Ctrl+C)"""
-    global ser
+    global ser, safe_positions_str
     print("\nEmergency Shutdown Initiated!")
-    if ser is not None and ser.is_open:
-        print("Closing serial connection...")
-        ser.close()
+    try:
+        if ser is not None and ser.is_open:
+            print("Sending safe positions before closing...")
+            if safe_positions_str:
+                send_to_arduino(ser, safe_positions_str)
+                time.sleep(0.5)
+            print("Closing serial connection...")
+            ser.close()
+    except Exception as e:
+        print(f"Error during shutdown: {e}")
     print("Exiting...")
-    exit(0)
+    # Use sys.exit instead of exit for better compatibility
+    sys.exit(0)
 
 def run_policy_step(observation):
     """Run a single step of the policy"""
     global policy_session, action_scale
     
-    # Get raw action from policy
-    action = policy_session.run(None, {'obs': observation})[0][0]
-    print(f"Raw action: {np.array2string(action, precision=4, suppress_small=True)}")
-    
-    # Clip raw actions to [-1, 1]
-    clipped_actions = np.clip(action, -1.0, 1.0)
-    print(f"Clipped action: {np.array2string(clipped_actions, precision=4, suppress_small=True)}")
-    
-    # Process actions into joint positions
-    positions_command_str = process_policy_action(clipped_actions)
-    
-    return positions_command_str
+    try:
+        # Get raw action from policy
+        action = policy_session.run(None, {'obs': observation})[0][0]
+        print(f"Raw action: {np.array2string(action, precision=4, suppress_small=True)}")
+        
+        # Clip raw actions to [-1, 1]
+        clipped_actions = np.clip(action, -1.0, 1.0)
+        print(f"Clipped action: {np.array2string(clipped_actions, precision=4, suppress_small=True)}")
+        
+        # Process actions into joint positions
+        positions_command_str = process_policy_action(clipped_actions)
+        
+        return positions_command_str
+    except Exception as e:
+        print(f"Error in run_policy_step: {e}")
+        # Return safe positions as fallback
+        return safe_positions_str if safe_positions_str else "0,0,0,0,0,0,0,0,0,0,0,0"
 
 def main():
     """Main function for observation log playback"""
@@ -213,28 +226,52 @@ def main():
     try:
 
         line_count = 0
+        total_lines = 0
+        
+        # Count total lines for progress tracking
+        with open(SIMULATION_LOGS_DIR, 'r') as f:
+            total_lines = len(f.readlines())
+        print(f"Total observations to process: {total_lines}")
         
         with open(SIMULATION_LOGS_DIR, 'r') as obs_log_file, \
              open(ACTION_LOGS_DIR, 'r') as action_log_file, \
              open(SCALED_ACTION_LOGS_DIR, 'r') as scaled_action_log_file:
             
+            print("Starting playback loop...")
             for obs_line, action_line, scaled_action_line in zip(obs_log_file, action_log_file, scaled_action_log_file):
                 line_count += 1
                 
                 # Start timing
                 start_time = time.time()
+                print(f"Processing line {line_count}/{total_lines} of {total_lines}")
                
                 # Parse observation from log line
-                obs_list_str = obs_line.strip().strip('[]').split(',')
-                obs_list = [float(x) for x in obs_list_str]
-                observation = np.array(obs_list, dtype=np.float32).reshape(1, -1)
+                try:
+                    obs_list_str = obs_line.strip().strip('[]').split(',')
+                    obs_list = [float(x) for x in obs_list_str]
+                    observation = np.array(obs_list, dtype=np.float32).reshape(1, -1)
+                except Exception as e:
+                    print(f"Error parsing observation line {line_count}: {e}")
+                    print(f"Observation line content: {obs_line[:100]}...")
+                    # Use an empty observation as fallback
+                    observation = np.zeros((1, 50), dtype=np.float32)
 
                 # Parse action and scaled action (optional, for logging/comparison)
-                action_list_str = action_line.strip().strip('[]').split(',')
-                action_list = [float(x) for x in action_list_str]
+                try:
+                    action_list_str = action_line.strip().strip('[]').split(',')
+                    action_list = [float(x) for x in action_list_str]
+                except Exception as e:
+                    print(f"Error parsing action line {line_count}: {e}")
+                    print(f"Action line content: {action_line[:100]}...")
+                    action_list = []
                 
-                scaled_action_list_str = scaled_action_line.strip().strip('[]').split(',')
-                scaled_action_list = [float(x) for x in scaled_action_list_str]
+                try:
+                    scaled_action_list_str = scaled_action_line.strip().strip('[]').split(',')
+                    scaled_action_list = [float(x) for x in scaled_action_list_str]
+                except Exception as e:
+                    print(f"Error parsing scaled action line {line_count}: {e}")
+                    print(f"Scaled action line content: {scaled_action_line[:100]}...")
+                    scaled_action_list = []
 
                 print("\n--- STEP DATA ---")
                 print(f"Simulated Observations: {np.array2string(observation[0], precision=4, suppress_small=True)}")
@@ -266,6 +303,7 @@ def main():
         emergency_shutdown(None, None)
     finally:
         print("\n=== Playback Finished ===")
+        print(f"Processed {line_count} observations out of {total_lines} total observations")
         # Send safe positions before closing
         if ser is not None and ser.is_open:
             print("Sending safe positions...")

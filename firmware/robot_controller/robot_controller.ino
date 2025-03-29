@@ -15,14 +15,15 @@
 //==========================//
 //     GLOBAL CONSTANTS     //
 //==========================//
-#define MAX_MESSAGE_LENGTH 256
+#define MAX_MESSAGE_LENGTH 128  // Reduced from 256 to save memory
 #define SERVO_FREQ 50
 #define HANDSHAKE_MSG "ARDUINO_READY"
 
 // Control timing parameters (in microseconds for precision)
 #define CONTROL_INTERVAL_US 5000     // 5ms (200Hz) control loop
-#define COMMAND_TIMEOUT_MS 250       // Timeout for reverting to safe position
+#define COMMAND_TIMEOUT_MS 1000      // Timeout for reverting to safe position (increased to 1000ms)
 #define MOVEMENT_TIMEOUT_MS 5000     // Timeout for detecting stuck movements
+#define DEBUG_INTERVAL_MS 1000       // Interval for debug messages
 
 // Servo physical limits (in pulse width)
 #define SERVO_MIN_PULSE 150          // Absolute minimum pulse width
@@ -30,11 +31,11 @@
 
 // PID Controller parameters
 #define PID_KP 5.0                   // Proportional gain
-#define PID_KI 0.05                  // Integral gain
-#define PID_KD 2.0                   // Derivative gain
-#define PID_EFFORT_LIMIT 0.5         // Control effort limit (rad/s)
-#define PID_INTEGRAL_LIMIT 0.2       // Anti-windup integral limit
-#define PID_INTEGRAL_DECAY 0.98      // Integral term decay factor
+#define PID_KI 0.02                  // Integral gain
+#define PID_KD 1.0                   // Derivative gain
+#define PID_EFFORT_LIMIT 0.8         // Control effort limit (rad/s)
+#define PID_INTEGRAL_LIMIT 0.1       // Anti-windup integral limit
+#define PID_INTEGRAL_DECAY 0.95      // Integral term decay factor
 
 // Filtering parameters
 #define FILTER_ALPHA 0.7             // Low-pass filter coefficient (0-1)
@@ -71,8 +72,9 @@ const int legJointMap[NUM_LEGS][JOINTS_PER_LEG] = {
 
 // Servo calibration values (min, max pulse width for each servo)
 // These values map from -1.0 to +1.0 in joint space
-int servoMin[NUM_SERVOS] = {315, 305, 290, 360, 380, 185, 385, 215, 375, 185, 395, 185};
-int servoMax[NUM_SERVOS] = {395, 225, 370, 280, 190, 375, 195, 405, 185, 375, 205, 375};
+// Ensure min < max for proper mapping
+int servoMin[NUM_SERVOS] = {315, 305, 290, 360, 380, 185, 385, 215, 185, 185, 205, 185};
+int servoMax[NUM_SERVOS] = {395, 225, 370, 280, 190, 375, 195, 405, 375, 375, 395, 375};
 
 // Angular limits (radians) for each joint type
 const float jointLimits[JOINTS_PER_LEG][2] = {
@@ -92,21 +94,34 @@ const float safePositions[JOINTS_PER_LEG] = {
 //       JOINT STATE        //
 //==========================//
 
-// Current state of each joint
+// Joint limit structure - shared across joint types
+struct JointLimit {
+  int8_t type;          // 0=shoulder, 1=thigh, 2=knee
+  float minAngle;       // Min angle (rad)
+  float maxAngle;       // Max angle (rad)
+  float safePos;        // Safe position (rad)
+};
+
+// Current state of each joint - optimized for memory
 struct JointState {
   float targetPos;      // Commanded position (rad)
   float currentPos;     // Current position (rad)
-  float filteredPos;    // Filtered position (rad)
   float prevPos;        // Previous position for velocity (rad)
   float velocity;       // Estimated velocity (rad/s)
   float integral;       // Integral term for PID
-  float minAngle;       // Minimum allowed angle (rad)
-  float maxAngle;       // Maximum allowed angle (rad)
-  float safePos;        // Safe position (rad)
   uint32_t lastMove;    // Last time joint moved significantly
-  bool isCalibrated;    // Whether joint has been calibrated
+  uint8_t limitIndex:4; // Index to limits lookup (0-2)
+  uint8_t flags:4;      // Bit flags (bit 0: isCalibrated)
 };
 
+// Joint limits for each type (shoulder, thigh, knee)
+const JointLimit jointLimits[JOINTS_PER_LEG] = {
+  {SHOULDER, -0.35, 0.35, 0.0},    // Shoulder
+  {THIGH, -0.79, 0.79, 0.3},       // Thigh
+  {KNEE, -0.79, 0.79, -0.75}       // Knee
+};
+
+// Joint state array
 JointState joints[NUM_SERVOS];
 
 //==========================//
@@ -188,9 +203,20 @@ void setup() {
   previousMicros = lastControlMicros;
   lastCommandMillis = millis();
   
+  // Display memory information
+  extern int __heap_start, *__brkval;
+  int freeMemory;
+  if ((int) __brkval == 0) {
+    freeMemory = ((int) &freeMemory) - ((int) &__heap_start);
+  } else {
+    freeMemory = ((int) &freeMemory) - ((int) __brkval);
+  }
+  
   // Send handshake message to host immediately
   Serial.println(HANDSHAKE_MSG);
   Serial.println(HANDSHAKE_MSG);  // Send twice to increase chances of detection
+  Serial.print("Free memory: ");
+  Serial.println(freeMemory);
   Serial.println("Harold robot controller initialized");
 }
 
@@ -270,19 +296,16 @@ void setupJoints() {
       int idx = legJointMap[leg][joint];
       
       // Set joint parameters based on joint type
-      joints[idx].minAngle = jointLimits[joint][0];
-      joints[idx].maxAngle = jointLimits[joint][1];
-      joints[idx].safePos = safePositions[joint];
+      joints[idx].limitIndex = joint;
+      joints[idx].flags = 1; // Set calibrated flag
       
       // Initialize state variables
-      joints[idx].targetPos = joints[idx].safePos;
-      joints[idx].currentPos = joints[idx].safePos;
-      joints[idx].filteredPos = joints[idx].safePos;
-      joints[idx].prevPos = joints[idx].safePos;
+      joints[idx].targetPos = jointLimits[joint].safePos;
+      joints[idx].currentPos = jointLimits[joint].safePos;
+      joints[idx].prevPos = jointLimits[joint].safePos;
       joints[idx].velocity = 0.0;
       joints[idx].integral = 0.0;
       joints[idx].lastMove = millis();
-      joints[idx].isCalibrated = true;
     }
   }
   
@@ -305,20 +328,20 @@ void updateServos() {
     float controlOutput = applyPidControl(i, actualDt);
     
     // Update position based on control output
-    float newPos = joints[i].filteredPos + controlOutput * actualDt;
+    float filtered = joints[i].currentPos;
+    float newPos = filtered + controlOutput * actualDt;
     
     // Constrain to valid joint angles
     newPos = constrainJointAngle(i, newPos);
     
     // Store previous position for velocity calculation
-    joints[i].prevPos = joints[i].filteredPos;
+    joints[i].prevPos = filtered;
     
-    // Apply filtering to smooth motion
-    joints[i].currentPos = newPos;
-    joints[i].filteredPos = (FILTER_ALPHA * newPos) + ((1 - FILTER_ALPHA) * joints[i].filteredPos);
+    // Apply filtering to smooth motion (directly to currentPos)
+    joints[i].currentPos = (FILTER_ALPHA * newPos) + ((1 - FILTER_ALPHA) * filtered);
     
     // Estimate velocity with filtering
-    float rawVelocity = (joints[i].filteredPos - joints[i].prevPos) / actualDt;
+    float rawVelocity = (joints[i].currentPos - joints[i].prevPos) / actualDt;
     joints[i].velocity = (VELOCITY_ALPHA * rawVelocity) + ((1 - VELOCITY_ALPHA) * joints[i].velocity);
     
     // Detect if joint is moving significantly
@@ -327,25 +350,32 @@ void updateServos() {
     }
     
     // Command the servo to the filtered position
-    setServoPosition(i, joints[i].filteredPos);
+    setServoPosition(i, joints[i].currentPos);
   }
   
   // Check for stuck joints (no movement despite commands)
   uint32_t currentTime = millis();
   for (int i = 0; i < NUM_SERVOS; i++) {
-    if (fabs(joints[i].targetPos - joints[i].filteredPos) > 0.05 && 
+    if (fabs(joints[i].targetPos - joints[i].currentPos) > 0.05 && 
         currentTime - joints[i].lastMove > MOVEMENT_TIMEOUT_MS) {
       // Joint appears stuck - log but don't interrupt
-      // Serial.print("Warning: Joint ");
-      // Serial.print(i);
-      // Serial.println(" appears stuck");
+      static uint32_t lastStuckWarning = 0;
+      if (currentTime - lastStuckWarning > DEBUG_INTERVAL_MS) {
+        lastStuckWarning = currentTime;
+        Serial.print("WARNING: Joint ");
+        Serial.print(i);
+        Serial.print(" stuck at ");
+        Serial.print(joints[i].currentPos);
+        Serial.print(" target ");
+        Serial.println(joints[i].targetPos);
+      }
     }
   }
 }
 
 float applyPidControl(int jointIdx, float dt) {
   // Calculate error terms
-  float error = joints[jointIdx].targetPos - joints[jointIdx].filteredPos;
+  float error = joints[jointIdx].targetPos - joints[jointIdx].currentPos;
   
   // Update integral term with anti-windup
   joints[jointIdx].integral = joints[jointIdx].integral * PID_INTEGRAL_DECAY;
@@ -388,8 +418,9 @@ void setServoPosition(int jointIdx, float angle) {
 
 float mapAngleToServo(int jointIdx, float angle) {
   // Map joint angle from radians to normalized position (0.0 to 1.0)
-  float minAngle = joints[jointIdx].minAngle;
-  float maxAngle = joints[jointIdx].maxAngle;
+  uint8_t limitIdx = joints[jointIdx].limitIndex;
+  float minAngle = jointLimits[limitIdx].minAngle;
+  float maxAngle = jointLimits[limitIdx].maxAngle;
   float normalizedPos = (angle - minAngle) / (maxAngle - minAngle);
   
   // Clamp to 0.0 - 1.0 range
@@ -401,15 +432,17 @@ float mapAngleToServo(int jointIdx, float angle) {
 }
 
 float constrainJointAngle(int jointIdx, float angle) {
-  if (angle < joints[jointIdx].minAngle) return joints[jointIdx].minAngle;
-  if (angle > joints[jointIdx].maxAngle) return joints[jointIdx].maxAngle;
+  uint8_t limitIdx = joints[jointIdx].limitIndex;
+  if (angle < jointLimits[limitIdx].minAngle) return jointLimits[limitIdx].minAngle;
+  if (angle > jointLimits[limitIdx].maxAngle) return jointLimits[limitIdx].maxAngle;
   return angle;
 }
 
 void moveToSafePosition() {
   // Update target positions to safe values
   for (int i = 0; i < NUM_SERVOS; i++) {
-    joints[i].targetPos = joints[i].safePos;
+    uint8_t limitIdx = joints[i].limitIndex;
+    joints[i].targetPos = jointLimits[limitIdx].safePos;
   }
 }
 
@@ -533,6 +566,18 @@ void parseCommand(const char* command) {
     lastCommandMillis = millis();
     metrics.commandCount++;
     
+    // Debug output every second to avoid flooding
+    static uint32_t lastCmdDebug = 0;
+    uint32_t now = millis();
+    if (now - lastCmdDebug > DEBUG_INTERVAL_MS) {
+      lastCmdDebug = now;
+      Serial.print("CMD: ");
+      for (int i = 0; i < NUM_SERVOS; i++) {
+        Serial.print(joints[i].targetPos, 3);
+        Serial.print(i < NUM_SERVOS-1 ? "," : "\n");
+      }
+    }
+    
     // Check for any invalid positions
     validatePositions();
   } else {
@@ -568,7 +613,7 @@ void sendStatus() {
   Serial.print(" CAL=");
   bool allCalibrated = true;
   for (int i = 0; i < NUM_SERVOS; i++) {
-    if (!joints[i].isCalibrated) {
+    if (!(joints[i].flags & 0x01)) {  // Check calibrated flag (bit 0)
       allCalibrated = false;
       break;
     }
@@ -597,7 +642,7 @@ void sendFeedback() {
   if (metrics.commandCount > 0) {
     Serial.print("POS:");
     for (int i = 0; i < NUM_SERVOS; i++) {
-      Serial.print(joints[i].filteredPos, 3);
+      Serial.print(joints[i].currentPos, 3);
       if (i < NUM_SERVOS - 1) {
         Serial.print(",");
       }

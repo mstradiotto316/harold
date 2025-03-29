@@ -78,11 +78,23 @@ def process_policy_action(raw_actions):
     """Process policy actions into joint position commands"""
     global action_scale, default_positions
 
+    # Define joint angle limits (matching simulation)
+    JOINT_ANGLE_MIN = np.array([-0.3491, -0.3491, -0.3491, -0.3491, 
+                               -0.7853, -0.7853, -0.7853, -0.7853,
+                               -0.7853, -0.7853, -0.7853, -0.7853], dtype=np.float32)
+    JOINT_ANGLE_MAX = np.array([0.3491, 0.3491, 0.3491, 0.3491,
+                               0.7853, 0.7853, 0.7853, 0.7853,
+                               0.7853, 0.7853, 0.7853, 0.7853], dtype=np.float32)
+
     # Apply scaling
     scaled_actions = raw_actions * action_scale
     print(f"Scaled actions: {np.array2string(scaled_actions, precision=4, suppress_small=True)}")
     
-    positions_line = ','.join(f'{pos:.4f}' for pos in scaled_actions)
+    # Clamp to joint angle limits (matching simulation)
+    processed_actions = np.clip(scaled_actions, JOINT_ANGLE_MIN, JOINT_ANGLE_MAX)
+    print(f"Processed actions: {np.array2string(processed_actions, precision=4, suppress_small=True)}")
+    
+    positions_line = ','.join(f'{pos:.4f}' for pos in processed_actions)
     return positions_line
 
 def load_policy_and_config():

@@ -473,12 +473,24 @@ void parseCommand(const char* command) {
   bool validCommand = true;
   
   while (jointIdx < NUM_SERVOS && *start && validCommand) {
-    // Parse float value
-    char* end;
-    float value = strtof(start, &end);
+    // Convert current value to float using atof
+    char buffer[20]; // Temporary buffer for numeric extraction
+    int i = 0;
     
-    // Check if parsing was successful
-    if (end == start) {
+    // Skip any leading whitespace
+    while (*start && isspace(*start)) start++;
+    
+    // Extract the numeric part
+    while (*start && (isdigit(*start) || *start == '.' || *start == '-' || *start == 'e' || *start == 'E' || *start == '+') && i < 19) {
+      buffer[i++] = *start++;
+    }
+    buffer[i] = '\0';
+    
+    // Convert to float
+    float value = atof(buffer);
+    
+    // Check if we parsed a value (buffer not empty)
+    if (i == 0) {
       validCommand = false;
       break;
     }
@@ -488,7 +500,7 @@ void parseCommand(const char* command) {
     jointIdx++;
     
     // Move to next value
-    start = strchr(end, ',');
+    start = strchr(start, ',');
     if (start) start++; // Skip comma
     else if (jointIdx < NUM_SERVOS) {
       validCommand = false; // Not enough values

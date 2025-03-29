@@ -154,7 +154,6 @@ bool messageDecode(const char* buffer) {
   }
   // Update the time of the last valid command.
   lastCommandTime = millis();
-  Serial.println("\nACK: Position command received");
   return true;
 }
 

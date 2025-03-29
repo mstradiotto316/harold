@@ -17,7 +17,7 @@
 //==========================//
 #define MAX_MESSAGE_LENGTH 256
 #define SERVO_FREQ 50
-#define HANDSHAKE_MSG "HAROLD_READY"
+#define HANDSHAKE_MSG "ARDUINO_READY"
 
 // Control timing parameters (in microseconds for precision)
 #define CONTROL_INTERVAL_US 5000     // 5ms (200Hz) control loop

@@ -188,8 +188,9 @@ void setup() {
   previousMicros = lastControlMicros;
   lastCommandMillis = millis();
   
-  // Send handshake message to host
+  // Send handshake message to host immediately
   Serial.println(HANDSHAKE_MSG);
+  Serial.println(HANDSHAKE_MSG);  // Send twice to increase chances of detection
   Serial.println("Harold robot controller initialized");
 }
 
@@ -197,8 +198,23 @@ void setup() {
  * MAIN LOOP
  *********************************************************************/
 void loop() {
-  // Process incoming commands
-  processSerialData();
+  // Check for direct handshake request (high priority)
+  if (Serial.available() > 4) {  // At least 5 bytes for "READY"
+    // Peek at incoming data without removing it
+    if (Serial.find("READY")) {
+      // Found handshake request, clear the buffer and respond
+      while (Serial.available()) Serial.read(); // Clear remaining data
+      Serial.println(HANDSHAKE_MSG);
+      Serial.println(HANDSHAKE_MSG);
+      Serial.println(HANDSHAKE_MSG);
+    } else {
+      // Process regular commands
+      processSerialData();
+    }
+  } else if (Serial.available() > 0) {
+    // Process regular commands
+    processSerialData();
+  }
   
   // Run control loop at precise intervals
   uint32_t currentMicros = micros();
@@ -455,8 +471,11 @@ void processSerialData() {
 }
 
 void parseCommand(const char* command) {
-  // Check for handshake request
-  if (strstr(command, "READY?") != NULL) {
+  // Check for handshake request (both with and without the # delimiter)
+  if (strstr(command, "READY") != NULL) {
+    // Send handshake multiple times to increase likelihood of reception
+    Serial.println(HANDSHAKE_MSG);
+    Serial.println(HANDSHAKE_MSG);
     Serial.println(HANDSHAKE_MSG);
     return;
   }

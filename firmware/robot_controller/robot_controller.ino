@@ -193,6 +193,13 @@ void setup() {
   Serial.begin(115200);
   while (!Serial);
   
+  // CRUCIAL: Send handshake messages immediately before anything else
+  // This ensures the Python controller sees them as early as possible
+  for (int i = 0; i < 50; i++) {
+    Serial.println(HANDSHAKE_MSG);
+    delay(10);
+  }
+  
   // Initialize PWM driver
   pwm.begin();
   pwm.setOscillatorFrequency(27000000);
@@ -200,6 +207,12 @@ void setup() {
   
   // Wait for hardware to stabilize
   delay(100);
+  
+  // SEND MORE HANDSHAKES after driver initialization
+  for (int i = 0; i < 20; i++) {
+    Serial.println(HANDSHAKE_MSG);
+    delay(10);
+  }
   
   // Configure joint parameters and initialize to safe positions
   setupJoints();
@@ -218,10 +231,10 @@ void setup() {
     freeMemory = ((int) &freeMemory) - ((int) __brkval);
   }
   
-  // Send handshake message to host immediately and repeatedly
+  // Send final batch of handshake messages
   for (int i = 0; i < 10; i++) {
     Serial.println(HANDSHAKE_MSG);
-    delay(50);
+    delay(10);
   }
   
   Serial.print("Free memory: ");
@@ -235,31 +248,50 @@ void setup() {
 void loop() {
   static uint32_t lastHandshakeSent = 0;
   uint32_t now = millis();
-    
-  // Periodically send handshake message when no commands received
-  if (now - lastCommandMillis > 1000 && now - lastHandshakeSent > 500) {
-    lastHandshakeSent = now;
-    Serial.println(HANDSHAKE_MSG);
-  }
   
-  // Check for direct handshake request (high priority)
-  if (Serial.available() > 4) {  // At least 5 bytes for "READY"
-    // Peek at incoming data without removing it
-    if (Serial.find("READY")) {
-      // Found handshake request, clear the buffer and respond
+  // PRIORITY 1: Check for any data that might be a handshake request
+  if (Serial.available() > 0) {
+    // Check entire input buffer for any part of "READY"
+    char buffer[32];
+    int bytesRead = Serial.readBytes(buffer, min(31, Serial.available()));
+    buffer[bytesRead] = 0; // Null terminate
+    
+    // Check if any part of the buffer contains READY
+    if (strstr(buffer, "READY") != NULL || 
+        strstr(buffer, "eady") != NULL || 
+        strstr(buffer, "REA") != NULL) {
+      
+      // This might be a handshake request - respond aggressively
       while (Serial.available()) Serial.read(); // Clear remaining data
-      for (int i = 0; i < 5; i++) {
+      
+      // Send MANY handshake messages to ensure one gets through
+      for (int i = 0; i < 20; i++) {
         Serial.println(HANDSHAKE_MSG);
-        delay(10);
+        Serial.flush(); // Wait for data to be sent
+        delay(5);
       }
+      
       lastHandshakeSent = now;
+      lastCommandMillis = now; // Reset command timeout
     } else {
-      // Process regular commands
+      // Could be regular data - process as command
+      // Copy the buffer contents back into the serial processor
+      for (int i = 0; i < bytesRead; i++) {
+        if (bufferIndex < (MAX_MESSAGE_LENGTH - 1)) {
+          incomingBuffer[bufferIndex++] = buffer[i];
+          incomingBuffer[bufferIndex] = '\0';
+        }
+      }
+      
+      // Continue processing any additional data
       processSerialData();
     }
-  } else if (Serial.available() > 0) {
-    // Process regular commands
-    processSerialData();
+  }
+  
+  // PRIORITY 2: Periodically send handshake message when idle
+  if (now - lastCommandMillis > 500 && now - lastHandshakeSent > 100) {
+    lastHandshakeSent = now;
+    Serial.println(HANDSHAKE_MSG);
   }
   
   // Run control loop at precise intervals

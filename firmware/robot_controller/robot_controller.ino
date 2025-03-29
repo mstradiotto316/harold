@@ -10,13 +10,13 @@
 
 // Control loop interval and command timeout (in ms)
 #define CONTROL_INTERVAL 5     // Control loop interval (5 ms)
-#define COMMAND_TIMEOUT 250    // If no valid command in 100 ms, revert to safe posture
+#define COMMAND_TIMEOUT 250    // If no valid command in 250 ms, revert to safe posture
 
 // PD Controller Gains for the discrete controller.
-// Simulation values: stiffness=40.0, damping=75.0, effort_limit=0.8
-float PD_Kp = 6.0; //3.0;      // Proportional gain
-float PD_Kd = 1.5; //1.2;      // Derivative gain
-float PD_EFFORT_LIMIT = 1.25; //0.8;  // Maximum control effort
+// Updated to match simulation values: stiffness=200.0, damping=100.0, effort_limit=0.8
+float PD_Kp = 4.0;             // Proportional gain (was 6.0)
+float PD_Kd = 2.0;             // Derivative gain (was 1.5) 
+float PD_EFFORT_LIMIT = 0.8;   // Maximum control effort (was 1.25)
 
 //==========================//
 // SERVO & ANGLE VARIABLES  //
@@ -56,6 +56,7 @@ static float ANGLE_MIN[12] = {
 // For the control loop
 static unsigned long lastControlTime = 0;
 static unsigned long lastCommandTime = 0;
+static unsigned long previousControlTime = 0; // For calculating actual dt
 
 //----------------------------------------------------------
 // setup()
@@ -92,8 +93,11 @@ void startServos() {
     targetPos[i] = safePos[i];
     delay(250);
   }
-  // Also initialize the last command time to now.
-  lastCommandTime = millis();
+  // Initialize timing variables
+  unsigned long currentTime = millis();
+  lastCommandTime = currentTime;
+  lastControlTime = currentTime;
+  previousControlTime = currentTime;
   Serial.println("STARTUP COMPLETE!");
 }
 
@@ -206,15 +210,27 @@ void processIncomingSerialData() {
 // Also checks the watchdog timeout and, if expired, reverts targetPos to safePos.
 //----------------------------------------------------------
 void updateServoPosWithPD() {
+  unsigned long currentTime = millis();
+  
   // Check for command timeout:
-  if (millis() - lastCommandTime > COMMAND_TIMEOUT) {
-    // No new command has been received recently ? revert target positions.
+  if (currentTime - lastCommandTime > COMMAND_TIMEOUT) {
+    // No new command has been received recently - revert target positions.
     for (int i = 0; i < 12; i++) {
       targetPos[i] = safePos[i];
     }
   }
   
-  float dt = CONTROL_INTERVAL / 1000.0;
+  // Calculate actual elapsed time since last control update
+  float dt = (currentTime - previousControlTime) / 1000.0;
+  
+  // Safety check: if dt is too large (e.g., after bootup or long delay), use nominal value
+  if (dt > 0.05 || dt <= 0) {
+    dt = CONTROL_INTERVAL / 1000.0;
+  }
+  
+  // Store current time for next calculation
+  previousControlTime = currentTime;
+  
   for (int i = 0; i < 12; i++) {
       float error = targetPos[i] - currentPos[i];
       float velocity = (currentPos[i] - prevPos[i]) / dt;

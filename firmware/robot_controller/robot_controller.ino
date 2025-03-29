@@ -30,11 +30,11 @@
 #define SERVO_MAX_PULSE 600          // Absolute maximum pulse width
 
 // PID Controller parameters
-#define PID_KP 5.0                   // Proportional gain
-#define PID_KI 0.02                  // Integral gain
+#define PID_KP 8.0                   // Proportional gain (increased for more torque)
+#define PID_KI 0.05                  // Integral gain (increased for better steady-state)
 #define PID_KD 1.0                   // Derivative gain
-#define PID_EFFORT_LIMIT 0.8         // Control effort limit (rad/s)
-#define PID_INTEGRAL_LIMIT 0.1       // Anti-windup integral limit
+#define PID_EFFORT_LIMIT 1.5         // Control effort limit (rad/s) (increased for faster movement)
+#define PID_INTEGRAL_LIMIT 0.3       // Anti-windup integral limit (increased)
 #define PID_INTEGRAL_DECAY 0.95      // Integral term decay factor
 
 // Filtering parameters
@@ -182,6 +182,9 @@ float constrainJointAngle(int jointIdx, float angle);
 void sendStatus();
 void sendFeedback();
 
+// Testing functions
+void testMovement();
+
 /*********************************************************************
  * SETUP FUNCTION
  *********************************************************************/
@@ -293,6 +296,8 @@ void loop() {
  * JOINT SETUP AND CONFIGURATION
  *********************************************************************/
 void setupJoints() {
+  Serial.println("Setting up joints...");
+  
   // Initialize each joint
   for (int leg = 0; leg < NUM_LEGS; leg++) {
     for (int joint = 0; joint < JOINTS_PER_LEG; joint++) {
@@ -302,13 +307,36 @@ void setupJoints() {
       joints[idx].limitIndex = joint;
       joints[idx].flags = 1; // Set calibrated flag
       
+      // Get base safe position from joint type
+      float safePos = jointLimits[joint].safePos;
+      
+      // Override safe position for left knees (make them match right knees)
+      if (joint == KNEE && (leg == 0 || leg == 2)) { // Left knees
+        // For left side knees, invert sign to match right side direction
+        safePos = -safePos;
+        Serial.print("Left knee at index ");
+        Serial.print(idx);
+        Serial.print(" safe pos: ");
+        Serial.println(safePos);
+      }
+      
       // Initialize state variables
-      joints[idx].targetPos = jointLimits[joint].safePos;
-      joints[idx].currentPos = jointLimits[joint].safePos;
-      joints[idx].prevPos = jointLimits[joint].safePos;
+      joints[idx].targetPos = safePos;
+      joints[idx].currentPos = safePos;
+      joints[idx].prevPos = safePos;
       joints[idx].velocity = 0.0;
       joints[idx].integral = 0.0;
       joints[idx].lastMove = millis();
+      
+      // Debug output
+      Serial.print("Joint ");
+      Serial.print(idx);
+      Serial.print(" (leg ");
+      Serial.print(leg);
+      Serial.print(", joint ");
+      Serial.print(joint);
+      Serial.print("): safePos=");
+      Serial.println(safePos);
     }
   }
   
@@ -317,6 +345,10 @@ void setupJoints() {
   
   // Allow time for servos to reach positions
   delay(1000);
+  
+  // Perform a brief startup test sequence to verify movement
+  Serial.println("Starting movement test sequence...");
+  testMovement();
   
   Serial.println("Joints initialized and in safe position");
 }
@@ -415,11 +447,50 @@ void setServoPosition(int jointIdx, float angle) {
   if (pulse < SERVO_MIN_PULSE) pulse = SERVO_MIN_PULSE;
   if (pulse > SERVO_MAX_PULSE) pulse = SERVO_MAX_PULSE;
   
+  // Add debug output (throttled to reduce serial traffic)
+  static uint32_t lastServoDebug = 0;
+  static int lastDebuggedJoint = -1;
+  uint32_t now = millis();
+  if (now - lastServoDebug > 2000 && jointIdx == lastDebuggedJoint) {
+    lastServoDebug = now;
+    lastDebuggedJoint = (lastDebuggedJoint + 1) % NUM_SERVOS;
+    Serial.print("SERVO ");
+    Serial.print(jointIdx);
+    Serial.print(": angle=");
+    Serial.print(angle);
+    Serial.print(" pulse=");
+    Serial.println(pulse);
+  }
+  
   // Set the servo position
   pwm.setPWM(jointIdx, 0, (uint16_t)pulse);
 }
 
 float mapAngleToServo(int jointIdx, float angle) {
+  // Determine joint type and leg from index
+  int legIndex = -1;
+  int jointType = -1;
+  
+  // Find which leg and joint type this index corresponds to
+  for (int leg = 0; leg < NUM_LEGS; leg++) {
+    for (int joint = 0; joint < JOINTS_PER_LEG; joint++) {
+      if (legJointMap[leg][joint] == jointIdx) {
+        legIndex = leg;
+        jointType = joint;
+        break;
+      }
+    }
+    if (legIndex >= 0) break;
+  }
+  
+  // Check if this is a left knee that needs special handling
+  bool isLeftKnee = (jointType == KNEE && (legIndex == 0 || legIndex == 2));
+  
+  // For left knees, invert the angle first to make direction consistent with right side
+  if (isLeftKnee) {
+    angle = -angle;
+  }
+  
   // Map joint angle from radians to normalized position (0.0 to 1.0)
   uint8_t limitIdx = joints[jointIdx].limitIndex;
   float minAngle = jointLimits[limitIdx].minAngle;
@@ -430,16 +501,10 @@ float mapAngleToServo(int jointIdx, float angle) {
   if (normalizedPos < 0.0) normalizedPos = 0.0;
   if (normalizedPos > 1.0) normalizedPos = 1.0;
   
-  // Check if this is a left knee joint which has inverted direction
-  // (joint 8 = front left knee, joint 10 = back left knee)
-  bool isLeftKnee = (jointIdx == 8 || jointIdx == 10);
-  if (isLeftKnee) {
-    // Invert the normalized position for left knees
-    normalizedPos = 1.0 - normalizedPos;
-  }
-  
   // Map to servo pulse range
-  return (normalizedPos * (servoMax[jointIdx] - servoMin[jointIdx])) + servoMin[jointIdx];
+  float pulse = (normalizedPos * (servoMax[jointIdx] - servoMin[jointIdx])) + servoMin[jointIdx];
+  
+  return pulse;
 }
 
 float constrainJointAngle(int jointIdx, float angle) {
@@ -451,10 +516,25 @@ float constrainJointAngle(int jointIdx, float angle) {
 
 void moveToSafePosition() {
   // Update target positions to safe values
-  for (int i = 0; i < NUM_SERVOS; i++) {
-    uint8_t limitIdx = joints[i].limitIndex;
-    joints[i].targetPos = jointLimits[limitIdx].safePos;
+  for (int leg = 0; leg < NUM_LEGS; leg++) {
+    for (int joint = 0; joint < JOINTS_PER_LEG; joint++) {
+      int idx = legJointMap[leg][joint];
+      
+      // Get base safe position from joint type
+      float safePos = jointLimits[joint].safePos;
+      
+      // Override for left knees
+      if (joint == KNEE && (leg == 0 || leg == 2)) { // Left side knees
+        safePos = -safePos;  // Invert direction
+      }
+      
+      // Set target position
+      joints[idx].targetPos = safePos;
+    }
   }
+  
+  // Debug output
+  Serial.println("Moving to safe position");
 }
 
 /*********************************************************************
@@ -662,4 +742,75 @@ void sendFeedback() {
     }
     Serial.println();
   }
+}
+
+/*********************************************************************
+ * TEST FUNCTIONS
+ *********************************************************************/
+void testMovement() {
+  Serial.println("Testing individual joint movements...");
+  
+  // Test each joint type with small movements
+  // Only test one joint of each type to minimize power requirements
+  
+  const int testJoints[] = {0, 4, 8};  // Test one shoulder, thigh, knee
+  const float testAmplitude = 0.15;    // Small movement amplitude
+  
+  for (int i = 0; i < 3; i++) {
+    int jointIdx = testJoints[i];
+    float basePos = joints[jointIdx].currentPos;
+    
+    // Display joint info
+    Serial.print("Testing joint ");
+    Serial.print(jointIdx);
+    Serial.print(" (");
+    Serial.print(i == 0 ? "shoulder" : (i == 1 ? "thigh" : "knee"));
+    Serial.println(")");
+    
+    // Move forward
+    float targetPos = basePos + testAmplitude;
+    Serial.print("Moving to +");
+    Serial.println(testAmplitude);
+    joints[jointIdx].targetPos = targetPos;
+    
+    // Update servos directly for immediate response
+    for (int j = 0; j < 10; j++) {
+      // Rapid update loop for quicker response
+      updateServos();
+      delay(50);
+    }
+    
+    // Wait at position
+    delay(500);
+    
+    // Move backward
+    targetPos = basePos - testAmplitude;
+    Serial.print("Moving to -");
+    Serial.println(testAmplitude);
+    joints[jointIdx].targetPos = targetPos;
+    
+    // Update servos directly
+    for (int j = 0; j < 10; j++) {
+      updateServos();
+      delay(50);
+    }
+    
+    // Wait at position
+    delay(500);
+    
+    // Return to base position
+    Serial.println("Returning to base position");
+    joints[jointIdx].targetPos = basePos;
+    
+    // Update servos directly
+    for (int j = 0; j < 10; j++) {
+      updateServos();
+      delay(50);
+    }
+    
+    // Wait between joint tests
+    delay(500);
+  }
+  
+  Serial.println("Movement test complete");
 }

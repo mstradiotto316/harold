@@ -39,6 +39,7 @@
 
 // Debug flags
 #define DEBUG_SERVO_MOVEMENT 1       // Set to 1 to enable servo movement debugging
+#define DEBUG_EXTREME 1           // Set to 1 for extremely verbose debugging
 
 // Filtering parameters
 #define FILTER_ALPHA 0.8             // Low-pass filter coefficient (0-1) - increased for faster response
@@ -196,12 +197,16 @@ void setup() {
   Serial.begin(115200);
   while (!Serial);
   
+  Serial.println("Starting Harold Quadruped Robot Controller...");
+  
   // CRUCIAL: Send handshake messages immediately before anything else
   // This ensures the Python controller sees them as early as possible
-  for (int i = 0; i < 50; i++) {
+  for (int i = 0; i < 10; i++) {
     Serial.println(HANDSHAKE_MSG);
     delay(10);
   }
+  
+  Serial.println("Initializing PWM driver...");
   
   // Initialize PWM driver
   pwm.begin();
@@ -211,11 +216,28 @@ void setup() {
   // Wait for hardware to stabilize
   delay(100);
   
-  // SEND MORE HANDSHAKES after driver initialization
-  for (int i = 0; i < 20; i++) {
-    Serial.println(HANDSHAKE_MSG);
-    delay(10);
-  }
+  Serial.println("PWM driver initialized!");
+  
+  // DIRECT SERVO TEST - no configuration, just direct pulses
+  Serial.println("Performing direct servo tests...");
+  
+  // Test servo 0 (front left shoulder) with direct PWM values
+  Serial.println("Testing servo 0 (Front left shoulder)...");
+  
+  // Test min, center, and max positions
+  Serial.println("Moving to min position (315)");
+  pwm.setPWM(0, 0, 315);
+  delay(500);
+  
+  Serial.println("Moving to center position (355)");
+  pwm.setPWM(0, 0, 355);
+  delay(500);
+  
+  Serial.println("Moving to max position (395)");
+  pwm.setPWM(0, 0, 395);
+  delay(500);
+  
+  Serial.println("Direct servo test complete!");
   
   // Configure joint parameters and initialize to safe positions
   setupJoints();
@@ -232,12 +254,6 @@ void setup() {
     freeMemory = ((int) &freeMemory) - ((int) &__heap_start);
   } else {
     freeMemory = ((int) &freeMemory) - ((int) __brkval);
-  }
-  
-  // Send final batch of handshake messages
-  for (int i = 0; i < 10; i++) {
-    Serial.println(HANDSHAKE_MSG);
-    delay(10);
   }
   
   Serial.print("Free memory: ");
@@ -291,8 +307,8 @@ void loop() {
     }
   }
   
-  // PRIORITY 2: Periodically send handshake message when idle
-  if (now - lastCommandMillis > 500 && now - lastHandshakeSent > 100) {
+  // PRIORITY 2: Periodically send handshake message when idle (much less frequently)
+  if (now - lastCommandMillis > 5000 && now - lastHandshakeSent > 3000) {
     lastHandshakeSent = now;
     Serial.println(HANDSHAKE_MSG);
   }
@@ -407,8 +423,54 @@ void setupJoints() {
  *********************************************************************/
 void updateServos() {
   static uint32_t lastMovementLog = 0;
+  static uint32_t lastExtremeDebugTime = 0;
   uint32_t now = millis();
   bool significantMovement = false;
+  
+  // EXTREME DEBUG: Print out detailed state for first joint every second
+  if (DEBUG_EXTREME && (now - lastExtremeDebugTime > 1000)) {
+    lastExtremeDebugTime = now;
+    Serial.println("\n----- EXTREME DEBUG -----");
+    Serial.println("Joint state for joint 0 (front left shoulder):");
+    Serial.print("Target: ");
+    Serial.print(joints[0].targetPos);
+    Serial.print(", Current: ");
+    Serial.print(joints[0].currentPos);
+    Serial.print(", Velocity: ");
+    Serial.println(joints[0].velocity);
+    
+    int pulseValue = mapAngleToServo(0, joints[0].currentPos);
+    Serial.print("Mapped pulse: ");
+    Serial.print(pulseValue);
+    Serial.print(", Min: ");
+    Serial.print(servoMin[0]);
+    Serial.print(", Max: ");
+    Serial.println(servoMax[0]);
+    
+    // Check if servos are powered
+    Serial.println("Sending test move command...");
+    // Force a small movement to check if servo responds
+    float oldPos = joints[0].currentPos;
+    float testPos = oldPos + 0.05;  // Small test movement
+    testPos = constrainJointAngle(0, testPos);
+    
+    Serial.print("Test position: ");
+    Serial.println(testPos);
+    
+    // Directly command servo for test
+    int testPulse = mapAngleToServo(0, testPos);
+    Serial.print("Test pulse: ");
+    Serial.println(testPulse);
+    
+    // Send command directly to servo
+    pwm.setPWM(0, 0, testPulse);
+    delay(250);  // Wait for movement
+    
+    // Return to original position
+    pwm.setPWM(0, 0, pulseValue);
+    
+    Serial.println("------------------------");
+  }
   
   // Update each joint based on PID control
   for (int i = 0; i < NUM_SERVOS; i++) {

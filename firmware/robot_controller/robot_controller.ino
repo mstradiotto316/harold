@@ -43,8 +43,8 @@
 #define DIRECT_TEST_ENABLED 1        // Set to 1 to enable direct servo test at startup
 
 // Filtering parameters
-#define FILTER_ALPHA 0.8             // Low-pass filter coefficient (0-1) - increased for faster response
-#define VELOCITY_ALPHA 0.8           // Velocity estimation filter coefficient
+#define FILTER_ALPHA 0.6             // Low-pass filter coefficient (0-1) - reduced for smoother motion
+#define VELOCITY_ALPHA 0.6           // Velocity estimation filter coefficient - reduced for smoother motion
 
 // Joint definitions
 #define NUM_SERVOS 12
@@ -463,8 +463,8 @@ void updateServos() {
     joints[i].prevPos = filtered;
     
     // Apply filtering to smooth motion (directly to currentPos)
-    // Less filtering for faster response
-    joints[i].currentPos = (0.8 * newPos) + (0.2 * filtered);
+    // More filtering for smoother movement
+    joints[i].currentPos = (FILTER_ALPHA * newPos) + ((1 - FILTER_ALPHA) * filtered);
     
     // Estimate velocity with filtering
     float rawVelocity = (joints[i].currentPos - joints[i].prevPos) / actualDt;
@@ -707,6 +707,20 @@ void parseCommand(const char* command) {
     Serial.println(HANDSHAKE_MSG);
     Serial.println(HANDSHAKE_MSG);
     Serial.println(HANDSHAKE_MSG);
+    return;
+  }
+  
+  // Check for emergency STOP command
+  if (strstr(command, "STOP") != NULL) {
+    // Immediately move to safe position
+    Serial.println("STOP COMMAND RECEIVED");
+    moveToSafePosition();
+    
+    // Immediately apply safe position to servos without filtering
+    for (int i = 0; i < NUM_SERVOS; i++) {
+      joints[i].currentPos = joints[i].targetPos; // Force current position to target
+      setServoPosition(i, joints[i].currentPos);  // Apply immediately
+    }
     return;
   }
   

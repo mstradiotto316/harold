@@ -153,9 +153,20 @@ def emergency_shutdown(sig, frame):
     try:
         if ser is not None and ser.is_open:
             print("Sending safe positions before closing...")
+            # Send STOP command to immediately halt servos
+            ser.write(b'STOP#')
+            ser.flush()
+            time.sleep(0.1)
+            
+            # Then send safe positions multiple times to ensure they're received
             if safe_positions_str:
-                send_to_arduino(ser, safe_positions_str)
-                time.sleep(0.5)
+                for i in range(3):  # Send 3 times to ensure receipt
+                    send_to_arduino(ser, safe_positions_str)
+                    time.sleep(0.1)
+            
+            # Wait for servos to reach safe position
+            time.sleep(0.5)
+            
             print("Closing serial connection...")
             ser.close()
     except Exception as e:
@@ -327,11 +338,21 @@ def main():
     finally:
         print("\n=== Playback Finished ===")
         print(f"Processed {line_count} observations out of {total_lines} total observations")
-        # Send safe positions before closing
+        # Send STOP command and safe positions before closing
         if ser is not None and ser.is_open:
-            print("Sending safe positions...")
-            send_to_arduino(ser, safe_positions_str)
-            time.sleep(0.5)
+            print("Sending STOP command and safe positions...")
+            # Send STOP command to immediately halt all motion
+            ser.write(b'STOP#')
+            ser.flush()
+            time.sleep(0.2)
+            
+            # Then send safe positions multiple times to ensure proper position
+            for i in range(3):
+                send_to_arduino(ser, safe_positions_str)
+                time.sleep(0.1)
+                
+            # Wait for servos to reach safe position
+            time.sleep(0.7)
             ser.close()
         
         print("Program completed successfully")

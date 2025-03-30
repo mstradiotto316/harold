@@ -29,13 +29,13 @@
 #define SERVO_MIN_PULSE 150          // Absolute minimum pulse width
 #define SERVO_MAX_PULSE 600          // Absolute maximum pulse width
 
-// PID Controller parameters - increased for more torque
-#define PID_KP 12.0                  // Proportional gain
-#define PID_KI 0.1                   // Integral gain
-#define PID_KD 0.5                   // Derivative gain
-#define PID_EFFORT_LIMIT 2.0         // Control effort limit (rad/s)
-#define PID_INTEGRAL_LIMIT 0.5       // Anti-windup integral limit
-#define PID_INTEGRAL_DECAY 0.95      // Integral term decay factor
+// PID Controller parameters - adjusted to prevent drift
+#define PID_KP 10.0                  // Proportional gain (reduced slightly)
+#define PID_KI 0.01                  // Integral gain (GREATLY reduced to prevent drift)
+#define PID_KD 1.0                   // Derivative gain (increased to dampen oscillations)
+#define PID_EFFORT_LIMIT 1.5         // Control effort limit (rad/s)
+#define PID_INTEGRAL_LIMIT 0.1       // Anti-windup integral limit (reduced)
+#define PID_INTEGRAL_DECAY 0.9       // Integral term decay factor (faster decay to prevent buildup)
 
 // Debug flags - REDUCED TO SAVE MEMORY
 #define DEBUG_SERVO_MOVEMENT 0       // Set to 0 to save memory
@@ -470,14 +470,21 @@ void updateServos() {
     float rawVelocity = (joints[i].currentPos - joints[i].prevPos) / actualDt;
     joints[i].velocity = (VELOCITY_ALPHA * rawVelocity) + ((1 - VELOCITY_ALPHA) * joints[i].velocity);
     
+    // Anti-drift: If velocity is very small and error is small, force to exact target
+    // This prevents tiny movements from accumulating into drift
+    float posError = fabs(joints[i].targetPos - joints[i].currentPos);
+    if (fabs(joints[i].velocity) < 0.01 && posError < 0.02) {
+      joints[i].currentPos = joints[i].targetPos;
+      joints[i].velocity = 0;
+    }
+    
     // Detect if joint is moving significantly
     if (fabs(joints[i].velocity) > 0.02) {
       joints[i].lastMove = now;
       significantMovement = true;
     }
     
-    // Check for large position error (target vs current)
-    float posError = fabs(joints[i].targetPos - joints[i].currentPos);
+    // Flag significant movement if error is large
     if (posError > 0.1) {
       significantMovement = true;
     }
@@ -518,9 +525,31 @@ float applyPidControl(int jointIdx, float dt) {
   // Calculate error terms
   float error = joints[jointIdx].targetPos - joints[jointIdx].currentPos;
   
-  // Update integral term with anti-windup
+  // *** ANTI-DRIFT MECHANISM ***
+  // Only accumulate integral when error is large or changing sign
+  // This prevents small consistent errors from accumulating and causing drift
+  static float previousError[NUM_SERVOS] = {0};
+  bool shouldIntegrate = false;
+  
+  // Integrate only if error is significant or crossed zero (changed sign)
+  if (fabs(error) > 0.05 || (error * previousError[jointIdx] <= 0)) {
+    shouldIntegrate = true;
+  }
+  
+  // Store error for next comparison
+  previousError[jointIdx] = error;
+  
+  // Update integral term with anti-windup and conditional integration
   joints[jointIdx].integral = joints[jointIdx].integral * PID_INTEGRAL_DECAY;
-  joints[jointIdx].integral += error * dt;
+  if (shouldIntegrate) {
+    joints[jointIdx].integral += error * dt;
+  }
+  
+  // If near target position (very small error), clear integral term completely
+  // This is critical to prevent drift when the robot should be stationary
+  if (fabs(error) < 0.01) {
+    joints[jointIdx].integral = 0;
+  }
   
   // Clamp integral term to prevent windup
   if (joints[jointIdx].integral > PID_INTEGRAL_LIMIT)

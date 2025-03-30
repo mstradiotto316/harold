@@ -29,13 +29,13 @@
 #define SERVO_MIN_PULSE 150          // Absolute minimum pulse width
 #define SERVO_MAX_PULSE 600          // Absolute maximum pulse width
 
-// PID Controller parameters - adjusted to prevent drift
-#define PID_KP 10.0                  // Proportional gain (reduced slightly)
-#define PID_KI 0.01                  // Integral gain (GREATLY reduced to prevent drift)
-#define PID_KD 1.0                   // Derivative gain (increased to dampen oscillations)
-#define PID_EFFORT_LIMIT 1.5         // Control effort limit (rad/s)
-#define PID_INTEGRAL_LIMIT 0.1       // Anti-windup integral limit (reduced)
-#define PID_INTEGRAL_DECAY 0.9       // Integral term decay factor (faster decay to prevent buildup)
+// PID Controller parameters - adjusted for smoother motion while preventing drift
+#define PID_KP 5.0                   // Proportional gain (REDUCED by half for smoother motion)
+#define PID_KI 0.01                  // Integral gain (kept low to prevent drift)
+#define PID_KD 1.5                   // Derivative gain (increased to better dampen oscillations)
+#define PID_EFFORT_LIMIT 0.8         // Control effort limit (rad/s) - lowered for smoother transitions
+#define PID_INTEGRAL_LIMIT 0.1       // Anti-windup integral limit
+#define PID_INTEGRAL_DECAY 0.9       // Integral term decay factor
 
 // Debug flags - REDUCED TO SAVE MEMORY
 #define DEBUG_SERVO_MOVEMENT 0       // Set to 0 to save memory
@@ -43,8 +43,8 @@
 #define DIRECT_TEST_ENABLED 1        // Set to 1 to enable direct servo test at startup
 
 // Filtering parameters
-#define FILTER_ALPHA 0.6             // Low-pass filter coefficient (0-1) - reduced for smoother motion
-#define VELOCITY_ALPHA 0.6           // Velocity estimation filter coefficient - reduced for smoother motion
+#define FILTER_ALPHA 0.3             // Low-pass filter coefficient (0-1) - further reduced for much smoother motion
+#define VELOCITY_ALPHA 0.2           // Velocity estimation filter coefficient - significantly reduced for smoother motion
 
 // Joint definitions
 #define NUM_SERVOS 12
@@ -462,13 +462,31 @@ void updateServos() {
     // Store previous position for velocity calculation
     joints[i].prevPos = filtered;
     
-    // Apply filtering to smooth motion (directly to currentPos)
-    // More filtering for smoother movement
-    joints[i].currentPos = (FILTER_ALPHA * newPos) + ((1 - FILTER_ALPHA) * filtered);
+    // Calculate raw new position and velocity
+    float rawVelocity = (newPos - filtered) / actualDt;
     
-    // Estimate velocity with filtering
-    float rawVelocity = (joints[i].currentPos - joints[i].prevPos) / actualDt;
-    joints[i].velocity = (VELOCITY_ALPHA * rawVelocity) + ((1 - VELOCITY_ALPHA) * joints[i].velocity);
+    // Apply acceleration limiting for smoother motion
+    // Store previous velocity for acceleration calculation
+    static float prevVelocity[NUM_SERVOS] = {0};
+    
+    // Calculate acceleration and limit it
+    float accel = (rawVelocity - prevVelocity[i]) / actualDt;
+    const float MAX_ACCEL = 10.0; // radians/s²
+    if (accel > MAX_ACCEL) accel = MAX_ACCEL;
+    if (accel < -MAX_ACCEL) accel = -MAX_ACCEL;
+    
+    // Calculate limited velocity
+    float limitedVelocity = prevVelocity[i] + accel * actualDt;
+    prevVelocity[i] = limitedVelocity;
+    
+    // Calculate position based on limited velocity
+    float accelLimitedPos = filtered + limitedVelocity * actualDt;
+    
+    // Apply additional low-pass filtering for ultra-smooth motion
+    joints[i].currentPos = (FILTER_ALPHA * accelLimitedPos) + ((1 - FILTER_ALPHA) * filtered);
+    
+    // Update velocity estimate with heavy filtering for smoothness
+    joints[i].velocity = (VELOCITY_ALPHA * limitedVelocity) + ((1 - VELOCITY_ALPHA) * joints[i].velocity);
     
     // Anti-drift: If velocity is very small and error is small, force to exact target
     // This prevents tiny movements from accumulating into drift

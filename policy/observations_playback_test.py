@@ -51,6 +51,23 @@ def send_to_arduino(ser_obj, positions_line):
     ser_obj.write(message_to_send.encode())
     ser_obj.flush()
     time.sleep(0.005)
+    
+    # Read any responses after command
+    responses = []
+    start_time = time.time()
+    while time.time() - start_time < 0.1:  # Wait up to 100ms for response
+        if ser_obj.in_waiting:
+            try:
+                message = ser_obj.readline().decode().strip()
+                if message:
+                    responses.append(message)
+                    print(f"Arduino response: {message}")
+            except Exception as e:
+                print(f"Error reading response: {e}")
+        else:
+            break
+    
+    return responses
 
 def read_from_arduino(ser_obj):
     """Read messages from Arduino"""
@@ -284,16 +301,22 @@ def main():
                 print(f"Command string: {positions_command_str}")
                 print("----------------")
                 
-                # Send command to Arduino
-                send_to_arduino(ser, positions_command_str)
+                # Send command to Arduino and get responses
+                responses = send_to_arduino(ser, positions_command_str)
                 
                 # Print progress every 10 lines
                 if line_count % 10 == 0:
                     print(f"Processed {line_count} observations")
                 
-                # Maintain control frequency
+                # Maintain control frequency with timeout
                 elapsed_time = time.time() - start_time
                 control_rate_delay = max(0.0, CONTROL_PERIOD - elapsed_time)
+                
+                # Limit maximum delay to 0.25 seconds to avoid getting stuck
+                if control_rate_delay > 0.25:
+                    print(f"Warning: Long delay detected ({control_rate_delay:.2f}s), limiting to 0.25s")
+                    control_rate_delay = 0.25
+                    
                 time.sleep(control_rate_delay)
         
         print(f"Playback complete. Processed {line_count} observations.")

@@ -46,13 +46,6 @@ class HaroldEnv(DirectRLEnv):
         self._thigh_contact_ids, _ = self._contact_sensor.find_bodies(".*thigh")
         self._knee_contact_ids, _ = self._contact_sensor.find_bodies(".*knee")
         self._undesired_contact_body_ids, _ = self._contact_sensor.find_bodies(".*thigh")
-        
-        print("CONTACT IDS: ", self._contact_ids)
-        print("BODY CONTACT ID: ", self._body_contact_id)
-        print("SHOULDER CONTACT IDS: ", self._shoulder_contact_ids)
-        print("THIGH CONTACT IDS: ", self._thigh_contact_ids)
-        print("KNEE CONTACT IDS: ", self._knee_contact_ids)
-        print("UNDESIRED CONTACT BODY IDS: ", self._undesired_contact_body_ids)
 
         # Print body names and masses
         print("Body Names: ", self._robot.data.body_names)
@@ -61,6 +54,13 @@ class HaroldEnv(DirectRLEnv):
         # Print joint names and positions
         print("Joint Names: ", self._robot.data.joint_names)
         print("Joint Positions: ", torch.round(self._robot.data.joint_pos[0] * 100) / 100)
+
+        print("CONTACT IDS: ", self._contact_ids)
+        print("BODY CONTACT ID: ", self._body_contact_id)
+        print("SHOULDER CONTACT IDS: ", self._shoulder_contact_ids)
+        print("THIGH CONTACT IDS: ", self._thigh_contact_ids)
+        print("KNEE CONTACT IDS: ", self._knee_contact_ids)
+        print("UNDESIRED CONTACT BODY IDS: ", self._undesired_contact_body_ids)
 
         # Prepare processed actions tensor
         self._processed_actions = self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
@@ -104,6 +104,7 @@ class HaroldEnv(DirectRLEnv):
         self._decimation_counter = 0
         
         # Logging
+        # Track episode sums for currently running episodes
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
             for key in [
@@ -121,30 +122,16 @@ class HaroldEnv(DirectRLEnv):
             ]
         }
 
-        # Track completed episodes
+        # Track completed episodes history (for tensorboard-style logging)
+        self.reward_history = {
+            key: deque(maxlen=100)  # Store last 100 episodes like tensorboard
+            for key in list(self._episode_sums.keys()) + ["total_reward"]
+        }
+
+        # Track completed episodes and intervals
         self._completed_episodes = 0
         self._print_interval = 20  # Print every 20 episodes
         self._plot_interval = 100  # Plot every 100 episodes
-        self._episode_stats = {key: [] for key in self._episode_sums.keys()}  # Changed to lists
-
-        # Add plotting-related attributes
-        self.reward_history = {
-            key: deque(maxlen=1000)  # Store last 1000 episodes' means
-            for key in [
-                "track_xy_lin_commands",
-                "track_yaw_commands",
-                "lin_vel_z_l2",
-                "ang_vel_xy_l2",
-                "dof_torques_l2",
-                "dof_acc_l2",
-                "action_rate_l2",
-                "feet_air_time",
-                "undesired_contacts",
-                "height_reward",
-                "xy_acceleration_l2",
-                "total_reward"
-            ]
-        }
 
     def _setup_scene(self) -> None:
         """Creates and configures the robot, sensors, and terrain."""
@@ -282,72 +269,21 @@ class HaroldEnv(DirectRLEnv):
 
     def _get_rewards(self) -> torch.Tensor:
 
-        """
-        # Linear velocity tracking (using averaged velocity)
-        """
-
-        """
-        # Update velocity history by rolling and adding new velocity
-        self._lin_vel_history = torch.roll(self._lin_vel_history, shifts=-1, dims=1)
-        self._lin_vel_history[:, -1] = self._robot.data.root_lin_vel_b
-
-        # Calculate average velocity over history
-        avg_lin_vel = torch.mean(self._lin_vel_history, dim=1)
-
-        # Simple absolute error between command and actual (for x,y components)
-        vel_error = torch.norm(self._commands[:, :2] - avg_lin_vel[:, :2], dim=1)
-
-        # Convert to reward
-        #lin_vel_reward = torch.exp(-5.0 * vel_error)
-        #lin_vel_reward = torch.exp(-3.5 * vel_error)
-        #lin_vel_reward = torch.exp(-2.0 * vel_error)
-        lin_vel_reward = torch.exp(-1.0 * vel_error)
-
-        print("commands: ", self._commands[0].tolist())
-        print("avg_lin_vel: ", avg_lin_vel[0].tolist())
-        print("vel_error: ", vel_error[0])
-        print("lin_vel_reward: ", lin_vel_reward[0])
-        print()
-        """
-
-        # OK SO THIS ONLY WORKS IF THE REWARD IS NEGATIVE AND IF THE COMMANDS ARE NEGATIVE???
-        """
-        lin_vel_error = torch.sum(torch.square(self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]), dim=1)
-        lin_vel_error_mapped = torch.exp(-lin_vel_error / 0.25)
-
-        print("commands: ", self._commands[0].tolist())
-        print("Lin Vel: ", self._robot.data.root_lin_vel_b[:, :2][0].tolist())
-        difference = self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]
-        print("Difference: ", difference[0].tolist())
-        squared_difference = torch.square(difference[0])
-        print("Difference squared: ", squared_difference.tolist())
-        summed_difference = torch.sum(squared_difference)
-        print("Difference squared and summed: ", summed_difference.tolist())
-        print("squared lin vel error mapped: ", lin_vel_error_mapped[0])
-        """
-
+        # Linear velocity tracking
         lin_vel_error_abs = torch.sum(torch.abs(self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]), dim=1)
 
-        #print("abs lin vel error: ", lin_vel_error_abs[0])
-        #print("abs lin vel error mapped: ", lin_vel_error_abs_mapped[0])
+        #print("Env 0 XY Commands: ", self._commands[:, :2])
+        #print("Env 0 XY Actual: ", self._robot.data.root_lin_vel_b[:, :2])
+        #print("lin_vel_error_abs: ", lin_vel_error_abs[0])
         #print()
 
-        """
         # Yaw rate tracking
-        """
-        # Update yaw velocity history by rolling and adding new velocity
-        self._yaw_vel_history = torch.roll(self._yaw_vel_history, shifts=-1, dims=1)
-        self._yaw_vel_history[:, -1] = self._robot.data.root_ang_vel_b[:, 2]
+        yaw_error_tracking_abs = torch.abs(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
 
-        # Calculate average yaw velocity over history
-        avg_yaw_vel = torch.mean(self._yaw_vel_history, dim=1)
-
-        # Simple absolute error between command and actual
-        yaw_error = torch.abs(self._commands[:, 2] - avg_yaw_vel)
-
-        # Convert to reward
-        #yaw_rate_reward = torch.exp(-5.0 * yaw_error)
-        yaw_rate_reward = torch.exp(-3.5 * yaw_error)
+        #print("Env 0 Yaw Commands: ", self._commands[:, 2])
+        #print("Env 0 Yaw Actual: ", self._robot.data.root_ang_vel_b[:, 2])
+        #print("yaw_error_tracking_abs: ", yaw_error_tracking_abs[0])
+        #print()
 
         """
         # z velocity tracking
@@ -437,16 +373,16 @@ class HaroldEnv(DirectRLEnv):
         #print("xy_acceleration_error: ", xy_acceleration_error[0])
 
         rewards = {
-            "track_xy_lin_commands": lin_vel_error_abs * self.step_dt * -4.0, #3.0, #10.0, #9.0, #4.5,
-            "track_yaw_commands": yaw_rate_reward * self.step_dt * 0.0, #1.0, #2.0, #1.0,
+            "track_xy_lin_commands": lin_vel_error_abs * self.step_dt * -4.0, #(CONFIRMED -4.0)
+            "track_yaw_commands": yaw_error_tracking_abs * self.step_dt * -4.0, #(CONFIRMED -4.0)
             "lin_vel_z_l2": z_vel_error * self.step_dt * 0.0, #-10.0,
             "ang_vel_xy_l2": ang_vel_error * self.step_dt * 0.0, #-5, #-0.05,
-            "dof_torques_l2": joint_torques * self.step_dt * -0.01, #-0.02, #-0.05, #-0.1, #-0.4 #-0.15, #-0.01,
+            "dof_torques_l2": joint_torques * self.step_dt * -0.01, #(CONFIRMED -0.01)
             "dof_acc_l2": joint_accel * self.step_dt * 0.0, #-0.5e-6, #-1.0e-6, #-2.5e-7,
-            "action_rate_l2": action_rate * self.step_dt * -0.01, #-0.01, #-0.01,
-            "feet_air_time": air_time_reward * self.step_dt * 0.3, #1.25, #2.5, #5.0, #10.0, #7.5,
+            "action_rate_l2": action_rate * self.step_dt * -0.01, #(CONFIRMED -0.01)
+            "feet_air_time": air_time_reward * self.step_dt * 0.3, #(CONFIRMED 0.3)
             #"undesired_contacts": contacts * self.step_dt * -1.0, #-1.0,
-            "height_reward": height_reward * self.step_dt * 1.5, #2.0, #2.5, #20.0, #400.0, #200.0,
+            "height_reward": height_reward * self.step_dt * 1.5, #(CONFIRMED 1.5)
             "xy_acceleration_l2": xy_acceleration_error * self.step_dt * 0.0 #-0.5 #-0.15,
         }
 
@@ -504,11 +440,29 @@ class HaroldEnv(DirectRLEnv):
         self._previous_actions[env_ids] = 0.0
 
         # Randomize commands only for environments that are resetting
-        temp_commands = self._commands[env_ids]  # Get commands for resetting envs
-        temp_commands[:, 0].uniform_(0.25, 0.25)  # X velocity
-        temp_commands[:, 1].uniform_(-0.0, 0.0)  # Y velocity
-        temp_commands[:, 2].uniform_(-0.0, 0.0)  # Yaw rate
-        self._commands[env_ids] = temp_commands  # Write back the randomized commands
+        # Get commands for resetting envs
+        temp_commands = self._commands[env_ids]
+
+        # X velocity 
+        # TEST 1 (COMPLETE): Works with set command at 0.25
+        # TEST 2 (PENDING): Works with set command at -0.25
+        # TEST 3 (COMPLETE): Works with range of 0 to 0.25
+        temp_commands[:, 0].uniform_(0.0, 0.0)
+        
+        # Y velocity
+        # TEST 1 (FAILED): Works with set command at 0.25
+        # TEST 2 (PENDING): Works with set command at -0.25
+        # TEST 3 (PENDING): Works with range of 0 to 0.25
+        temp_commands[:, 1].uniform_(0.25, 0.25)
+
+        # Yaw rate (Note: The policy takes longer to train with yaw rate commands)
+        # TEST 1 (COMPLETE): Works with set command at 0.25
+        # TEST 2 (PENDING): Works with set command at -0.25
+        # TEST 3 (PENDING): Works with range of 0 to 0.25
+        temp_commands[:, 2].uniform_(0.0, 0.0)  
+
+        # Write back the randomized commands
+        self._commands[env_ids] = temp_commands  
         
 
         # Reset to default root pose/vel and joint state
@@ -534,46 +488,34 @@ class HaroldEnv(DirectRLEnv):
         if torch.any(terminated):
             self._completed_episodes += 1
             
-            # Update episode statistics
-            for key, value in self._episode_sums.items():
-                # Store individual values for each terminated environment
-                terminated_values = value[terminated].cpu().numpy()
-                self._episode_stats[key].extend(terminated_values.tolist())
+            # Calculate total reward for terminated environments
+            total_reward = sum(value[terminated].cpu().numpy()[0] for value in self._episode_sums.values())
             
-            # Print and store statistics every N episodes
+            # Store individual components and total reward
+            for key, value in self._episode_sums.items():
+                self.reward_history[key].append(value[terminated].cpu().numpy()[0])
+            self.reward_history["total_reward"].append(total_reward)
+            
+            # Print statistics every N episodes
             if self._completed_episodes % self._print_interval == 0:
-                print(f"\n=== Reward Statistics (over {len(self._episode_stats[list(self._episode_stats.keys())[0]])} episodes) ===")
-                print("                          Env Mean    Min      Max")
+                print(f"\n=== Reward Statistics (last 100 episodes) ===")
+                print("                          Mean    Min      Max")
                 print("--------------------------------------------------------")
                 
-                # Calculate and store means for each component
-                total_rewards = np.zeros(len(self._episode_stats[list(self._episode_stats.keys())[0]]))
-                for key, values in self._episode_stats.items():
-                    values_array = np.array(values)
-                    mean_val = np.mean(values_array)
-                    min_val = np.min(values_array)
-                    max_val = np.max(values_array)
-                    print(f"{key:25}: {mean_val:8.3f} {min_val:8.3f} {max_val:8.3f}")
-                    total_rewards += values_array
-                    
-                    # Store the mean value for plotting
-                    self.reward_history[key].append(mean_val)
+                for key, values in self.reward_history.items():
+                    if values:  # Check if we have data
+                        values_array = np.array(list(values))
+                        mean_val = np.mean(values_array)
+                        min_val = np.min(values_array)
+                        max_val = np.max(values_array)
+                        print(f"{key:25}: {mean_val:8.3f} {min_val:8.3f} {max_val:8.3f}")
                 
-                # Calculate and store total reward mean
-                total_reward_mean = np.mean(total_rewards)
-                self.reward_history["total_reward"].append(total_reward_mean)
-                
-                # Print total reward statistics
-                print("--------------------------------------------------------")
-                print(f"{'Total Reward':25}: {total_reward_mean:8.3f} {np.min(total_rewards):8.3f} {np.max(total_rewards):8.3f}")
                 print("--------------------------------------------------------\n")
-
-                # Reset episode statistics
-                self._episode_stats = {key: [] for key in self._episode_sums.keys()}
-                
-                # Reset episode sums for terminated environments
-                for key in self._episode_sums:
-                    self._episode_sums[key][terminated] = 0.0
+            
+            
+            # Reset episode sums for terminated environments
+            for key in self._episode_sums:
+                self._episode_sums[key][terminated] = 0.0
                 
             # Update plots every plot interval
             if self._completed_episodes % self._plot_interval == 0:
@@ -582,8 +524,7 @@ class HaroldEnv(DirectRLEnv):
         return info
 
     def _update_plots(self):
-        """Create and update reward component plots."""
-        # Create figure without opening a window
+        """Create and update reward component plots showing rolling averages."""
         plt.ioff()  # Turn off interactive mode
         fig = plt.figure(figsize=(15, 10))
         
@@ -596,18 +537,20 @@ class HaroldEnv(DirectRLEnv):
             plt.subplot(rows, cols, idx)
             if values:  # Check if we have data
                 values_array = np.array(list(values))
-                episodes = np.arange(len(values_array)) * self._print_interval
+                # Calculate number of episodes (each value represents the average of last 100 episodes)
+                episodes = np.arange(len(values_array))
                 
-                plt.plot(episodes, values_array)
+                # Plot rolling average
+                plt.plot(episodes, values_array, label='100-episode average')
                 plt.title(key)
-                plt.xlabel('Episodes')
-                plt.ylabel('Mean Value')
+                plt.xlabel('Episodes (x100)')
+                plt.ylabel('Average Value')
                 plt.grid(True)
         
         plt.tight_layout()
         
         # Save and close
-        fig.savefig('/home/matteo/Desktop/Harold_V5/reward_plots/reward_components.png')
+        plt.savefig('/home/matteo/Desktop/Harold_V5/reward_plots/reward_components.png')
         plt.close(fig)
 
     def __del__(self):

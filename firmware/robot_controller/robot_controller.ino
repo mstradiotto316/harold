@@ -29,16 +29,19 @@
 #define SERVO_MIN_PULSE 150          // Absolute minimum pulse width
 #define SERVO_MAX_PULSE 600          // Absolute maximum pulse width
 
-// PID Controller parameters
-#define PID_KP 8.0                   // Proportional gain (increased for more torque)
-#define PID_KI 0.05                  // Integral gain (increased for better steady-state)
-#define PID_KD 1.0                   // Derivative gain
-#define PID_EFFORT_LIMIT 1.5         // Control effort limit (rad/s) (increased for faster movement)
-#define PID_INTEGRAL_LIMIT 0.3       // Anti-windup integral limit (increased)
+// PID Controller parameters - increased for more torque
+#define PID_KP 12.0                  // Proportional gain
+#define PID_KI 0.1                   // Integral gain
+#define PID_KD 0.5                   // Derivative gain
+#define PID_EFFORT_LIMIT 2.0         // Control effort limit (rad/s)
+#define PID_INTEGRAL_LIMIT 0.5       // Anti-windup integral limit
 #define PID_INTEGRAL_DECAY 0.95      // Integral term decay factor
 
+// Debug flags
+#define DEBUG_SERVO_MOVEMENT 1       // Set to 1 to enable servo movement debugging
+
 // Filtering parameters
-#define FILTER_ALPHA 0.7             // Low-pass filter coefficient (0-1)
+#define FILTER_ALPHA 0.8             // Low-pass filter coefficient (0-1) - increased for faster response
 #define VELOCITY_ALPHA 0.8           // Velocity estimation filter coefficient
 
 // Joint definitions
@@ -403,6 +406,10 @@ void setupJoints() {
  * SERVO CONTROL FUNCTIONS
  *********************************************************************/
 void updateServos() {
+  static uint32_t lastMovementLog = 0;
+  uint32_t now = millis();
+  bool significantMovement = false;
+  
   // Update each joint based on PID control
   for (int i = 0; i < NUM_SERVOS; i++) {
     // Calculate control output using PID
@@ -419,7 +426,8 @@ void updateServos() {
     joints[i].prevPos = filtered;
     
     // Apply filtering to smooth motion (directly to currentPos)
-    joints[i].currentPos = (FILTER_ALPHA * newPos) + ((1 - FILTER_ALPHA) * filtered);
+    // Less filtering for faster response
+    joints[i].currentPos = (0.8 * newPos) + (0.2 * filtered);
     
     // Estimate velocity with filtering
     float rawVelocity = (joints[i].currentPos - joints[i].prevPos) / actualDt;
@@ -427,22 +435,44 @@ void updateServos() {
     
     // Detect if joint is moving significantly
     if (fabs(joints[i].velocity) > 0.02) {
-      joints[i].lastMove = millis();
+      joints[i].lastMove = now;
+      significantMovement = true;
+    }
+    
+    // Check for large position error (target vs current)
+    float posError = fabs(joints[i].targetPos - joints[i].currentPos);
+    if (posError > 0.1) {
+      significantMovement = true;
     }
     
     // Command the servo to the filtered position
     setServoPosition(i, joints[i].currentPos);
   }
   
+  // Log movement activity periodically
+  if (DEBUG_SERVO_MOVEMENT && significantMovement && (now - lastMovementLog > 1000)) {
+    lastMovementLog = now;
+    Serial.println("SIGNIFICANT MOVEMENT DETECTED");
+    
+    // Print all joint target and current positions
+    for (int i = 0; i < NUM_SERVOS; i++) {
+      Serial.print("Joint ");
+      Serial.print(i);
+      Serial.print(": target=");
+      Serial.print(joints[i].targetPos, 3);
+      Serial.print(" current=");
+      Serial.println(joints[i].currentPos, 3);
+    }
+  }
+  
   // Check for stuck joints (no movement despite commands)
-  uint32_t currentTime = millis();
   for (int i = 0; i < NUM_SERVOS; i++) {
     if (fabs(joints[i].targetPos - joints[i].currentPos) > 0.05 && 
-        currentTime - joints[i].lastMove > MOVEMENT_TIMEOUT_MS) {
+        now - joints[i].lastMove > MOVEMENT_TIMEOUT_MS) {
       // Joint appears stuck - log but don't interrupt
       static uint32_t lastStuckWarning = 0;
-      if (currentTime - lastStuckWarning > DEBUG_INTERVAL_MS) {
-        lastStuckWarning = currentTime;
+      if (now - lastStuckWarning > DEBUG_INTERVAL_MS) {
+        lastStuckWarning = now;
         Serial.print("WARNING: Joint ");
         Serial.print(i);
         Serial.print(" stuck at ");
@@ -706,13 +736,27 @@ void parseCommand(const char* command) {
     // Debug output every second to avoid flooding
     static uint32_t lastCmdDebug = 0;
     uint32_t now = millis();
-    if (now - lastCmdDebug > DEBUG_INTERVAL_MS) {
+    if (DEBUG_SERVO_MOVEMENT && now - lastCmdDebug > DEBUG_INTERVAL_MS) {
       lastCmdDebug = now;
-      Serial.print("CMD: ");
+      Serial.print("CMD RECV: ");
       for (int i = 0; i < NUM_SERVOS; i++) {
         Serial.print(joints[i].targetPos, 3);
         Serial.print(i < NUM_SERVOS-1 ? "," : "\n");
       }
+      
+      // Also log current positions to see if they're changing
+      Serial.print("CURRENT: ");
+      for (int i = 0; i < NUM_SERVOS; i++) {
+        Serial.print(joints[i].currentPos, 3);
+        Serial.print(i < NUM_SERVOS-1 ? "," : "\n");
+      }
+    }
+    
+    // CRITICAL SECTION: Force an immediate servo update for faster response
+    // This makes the robot respond more quickly to commands
+    for (int i = 0; i < 3; i++) {  // Update servos multiple times
+      updateServos();
+      delay(5);  // Short delay between updates (5ms)
     }
     
     // Check for any invalid positions

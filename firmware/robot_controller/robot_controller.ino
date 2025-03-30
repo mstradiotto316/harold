@@ -37,9 +37,10 @@
 #define PID_INTEGRAL_LIMIT 0.5       // Anti-windup integral limit
 #define PID_INTEGRAL_DECAY 0.95      // Integral term decay factor
 
-// Debug flags
-#define DEBUG_SERVO_MOVEMENT 1       // Set to 1 to enable servo movement debugging
-#define DEBUG_EXTREME 1           // Set to 1 for extremely verbose debugging
+// Debug flags - REDUCED TO SAVE MEMORY
+#define DEBUG_SERVO_MOVEMENT 0       // Set to 0 to save memory
+#define DEBUG_EXTREME 0              // Set to 0 to save memory
+#define DIRECT_TEST_ENABLED 1        // Set to 1 to enable direct servo test at startup
 
 // Filtering parameters
 #define FILTER_ALPHA 0.8             // Low-pass filter coefficient (0-1) - increased for faster response
@@ -218,26 +219,17 @@ void setup() {
   
   Serial.println("PWM driver initialized!");
   
+#if DIRECT_TEST_ENABLED
   // DIRECT SERVO TEST - no configuration, just direct pulses
-  Serial.println("Performing direct servo tests...");
-  
-  // Test servo 0 (front left shoulder) with direct PWM values
-  Serial.println("Testing servo 0 (Front left shoulder)...");
-  
-  // Test min, center, and max positions
-  Serial.println("Moving to min position (315)");
-  pwm.setPWM(0, 0, 315);
+  Serial.println("Testing servo 0...");
+  pwm.setPWM(0, 0, 315); // min
   delay(500);
-  
-  Serial.println("Moving to center position (355)");
-  pwm.setPWM(0, 0, 355);
+  pwm.setPWM(0, 0, 355); // center
   delay(500);
-  
-  Serial.println("Moving to max position (395)");
-  pwm.setPWM(0, 0, 395);
+  pwm.setPWM(0, 0, 395); // max
   delay(500);
-  
-  Serial.println("Direct servo test complete!");
+  Serial.println("Test done");
+#endif
   
   // Configure joint parameters and initialize to safe positions
   setupJoints();
@@ -423,54 +415,37 @@ void setupJoints() {
  *********************************************************************/
 void updateServos() {
   static uint32_t lastMovementLog = 0;
+#if DEBUG_EXTREME
   static uint32_t lastExtremeDebugTime = 0;
+#endif
   uint32_t now = millis();
   bool significantMovement = false;
   
+#if DEBUG_EXTREME
   // EXTREME DEBUG: Print out detailed state for first joint every second
-  if (DEBUG_EXTREME && (now - lastExtremeDebugTime > 1000)) {
+  if (now - lastExtremeDebugTime > 1000) {
     lastExtremeDebugTime = now;
     Serial.println("\n----- EXTREME DEBUG -----");
-    Serial.println("Joint state for joint 0 (front left shoulder):");
-    Serial.print("Target: ");
+    Serial.print("J0: T=");
     Serial.print(joints[0].targetPos);
-    Serial.print(", Current: ");
+    Serial.print(", C=");
     Serial.print(joints[0].currentPos);
-    Serial.print(", Velocity: ");
+    Serial.print(", V=");
     Serial.println(joints[0].velocity);
     
     int pulseValue = mapAngleToServo(0, joints[0].currentPos);
-    Serial.print("Mapped pulse: ");
-    Serial.print(pulseValue);
-    Serial.print(", Min: ");
-    Serial.print(servoMin[0]);
-    Serial.print(", Max: ");
-    Serial.println(servoMax[0]);
+    Serial.print("Pulse=");
+    Serial.println(pulseValue);
     
-    // Check if servos are powered
-    Serial.println("Sending test move command...");
-    // Force a small movement to check if servo responds
-    float oldPos = joints[0].currentPos;
-    float testPos = oldPos + 0.05;  // Small test movement
+    // Test movement
+    float testPos = joints[0].currentPos + 0.05;
     testPos = constrainJointAngle(0, testPos);
-    
-    Serial.print("Test position: ");
-    Serial.println(testPos);
-    
-    // Directly command servo for test
     int testPulse = mapAngleToServo(0, testPos);
-    Serial.print("Test pulse: ");
-    Serial.println(testPulse);
-    
-    // Send command directly to servo
     pwm.setPWM(0, 0, testPulse);
-    delay(250);  // Wait for movement
-    
-    // Return to original position
+    delay(250);
     pwm.setPWM(0, 0, pulseValue);
-    
-    Serial.println("------------------------");
   }
+#endif
   
   // Update each joint based on PID control
   for (int i = 0; i < NUM_SERVOS; i++) {
@@ -511,39 +486,32 @@ void updateServos() {
     setServoPosition(i, joints[i].currentPos);
   }
   
-  // Log movement activity periodically
-  if (DEBUG_SERVO_MOVEMENT && significantMovement && (now - lastMovementLog > 1000)) {
+#if DEBUG_SERVO_MOVEMENT
+  // Log movement activity periodically (if debug enabled)
+  if (significantMovement && (now - lastMovementLog > 1000)) {
     lastMovementLog = now;
-    Serial.println("SIGNIFICANT MOVEMENT DETECTED");
-    
-    // Print all joint target and current positions
-    for (int i = 0; i < NUM_SERVOS; i++) {
-      Serial.print("Joint ");
-      Serial.print(i);
-      Serial.print(": target=");
-      Serial.print(joints[i].targetPos, 3);
-      Serial.print(" current=");
-      Serial.println(joints[i].currentPos, 3);
-    }
+    Serial.println("MOVEMENT");
+    // Only print first joint to save memory
+    Serial.print("J0: T=");
+    Serial.print(joints[0].targetPos, 3);
+    Serial.print(" C=");
+    Serial.println(joints[0].currentPos, 3);
   }
+#endif
   
-  // Check for stuck joints (no movement despite commands)
-  for (int i = 0; i < NUM_SERVOS; i++) {
+#if DEBUG_SERVO_MOVEMENT
+  // Check for stuck joints only if debugging is enabled
+  for (int i = 0; i < 1; i++) { // Only check first joint to save memory
     if (fabs(joints[i].targetPos - joints[i].currentPos) > 0.05 && 
         now - joints[i].lastMove > MOVEMENT_TIMEOUT_MS) {
-      // Joint appears stuck - log but don't interrupt
       static uint32_t lastStuckWarning = 0;
       if (now - lastStuckWarning > DEBUG_INTERVAL_MS) {
         lastStuckWarning = now;
-        Serial.print("WARNING: Joint ");
-        Serial.print(i);
-        Serial.print(" stuck at ");
-        Serial.print(joints[i].currentPos);
-        Serial.print(" target ");
-        Serial.println(joints[i].targetPos);
+        Serial.println("J0 STUCK");
       }
     }
   }
+#endif
 }
 
 float applyPidControl(int jointIdx, float dt) {
@@ -852,117 +820,54 @@ bool validatePositions() {
  * STATUS AND FEEDBACK FUNCTIONS
  *********************************************************************/
 void sendStatus() {
-  Serial.print("STATUS:");
-  
-  // Send calibration status
-  Serial.print(" CAL=");
-  bool allCalibrated = true;
-  for (int i = 0; i < NUM_SERVOS; i++) {
-    if (!(joints[i].flags & 0x01)) {  // Check calibrated flag (bit 0)
-      allCalibrated = false;
-      break;
-    }
-  }
-  Serial.print(allCalibrated ? "1" : "0");
-  
-  // Send metrics
-  Serial.print(" CMDS=");
+  Serial.print("OK "); // Simplified status to save memory
   Serial.print(metrics.commandCount);
-  Serial.print(" TMOUT=");
-  Serial.print(metrics.timeoutCount);
-  Serial.print(" LOOP_AVG=");
-  Serial.print(metrics.avgLoopTime, 1);
-  Serial.print(" LOOP_MAX=");
-  Serial.print(metrics.maxLoopTime);
-  
-  // Send timing
-  Serial.print(" DT=");
-  Serial.print(actualDt * 1000.0, 2);
-  
   Serial.println();
 }
 
 void sendFeedback() {
-  // Only send if host is likely waiting for it
+  // Simplified to first 4 joints only to save memory
   if (metrics.commandCount > 0) {
-    Serial.print("POS:");
-    for (int i = 0; i < NUM_SERVOS; i++) {
-      Serial.print(joints[i].currentPos, 3);
-      if (i < NUM_SERVOS - 1) {
-        Serial.print(",");
-      }
+    Serial.print("P:");
+    for (int i = 0; i < 4; i++) {
+      Serial.print(joints[i].currentPos, 2);
+      Serial.print(i < 3 ? "," : "");
     }
     Serial.println();
   }
 }
 
 /*********************************************************************
- * TEST FUNCTIONS
+ * TEST FUNCTIONS - SIMPLIFIED FOR MEMORY
  *********************************************************************/
 void testMovement() {
-  Serial.println("Testing individual joint movements...");
+  Serial.println("Test...");
   
-  // Test each joint type with small movements
-  // Only test one joint of each type to minimize power requirements
+  // Only test shoulder joint
+  int jointIdx = 0;
+  float basePos = joints[jointIdx].currentPos;
+  float testPos = basePos + 0.15;
   
-  const int testJoints[] = {0, 4, 8};  // Test one shoulder, thigh, knee
-  const float testAmplitude = 0.15;    // Small movement amplitude
-  
-  for (int i = 0; i < 3; i++) {
-    int jointIdx = testJoints[i];
-    float basePos = joints[jointIdx].currentPos;
-    
-    // Display joint info
-    Serial.print("Testing joint ");
-    Serial.print(jointIdx);
-    Serial.print(" (");
-    Serial.print(i == 0 ? "shoulder" : (i == 1 ? "thigh" : "knee"));
-    Serial.println(")");
-    
-    // Move forward
-    float targetPos = basePos + testAmplitude;
-    Serial.print("Moving to +");
-    Serial.println(testAmplitude);
-    joints[jointIdx].targetPos = targetPos;
-    
-    // Update servos directly for immediate response
-    for (int j = 0; j < 10; j++) {
-      // Rapid update loop for quicker response
-      updateServos();
-      delay(50);
-    }
-    
-    // Wait at position
-    delay(500);
-    
-    // Move backward
-    targetPos = basePos - testAmplitude;
-    Serial.print("Moving to -");
-    Serial.println(testAmplitude);
-    joints[jointIdx].targetPos = targetPos;
-    
-    // Update servos directly
-    for (int j = 0; j < 10; j++) {
-      updateServos();
-      delay(50);
-    }
-    
-    // Wait at position
-    delay(500);
-    
-    // Return to base position
-    Serial.println("Returning to base position");
-    joints[jointIdx].targetPos = basePos;
-    
-    // Update servos directly
-    for (int j = 0; j < 10; j++) {
-      updateServos();
-      delay(50);
-    }
-    
-    // Wait between joint tests
-    delay(500);
+  // Test forward
+  joints[jointIdx].targetPos = testPos;
+  for (int j = 0; j < 5; j++) {
+    updateServos();
+    delay(50);
   }
   
-  Serial.println("Movement test complete");
+  // Test backward
+  joints[jointIdx].targetPos = basePos - 0.15;
+  for (int j = 0; j < 5; j++) {
+    updateServos();
+    delay(50);
+  }
+  
+  // Return to center
+  joints[jointIdx].targetPos = basePos;
+  for (int j = 0; j < 5; j++) {
+    updateServos();
+    delay(50);
+  }
+  
+  Serial.println("Done");
 }

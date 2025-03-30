@@ -29,22 +29,20 @@
 #define SERVO_MIN_PULSE 150          // Absolute minimum pulse width
 #define SERVO_MAX_PULSE 600          // Absolute maximum pulse width
 
-// PID Controller parameters - further refined for ultra-smooth motion
-#define PID_KP 3.0                   // Proportional gain (further reduced for smoother motion)
-#define PID_KI 0.005                 // Integral gain (reduced further to minimize drift)
-#define PID_KD 2.0                   // Derivative gain (increased to dampen oscillations more effectively)
-#define PID_EFFORT_LIMIT 0.5         // Control effort limit (rad/s) - significantly lowered for smoother transitions
-#define PID_INTEGRAL_LIMIT 0.05      // Anti-windup integral limit (reduced)
-#define PID_INTEGRAL_DECAY 0.95      // Integral term decay factor (increased to make integral term more stable)
+// PID Controller parameters
+#define PID_KP 12.0                  // Proportional gain (significantly increased for more torque)
+#define PID_KI 0.1                   // Integral gain (increased for better steady-state)
+#define PID_KD 0.5                   // Derivative gain (reduced to avoid jitter)
+#define PID_EFFORT_LIMIT 2.0         // Control effort limit (rad/s) (increased for faster movement)
+#define PID_INTEGRAL_LIMIT 0.5       // Anti-windup integral limit (increased)
+#define PID_INTEGRAL_DECAY 0.95      // Integral term decay factor
 
-// Debug flags - REDUCED TO SAVE MEMORY
-#define DEBUG_SERVO_MOVEMENT 0       // Set to 0 to save memory
-#define DEBUG_EXTREME 0              // Set to 0 to save memory
-#define DIRECT_TEST_ENABLED 1        // Set to 1 to enable direct servo test at startup
+// Debug flags
+#define DEBUG_SERVO_MOVEMENT 1       // Set to 1 to enable servo movement debugging
 
 // Filtering parameters
-#define FILTER_ALPHA 0.15            // Low-pass filter coefficient (0-1) - drastically reduced for ultra-smooth motion
-#define VELOCITY_ALPHA 0.1           // Velocity estimation filter coefficient - further reduced for smoother acceleration
+#define FILTER_ALPHA 0.7             // Low-pass filter coefficient (0-1)
+#define VELOCITY_ALPHA 0.8           // Velocity estimation filter coefficient
 
 // Joint definitions
 #define NUM_SERVOS 12
@@ -190,54 +188,6 @@ void sendFeedback();
 // Testing functions
 void testMovement();
 
-// Update PD gains to better match simulation dynamics
-#define CONTROL_INTERVAL 5     // Keep at 200Hz for smooth motion
-#define SIMULATION_DT 0.05    // 20Hz simulation rate
-
-// Scaled gains to match simulation while accounting for different update rates
-float PD_Kp = 40.0;           // Increased from 4.0 to better match simulation stiffness
-float PD_Kd = 20.0;           // Increased from 2.0 to better match simulation damping
-float PD_Ki = 0.1;            // Add integral term to combat drift
-
-// Add per-joint integral error tracking
-float integral_error[12] = {0};
-float integral_limit = 0.5;    // Limit integral windup
-
-void updateServoPosWithPD() {
-    unsigned long currentTime = millis();
-    float dt = (currentTime - previousControlTime) / 1000.0;
-    if (dt > 0.05 || dt <= 0) dt = CONTROL_INTERVAL / 1000.0;
-    previousControlTime = currentTime;
-
-    // Check for command timeout
-    if (currentTime - lastCommandTime > COMMAND_TIMEOUT) {
-        for (int i = 0; i < 12; i++) {
-            targetPos[i] = safePos[i];
-            integral_error[i] = 0;  // Reset integral when returning to safe position
-        }
-    }
-
-    for (int i = 0; i < 12; i++) {
-        float error = targetPos[i] - currentPos[i];
-        float velocity = (currentPos[i] - prevPos[i]) / dt;
-        
-        // Update integral term with anti-windup
-        integral_error[i] += error * dt;
-        integral_error[i] = constrain(integral_error[i], -integral_limit, integral_limit);
-        
-        // PID control with feed-forward velocity
-        float control_output = PD_Kp * error + PD_Ki * integral_error[i] - PD_Kd * velocity;
-        
-        // Rate limit the position change
-        float max_change = PD_EFFORT_LIMIT * dt;
-        float position_change = constrain(control_output * dt, -max_change, max_change);
-        
-        prevPos[i] = currentPos[i];
-        currentPos[i] = constrain(currentPos[i] + position_change, ANGLE_MIN[i], ANGLE_MAX[i]);
-        setServoToPosition(i, currentPos[i]);
-    }
-}
-
 /*********************************************************************
  * SETUP FUNCTION
  *********************************************************************/
@@ -246,16 +196,12 @@ void setup() {
   Serial.begin(115200);
   while (!Serial);
   
-  Serial.println("Starting Harold Quadruped Robot Controller...");
-  
   // CRUCIAL: Send handshake messages immediately before anything else
   // This ensures the Python controller sees them as early as possible
-  for (int i = 0; i < 10; i++) {
+  for (int i = 0; i < 50; i++) {
     Serial.println(HANDSHAKE_MSG);
     delay(10);
   }
-  
-  Serial.println("Initializing PWM driver...");
   
   // Initialize PWM driver
   pwm.begin();
@@ -265,19 +211,11 @@ void setup() {
   // Wait for hardware to stabilize
   delay(100);
   
-  Serial.println("PWM driver initialized!");
-  
-#if DIRECT_TEST_ENABLED
-  // DIRECT SERVO TEST - no configuration, just direct pulses
-  Serial.println("Testing servo 0...");
-  pwm.setPWM(0, 0, 315); // min
-  delay(500);
-  pwm.setPWM(0, 0, 355); // center
-  delay(500);
-  pwm.setPWM(0, 0, 395); // max
-  delay(500);
-  Serial.println("Test done");
-#endif
+  // SEND MORE HANDSHAKES after driver initialization
+  for (int i = 0; i < 20; i++) {
+    Serial.println(HANDSHAKE_MSG);
+    delay(10);
+  }
   
   // Configure joint parameters and initialize to safe positions
   setupJoints();
@@ -294,6 +232,12 @@ void setup() {
     freeMemory = ((int) &freeMemory) - ((int) &__heap_start);
   } else {
     freeMemory = ((int) &freeMemory) - ((int) __brkval);
+  }
+  
+  // Send final batch of handshake messages
+  for (int i = 0; i < 10; i++) {
+    Serial.println(HANDSHAKE_MSG);
+    delay(10);
   }
   
   Serial.print("Free memory: ");
@@ -347,8 +291,8 @@ void loop() {
     }
   }
   
-  // PRIORITY 2: Periodically send handshake message when idle (much less frequently)
-  if (now - lastCommandMillis > 5000 && now - lastHandshakeSent > 3000) {
+  // PRIORITY 2: Periodically send handshake message when idle
+  if (now - lastCommandMillis > 500 && now - lastHandshakeSent > 100) {
     lastHandshakeSent = now;
     Serial.println(HANDSHAKE_MSG);
   }
@@ -463,37 +407,8 @@ void setupJoints() {
  *********************************************************************/
 void updateServos() {
   static uint32_t lastMovementLog = 0;
-#if DEBUG_EXTREME
-  static uint32_t lastExtremeDebugTime = 0;
-#endif
   uint32_t now = millis();
   bool significantMovement = false;
-  
-#if DEBUG_EXTREME
-  // EXTREME DEBUG: Print out detailed state for first joint every second
-  if (now - lastExtremeDebugTime > 1000) {
-    lastExtremeDebugTime = now;
-    Serial.println("\n----- EXTREME DEBUG -----");
-    Serial.print("J0: T=");
-    Serial.print(joints[0].targetPos);
-    Serial.print(", C=");
-    Serial.print(joints[0].currentPos);
-    Serial.print(", V=");
-    Serial.println(joints[0].velocity);
-    
-    int pulseValue = mapAngleToServo(0, joints[0].currentPos);
-    Serial.print("Pulse=");
-    Serial.println(pulseValue);
-    
-    // Test movement
-    float testPos = joints[0].currentPos + 0.05;
-    testPos = constrainJointAngle(0, testPos);
-    int testPulse = mapAngleToServo(0, testPos);
-    pwm.setPWM(0, 0, testPulse);
-    delay(250);
-    pwm.setPWM(0, 0, pulseValue);
-  }
-#endif
   
   // Update each joint based on PID control
   for (int i = 0; i < NUM_SERVOS; i++) {
@@ -510,85 +425,13 @@ void updateServos() {
     // Store previous position for velocity calculation
     joints[i].prevPos = filtered;
     
-    // Calculate raw new position and velocity
-    float rawVelocity = (newPos - filtered) / actualDt;
+    // Apply filtering to smooth motion (directly to currentPos)
+    // Less filtering for faster response
+    joints[i].currentPos = (0.8 * newPos) + (0.2 * filtered);
     
-    // Apply acceleration limiting for smoother motion
-    // Store previous velocity for acceleration calculation
-    static float prevVelocity[NUM_SERVOS] = {0};
-    
-    // Calculate acceleration and heavily limit it for ultra-smooth motion
-    float accel = (rawVelocity - prevVelocity[i]) / actualDt;
-    const float MAX_ACCEL = 3.5; // radians/s² - dramatically reduced for ultra-smooth motion
-    
-    // Apply non-linear acceleration limiting (more aggressive for higher accelerations)
-    if (fabs(accel) > MAX_ACCEL * 0.5) {
-      // Apply stronger limiting to higher acceleration values (quadratic scaling)
-      float scale = 1.0 - ((fabs(accel) - (MAX_ACCEL * 0.5)) / (MAX_ACCEL * 0.5)) * 0.5;
-      accel *= scale;
-    }
-    
-    // Apply hard limit as a safety measure
-    if (accel > MAX_ACCEL) accel = MAX_ACCEL;
-    if (accel < -MAX_ACCEL) accel = -MAX_ACCEL;
-    
-    // Calculate limited velocity
-    float limitedVelocity = prevVelocity[i] + accel * actualDt;
-    prevVelocity[i] = limitedVelocity;
-    
-    // Calculate position based on limited velocity
-    float accelLimitedPos = filtered + limitedVelocity * actualDt;
-    
-    // Apply additional low-pass filtering for ultra-smooth motion
-    joints[i].currentPos = (FILTER_ALPHA * accelLimitedPos) + ((1 - FILTER_ALPHA) * filtered);
-    
-    // Update velocity estimate with heavy filtering for smoothness
-    joints[i].velocity = (VELOCITY_ALPHA * limitedVelocity) + ((1 - VELOCITY_ALPHA) * joints[i].velocity);
-    
-    // Enhanced anti-drift: Multi-layered approach to eliminate jitter and drift
-    // This is critical for preventing both the slow accumulation of position errors
-    // and tiny jittery movements when the robot should be still
-    float posError = fabs(joints[i].targetPos - joints[i].currentPos);
-    
-    // Track static target detection (target hasn't changed recently)
-    static float prevTargets[NUM_SERVOS] = {0};
-    static uint32_t staticTargetTime[NUM_SERVOS] = {0};
-    static bool inStaticMode[NUM_SERVOS] = {false};
-    
-    // Check if target position has changed
-    if (fabs(joints[i].targetPos - prevTargets[i]) > 0.001) {
-      // Target has changed - reset static mode
-      staticTargetTime[i] = now;
-      inStaticMode[i] = false;
-      prevTargets[i] = joints[i].targetPos;
-    }
-    
-    // If target hasn't changed for 2 seconds, we're in "holding position" mode
-    bool staticTarget = (now - staticTargetTime[i] > 2000);
-    
-    // Approach 1: Snap to target when nearly there (expanded threshold)
-    if (fabs(joints[i].velocity) < 0.02 && posError < 0.04) {
-      joints[i].currentPos = joints[i].targetPos;
-      joints[i].velocity = 0;
-      joints[i].integral = 0; // Reset integral term completely
-    }
-    // Approach 2: Special "holding mode" with jitter elimination
-    else if (staticTarget && !inStaticMode[i] && posError < 0.03) {
-      // Enter static holding mode - freeze position exactly where it is
-      // This prevents tiny oscillations around the target
-      inStaticMode[i] = true;
-      
-      // First, apply one final small correction toward target
-      joints[i].currentPos = joints[i].currentPos * 0.9 + joints[i].targetPos * 0.1;
-      joints[i].velocity = 0;
-      joints[i].integral = 0;
-    }
-    // Approach 3: Apply additional small bias toward target for very tiny errors
-    else if (posError < 0.1 && !inStaticMode[i]) {
-      // Apply a gentle bias force toward the target position
-      float biasForce = 0.0005 * (joints[i].targetPos - joints[i].currentPos);
-      joints[i].currentPos += biasForce;
-    }
+    // Estimate velocity with filtering
+    float rawVelocity = (joints[i].currentPos - joints[i].prevPos) / actualDt;
+    joints[i].velocity = (VELOCITY_ALPHA * rawVelocity) + ((1 - VELOCITY_ALPHA) * joints[i].velocity);
     
     // Detect if joint is moving significantly
     if (fabs(joints[i].velocity) > 0.02) {
@@ -596,7 +439,8 @@ void updateServos() {
       significantMovement = true;
     }
     
-    // Flag significant movement if error is large
+    // Check for large position error (target vs current)
+    float posError = fabs(joints[i].targetPos - joints[i].currentPos);
     if (posError > 0.1) {
       significantMovement = true;
     }
@@ -605,87 +449,50 @@ void updateServos() {
     setServoPosition(i, joints[i].currentPos);
   }
   
-#if DEBUG_SERVO_MOVEMENT
-  // Log movement activity periodically (if debug enabled)
-  if (significantMovement && (now - lastMovementLog > 1000)) {
+  // Log movement activity periodically
+  if (DEBUG_SERVO_MOVEMENT && significantMovement && (now - lastMovementLog > 1000)) {
     lastMovementLog = now;
-    Serial.println("MOVEMENT");
-    // Only print first joint to save memory
-    Serial.print("J0: T=");
-    Serial.print(joints[0].targetPos, 3);
-    Serial.print(" C=");
-    Serial.println(joints[0].currentPos, 3);
+    Serial.println("SIGNIFICANT MOVEMENT DETECTED");
+    
+    // Print all joint target and current positions
+    for (int i = 0; i < NUM_SERVOS; i++) {
+      Serial.print("Joint ");
+      Serial.print(i);
+      Serial.print(": target=");
+      Serial.print(joints[i].targetPos, 3);
+      Serial.print(" current=");
+      Serial.println(joints[i].currentPos, 3);
+    }
   }
-#endif
   
-#if DEBUG_SERVO_MOVEMENT
-  // Check for stuck joints only if debugging is enabled
-  for (int i = 0; i < 1; i++) { // Only check first joint to save memory
+  // Check for stuck joints (no movement despite commands)
+  for (int i = 0; i < NUM_SERVOS; i++) {
     if (fabs(joints[i].targetPos - joints[i].currentPos) > 0.05 && 
         now - joints[i].lastMove > MOVEMENT_TIMEOUT_MS) {
+      // Joint appears stuck - log but don't interrupt
       static uint32_t lastStuckWarning = 0;
       if (now - lastStuckWarning > DEBUG_INTERVAL_MS) {
         lastStuckWarning = now;
-        Serial.println("J0 STUCK");
+        Serial.print("WARNING: Joint ");
+        Serial.print(i);
+        Serial.print(" stuck at ");
+        Serial.print(joints[i].currentPos);
+        Serial.print(" target ");
+        Serial.println(joints[i].targetPos);
       }
     }
   }
-#endif
+}
+float applyPidControl(int jointIdx, float dt) {
 }
 
 float applyPidControl(int jointIdx, float dt) {
   // Calculate error terms
   float error = joints[jointIdx].targetPos - joints[jointIdx].currentPos;
   
-  // *** ENHANCED ANTI-DRIFT MECHANISM ***
-  // Sophisticated conditional integral accumulation to prevent drift 
-  // while maintaining positioning accuracy
-  static float previousError[NUM_SERVOS] = {0};
-  static uint32_t steadyStartTime[NUM_SERVOS] = {0};
-  uint32_t currentTime = millis();
-  bool shouldIntegrate = false;
-  
-  // Condition 1: Large error (needs correction)
-  if (fabs(error) > 0.07) {
-    shouldIntegrate = true;
-    steadyStartTime[jointIdx] = currentTime; // Reset steady state timer
-  }
-  // Condition 2: Error changed sign (crossed zero - critical for stability)
-  else if (error * previousError[jointIdx] <= 0) {
-    shouldIntegrate = true;
-    steadyStartTime[jointIdx] = currentTime; // Reset steady state timer
-  }
-  // Condition 3: Error has been small but persistent for a while
-  else if (fabs(error) > 0.02 && fabs(error) < 0.07) {
-    // Error has been in this small range for more than 500ms
-    if (steadyStartTime[jointIdx] == 0) {
-      steadyStartTime[jointIdx] = currentTime;
-    }
-    else if (currentTime - steadyStartTime[jointIdx] > 500) {
-      // Allow very slow integration for persistent small errors
-      // This helps eventually reach target with minimal oscillation
-      joints[jointIdx].integral += error * dt * 0.1; // 10% of normal integration
-    }
-  }
-  else {
-    // Error too small to need integration
-    steadyStartTime[jointIdx] = 0;
-  }
-  
-  // Store error for next comparison
-  previousError[jointIdx] = error;
-  
-  // Update integral term with anti-windup and conditional integration
+  // Update integral term with anti-windup
   joints[jointIdx].integral = joints[jointIdx].integral * PID_INTEGRAL_DECAY;
-  if (shouldIntegrate) {
-    joints[jointIdx].integral += error * dt;
-  }
-  
-  // If near target position (very small error), clear integral term completely
-  // This is critical to prevent drift when the robot should be stationary
-  if (fabs(error) < 0.01) {
-    joints[jointIdx].integral = 0;
-  }
+  joints[jointIdx].integral += error * dt;
   
   // Clamp integral term to prevent windup
   if (joints[jointIdx].integral > PID_INTEGRAL_LIMIT)
@@ -875,20 +682,6 @@ void parseCommand(const char* command) {
     return;
   }
   
-  // Check for emergency STOP command
-  if (strstr(command, "STOP") != NULL) {
-    // Immediately move to safe position
-    Serial.println("STOP COMMAND RECEIVED");
-    moveToSafePosition();
-    
-    // Immediately apply safe position to servos without filtering
-    for (int i = 0; i < NUM_SERVOS; i++) {
-      joints[i].currentPos = joints[i].targetPos; // Force current position to target
-      setServoPosition(i, joints[i].currentPos);  // Apply immediately
-    }
-    return;
-  }
-  
   // Check for status request
   if (strstr(command, "STATUS") != NULL) {
     sendStatus();
@@ -999,82 +792,117 @@ bool validatePositions() {
  * STATUS AND FEEDBACK FUNCTIONS
  *********************************************************************/
 void sendStatus() {
-  Serial.print("OK "); // Simplified status to save memory
+  Serial.print("STATUS:");
+  
+  // Send calibration status
+  Serial.print(" CAL=");
+  bool allCalibrated = true;
+  for (int i = 0; i < NUM_SERVOS; i++) {
+    if (!(joints[i].flags & 0x01)) {  // Check calibrated flag (bit 0)
+      allCalibrated = false;
+      break;
+    }
+  }
+  Serial.print(allCalibrated ? "1" : "0");
+  
+  // Send metrics
+  Serial.print(" CMDS=");
   Serial.print(metrics.commandCount);
+  Serial.print(" TMOUT=");
+  Serial.print(metrics.timeoutCount);
+  Serial.print(" LOOP_AVG=");
+  Serial.print(metrics.avgLoopTime, 1);
+  Serial.print(" LOOP_MAX=");
+  Serial.print(metrics.maxLoopTime);
+  
+  // Send timing
+  Serial.print(" DT=");
+  Serial.print(actualDt * 1000.0, 2);
+  
   Serial.println();
 }
 
 void sendFeedback() {
-  // Simplified to first 4 joints only to save memory
+  // Only send if host is likely waiting for it
   if (metrics.commandCount > 0) {
-    Serial.print("P:");
-    for (int i = 0; i < 4; i++) {
-      Serial.print(joints[i].currentPos, 2);
-      Serial.print(i < 3 ? "," : "");
+    Serial.print("POS:");
+    for (int i = 0; i < NUM_SERVOS; i++) {
+      Serial.print(joints[i].currentPos, 3);
+      if (i < NUM_SERVOS - 1) {
+        Serial.print(",");
+      }
     }
     Serial.println();
   }
 }
 
 /*********************************************************************
- * TEST FUNCTIONS - SIMPLIFIED FOR MEMORY
+ * TEST FUNCTIONS
  *********************************************************************/
 void testMovement() {
-  Serial.println("Starting smooth motion test...");
+  Serial.println("Testing individual joint movements...");
   
-  // Test the first shoulder joint with gradually more refined motion
-  int jointIdx = 0;
-  float basePos = joints[jointIdx].currentPos;
-  float testAngle = 0.12;
+  // Test each joint type with small movements
+  // Only test one joint of each type to minimize power requirements
   
-  // Phase 1: Slow smooth forward motion
-  Serial.println("Testing smooth forward motion");
-  for (int step = 0; step <= 20; step++) {
-    // Create a smooth ramp up and down using sine function
-    float progress = step / 20.0;
-    float sinValue = sin(progress * PI);
-    float targetPos = basePos + (sinValue * testAngle);
+  const int testJoints[] = {0, 4, 8};  // Test one shoulder, thigh, knee
+  const float testAmplitude = 0.15;    // Small movement amplitude
+  
+  for (int i = 0; i < 3; i++) {
+    int jointIdx = testJoints[i];
+    float basePos = joints[jointIdx].currentPos;
     
-    // Update target position
+    // Display joint info
+    Serial.print("Testing joint ");
+    Serial.print(jointIdx);
+    Serial.print(" (");
+    Serial.print(i == 0 ? "shoulder" : (i == 1 ? "thigh" : "knee"));
+    Serial.println(")");
+    
+    // Move forward
+    float targetPos = basePos + testAmplitude;
+    Serial.print("Moving to +");
+    Serial.println(testAmplitude);
     joints[jointIdx].targetPos = targetPos;
     
-    // Update servo multiple times to ensure smooth movement
-    for (int j = 0; j < 2; j++) {
+    // Update servos directly for immediate response
+    for (int j = 0; j < 10; j++) {
+      // Rapid update loop for quicker response
       updateServos();
-      delay(25);
+      delay(50);
     }
-  }
-  
-  // Phase 2: Hold position test
-  Serial.println("Testing position holding stability");
-  joints[jointIdx].targetPos = basePos;
-  // Update for longer to test stability
-  for (int j = 0; j < 20; j++) {
-    updateServos();
-    delay(25);
-  }
-  
-  // Phase 3: Small incremental motion test
-  Serial.println("Testing tiny position changes");
-  for (int i = 0; i < 5; i++) {
-    // Tiny incremental step
-    float tiny = 0.01;
-    joints[jointIdx].targetPos = basePos + (i * tiny);
     
-    // Multiple updates
+    // Wait at position
+    delay(500);
+    
+    // Move backward
+    targetPos = basePos - testAmplitude;
+    Serial.print("Moving to -");
+    Serial.println(testAmplitude);
+    joints[jointIdx].targetPos = targetPos;
+    
+    // Update servos directly
     for (int j = 0; j < 10; j++) {
       updateServos();
-      delay(20);
+      delay(50);
     }
+    
+    // Wait at position
+    delay(500);
+    
+    // Return to base position
+    Serial.println("Returning to base position");
+    joints[jointIdx].targetPos = basePos;
+    
+    // Update servos directly
+    for (int j = 0; j < 10; j++) {
+      updateServos();
+      delay(50);
+    }
+    
+    // Wait between joint tests
+    delay(500);
   }
   
-  // Return to center with smooth motion
-  Serial.println("Returning to center");
-  joints[jointIdx].targetPos = basePos;
-  for (int j = 0; j < 20; j++) {
-    updateServos();
-    delay(20);
-  }
-  
-  Serial.println("Motion test complete");
+  Serial.println("Movement test complete");
 }

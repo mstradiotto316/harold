@@ -4,8 +4,6 @@ from omni.isaac.lab.actuators import DCMotorCfg, ImplicitActuatorCfg
 from omni.isaac.lab.assets.articulation import ArticulationCfg
 from omni.isaac.lab.sensors import ContactSensorCfg
 
-
-# ROS COMMANDS
 """
 Train model:
 ./isaaclab.sh -p source/standalone/workflows/rl_games/train.py --task Isaac-Harold-Direct-v3 --num_envs 1024

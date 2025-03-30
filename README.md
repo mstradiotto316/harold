@@ -83,6 +83,19 @@ The robot's joint configuration matches the simulation directly:
 
 This configuration ensures that the real robot's movements directly correspond to the simulation, with no need for joint remapping or direction inversions.
 
+## Development Environment
+
+### Arduino IDE
+
+Due to limitations on the Jetson Nano, we are forced to use an older ARM specific version of the Arduino software:
+
+*   Legacy IDE (1.8.19) Linux Arm 64 Bit
+
+**Important Notes for this Arduino Environment:**
+
+*   **Unavailable Functions:** Be aware that some standard C/C++ library functions might be missing. For example, `strtof` (string-to-float with error checking) is unavailable. Use alternatives like `atof` (standard C string-to-float), keeping in mind its limitations (e.g., less robust error reporting).
+*   **Code Structure:** This environment may be stricter regarding code structure than newer IDEs. To avoid `"not declared in this scope"` errors, ensure proper C/C++ ordering: Place all `#include` directives, `#define` constants, global variable declarations, and forward function declarations (prototypes) *before* the `setup()` and `loop()` functions. Define helper functions *after* `loop()`. Do not rely solely on the IDE's automatic function prototyping.
+
 ## Usage
 
 ### Running with Live IMU Data

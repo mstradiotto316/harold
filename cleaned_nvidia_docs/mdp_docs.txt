@@ -1,0 +1,2545 @@
+isaaclab.envs.mdp
+Sub-module with implementation of manager terms.
+
+The functions can be provided to different managers that are responsible for the different aspects of the MDP. These include the observation, reward, termination, actions, events and curriculum managers.
+
+The terms are defined under the envs module because they are used to define the environment. However, they are not part of the environment directly, but are used to define the environment through their managers.
+
+Observations
+Common functions that can be used to create observation terms.
+
+The functions can be passed to the isaaclab.managers.ObservationTermCfg object to enable the observation introduced by the function.
+
+Functions:
+
+base_pos_z(env[, asset_cfg])
+
+Root height in the simulation world frame.
+
+base_lin_vel(env[, asset_cfg])
+
+Root linear velocity in the asset's root frame.
+
+base_ang_vel(env[, asset_cfg])
+
+Root angular velocity in the asset's root frame.
+
+projected_gravity(env[, asset_cfg])
+
+Gravity projection on the asset's root frame.
+
+root_pos_w(env[, asset_cfg])
+
+Asset root position in the environment frame.
+
+root_quat_w(env[, make_quat_unique, asset_cfg])
+
+Asset root orientation (w, x, y, z) in the environment frame.
+
+root_lin_vel_w(env[, asset_cfg])
+
+Asset root linear velocity in the environment frame.
+
+root_ang_vel_w(env[, asset_cfg])
+
+Asset root angular velocity in the environment frame.
+
+joint_pos(env[, asset_cfg])
+
+The joint positions of the asset.
+
+joint_pos_rel(env[, asset_cfg])
+
+The joint positions of the asset w.r.t.
+
+joint_pos_limit_normalized(env[, asset_cfg])
+
+The joint positions of the asset normalized with the asset's joint limits.
+
+joint_vel(env[, asset_cfg])
+
+The joint velocities of the asset.
+
+joint_vel_rel(env[, asset_cfg])
+
+The joint velocities of the asset w.r.t.
+
+height_scan(env, sensor_cfg[, offset])
+
+Height scan from the given sensor w.r.t.
+
+body_incoming_wrench(env, asset_cfg)
+
+Incoming spatial wrench on bodies of an articulation in the simulation world frame.
+
+imu_orientation(env[, asset_cfg])
+
+Imu sensor orientation in the simulation world frame.
+
+imu_ang_vel(env[, asset_cfg])
+
+Imu sensor angular velocity w.r.t.
+
+imu_lin_acc(env[, asset_cfg])
+
+Imu sensor linear acceleration w.r.t.
+
+image(env[, sensor_cfg, data_type, ...])
+
+Images of a specific datatype from the camera sensor.
+
+last_action(env[, action_name])
+
+The last input action to the environment.
+
+generated_commands(env, command_name)
+
+The generated command from command term in the command manager with the given name.
+
+Classes:
+
+image_features
+
+Extracted image features from a pre-trained frozen encoder.
+
+isaaclab.envs.mdp.observations.base_pos_z(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Root height in the simulation world frame.
+
+isaaclab.envs.mdp.observations.base_lin_vel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Root linear velocity in the asset’s root frame.
+
+isaaclab.envs.mdp.observations.base_ang_vel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Root angular velocity in the asset’s root frame.
+
+isaaclab.envs.mdp.observations.projected_gravity(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Gravity projection on the asset’s root frame.
+
+isaaclab.envs.mdp.observations.root_pos_w(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Asset root position in the environment frame.
+
+isaaclab.envs.mdp.observations.root_quat_w(env: ManagerBasedEnv, make_quat_unique: bool = False, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Asset root orientation (w, x, y, z) in the environment frame.
+
+If make_quat_unique is True, then returned quaternion is made unique by ensuring the quaternion has non-negative real component. This is because both q and -q represent the same orientation.
+
+isaaclab.envs.mdp.observations.root_lin_vel_w(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Asset root linear velocity in the environment frame.
+
+isaaclab.envs.mdp.observations.root_ang_vel_w(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Asset root angular velocity in the environment frame.
+
+isaaclab.envs.mdp.observations.joint_pos(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+The joint positions of the asset.
+
+Note: Only the joints configured in asset_cfg.joint_ids will have their positions returned.
+
+isaaclab.envs.mdp.observations.joint_pos_rel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+The joint positions of the asset w.r.t. the default joint positions.
+
+Note: Only the joints configured in asset_cfg.joint_ids will have their positions returned.
+
+isaaclab.envs.mdp.observations.joint_pos_limit_normalized(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+The joint positions of the asset normalized with the asset’s joint limits.
+
+Note: Only the joints configured in asset_cfg.joint_ids will have their normalized positions returned.
+
+isaaclab.envs.mdp.observations.joint_vel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False))[source]
+The joint velocities of the asset.
+
+Note: Only the joints configured in asset_cfg.joint_ids will have their velocities returned.
+
+isaaclab.envs.mdp.observations.joint_vel_rel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False))[source]
+The joint velocities of the asset w.r.t. the default joint velocities.
+
+Note: Only the joints configured in asset_cfg.joint_ids will have their velocities returned.
+
+isaaclab.envs.mdp.observations.height_scan(env: ManagerBasedEnv, sensor_cfg: SceneEntityCfg, offset: float = 0.5) → torch.Tensor[source]
+Height scan from the given sensor w.r.t. the sensor’s frame.
+
+The provided offset (Defaults to 0.5) is subtracted from the returned values.
+
+isaaclab.envs.mdp.observations.body_incoming_wrench(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg) → torch.Tensor[source]
+Incoming spatial wrench on bodies of an articulation in the simulation world frame.
+
+This is the 6-D wrench (force and torque) applied to the body link by the incoming joint force.
+
+isaaclab.envs.mdp.observations.imu_orientation(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='imu', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Imu sensor orientation in the simulation world frame.
+
+Parameters
+:
+env – The environment.
+
+asset_cfg – The SceneEntity associated with an IMU sensor. Defaults to SceneEntityCfg(“imu”).
+
+Returns
+:
+Orientation in the world frame in (w, x, y, z) quaternion form. Shape is (num_envs, 4).
+
+isaaclab.envs.mdp.observations.imu_ang_vel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='imu', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Imu sensor angular velocity w.r.t. environment origin expressed in the sensor frame.
+
+Parameters
+:
+env – The environment.
+
+asset_cfg – The SceneEntity associated with an IMU sensor. Defaults to SceneEntityCfg(“imu”).
+
+Returns
+:
+The angular velocity (rad/s) in the sensor frame. Shape is (num_envs, 3).
+
+isaaclab.envs.mdp.observations.imu_lin_acc(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='imu', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Imu sensor linear acceleration w.r.t. the environment origin expressed in sensor frame.
+
+Parameters
+:
+env – The environment.
+
+asset_cfg – The SceneEntity associated with an IMU sensor. Defaults to SceneEntityCfg(“imu”).
+
+Returns
+:
+The linear acceleration (m/s^2) in the sensor frame. Shape is (num_envs, 3).
+
+isaaclab.envs.mdp.observations.image(env: ManagerBasedEnv, sensor_cfg: SceneEntityCfg = SceneEntityCfg(name='tiled_camera', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False), data_type: str = 'rgb', convert_perspective_to_orthogonal: bool = False, normalize: bool = True) → torch.Tensor[source]
+Images of a specific datatype from the camera sensor.
+
+If the flag normalize is True, post-processing of the images are performed based on their data-types:
+
+“rgb”: Scales the image to (0, 1) and subtracts with the mean of the current image batch.
+
+“depth” or “distance_to_camera” or “distance_to_plane”: Replaces infinity values with zero.
+
+Parameters
+:
+env – The environment the cameras are placed within.
+
+sensor_cfg – The desired sensor to read from. Defaults to SceneEntityCfg(“tiled_camera”).
+
+data_type – The data type to pull from the desired camera. Defaults to “rgb”.
+
+convert_perspective_to_orthogonal – Whether to orthogonalize perspective depth images. This is used only when the data type is “distance_to_camera”. Defaults to False.
+
+normalize – Whether to normalize the images. This depends on the selected data type. Defaults to True.
+
+Returns
+:
+The images produced at the last time-step
+
+class isaaclab.envs.mdp.observations.image_features[source]
+Extracted image features from a pre-trained frozen encoder.
+
+This term uses models from the model zoo in PyTorch and extracts features from the images.
+
+It calls the image() function to get the images and then processes them using the model zoo.
+
+A user can provide their own model zoo configuration to use different models for feature extraction. The model zoo configuration should be a dictionary that maps different model names to a dictionary that defines the model, preprocess and inference functions. The dictionary should have the following entries:
+
+“model”: A callable that returns the model when invoked without arguments.
+
+“reset”: A callable that resets the model. This is useful when the model has a state that needs to be reset.
+
+“inference”: A callable that, when given the model and the images, returns the extracted features.
+
+If the model zoo configuration is not provided, the default model zoo configurations are used. The default model zoo configurations include the models from Theia [SSM+24] and ResNet [HZRS16]. These models are loaded from Hugging-Face transformers and PyTorch torchvision respectively.
+
+Parameters
+:
+sensor_cfg – The sensor configuration to poll. Defaults to SceneEntityCfg(“tiled_camera”).
+
+data_type – The sensor data type. Defaults to “rgb”.
+
+convert_perspective_to_orthogonal – Whether to orthogonalize perspective depth images. This is used only when the data type is “distance_to_camera”. Defaults to False.
+
+model_zoo_cfg – A user-defined dictionary that maps different model names to their respective configurations. Defaults to None. If None, the default model zoo configurations are used.
+
+model_name – The name of the model to use for inference. Defaults to “resnet18”.
+
+model_device – The device to store and infer the model on. This is useful when offloading the computation from the environment simulation device. Defaults to the environment device.
+
+inference_kwargs – Additional keyword arguments to pass to the inference function. Defaults to None, which means no additional arguments are passed.
+
+Returns
+:
+The extracted features tensor. Shape is (num_envs, feature_dim).
+
+Raises
+:
+ValueError – When the model name is not found in the provided model zoo configuration.
+
+ValueError – When the model name is not found in the default model zoo configuration.
+
+Methods:
+
+__init__(cfg, env)
+
+Initialize the manager term.
+
+reset([env_ids])
+
+Resets the manager term.
+
+__init__(cfg: ObservationTermCfg, env: ManagerBasedEnv)[source]
+Initialize the manager term.
+
+Parameters
+:
+cfg – The configuration object.
+
+env – The environment instance.
+
+reset(env_ids: torch.Tensor | None = None)[source]
+Resets the manager term.
+
+Parameters
+:
+env_ids – The environment ids. Defaults to None, in which case all environments are considered.
+
+isaaclab.envs.mdp.observations.last_action(env: ManagerBasedEnv, action_name: str | None = None) → torch.Tensor[source]
+The last input action to the environment.
+
+The name of the action term for which the action is required. If None, the entire action tensor is returned.
+
+isaaclab.envs.mdp.observations.generated_commands(env: ManagerBasedRLEnv, command_name: str) → torch.Tensor[source]
+The generated command from command term in the command manager with the given name.
+
+Actions
+Various action terms that can be used in the environment.
+
+Classes:
+
+JointActionCfg
+
+Configuration for the base joint action term.
+
+JointPositionActionCfg
+
+Configuration for the joint position action term.
+
+RelativeJointPositionActionCfg
+
+Configuration for the relative joint position action term.
+
+JointVelocityActionCfg
+
+Configuration for the joint velocity action term.
+
+JointEffortActionCfg
+
+Configuration for the joint effort action term.
+
+JointPositionToLimitsActionCfg
+
+Configuration for the bounded joint position action term.
+
+EMAJointPositionToLimitsActionCfg
+
+Configuration for the exponential moving average (EMA) joint position action term.
+
+BinaryJointActionCfg
+
+Configuration for the base binary joint action term.
+
+BinaryJointPositionActionCfg
+
+Configuration for the binary joint position action term.
+
+BinaryJointVelocityActionCfg
+
+Configuration for the binary joint velocity action term.
+
+NonHolonomicActionCfg
+
+Configuration for the non-holonomic action term with dummy joints at the base.
+
+DifferentialInverseKinematicsActionCfg
+
+Configuration for inverse differential kinematics action term.
+
+OperationalSpaceControllerActionCfg
+
+Configuration for operational space controller action term.
+
+class isaaclab.envs.mdp.actions.actions_cfg.JointActionCfg[source]
+Bases: ActionTermCfg
+
+Configuration for the base joint action term.
+
+See JointAction for more details.
+
+Attributes:
+
+joint_names
+
+List of joint names or regex expressions that the action will be mapped to.
+
+scale
+
+Scale factor for the action (float or dict of regex expressions).
+
+offset
+
+Offset factor for the action (float or dict of regex expressions).
+
+preserve_order
+
+Whether to preserve the order of the joint names in the action output.
+
+asset_name
+
+The name of the scene entity.
+
+debug_vis
+
+Whether to visualize debug information.
+
+clip
+
+Clip range for the action (dict of regex expressions).
+
+joint_names: list[str]
+List of joint names or regex expressions that the action will be mapped to.
+
+scale: float | dict[str, float]
+Scale factor for the action (float or dict of regex expressions). Defaults to 1.0.
+
+offset: float | dict[str, float]
+Offset factor for the action (float or dict of regex expressions). Defaults to 0.0.
+
+preserve_order: bool
+Whether to preserve the order of the joint names in the action output. Defaults to False.
+
+asset_name: str
+The name of the scene entity.
+
+This is the name defined in the scene configuration file. See the InteractiveSceneCfg class for more details.
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+clip: dict[str, tuple] | None
+Clip range for the action (dict of regex expressions). Defaults to None.
+
+class isaaclab.envs.mdp.actions.actions_cfg.JointPositionActionCfg[source]
+Bases: JointActionCfg
+
+Configuration for the joint position action term.
+
+See JointPositionAction for more details.
+
+Attributes:
+
+use_default_offset
+
+Whether to use default joint positions configured in the articulation asset as offset.
+
+asset_name
+
+The name of the scene entity.
+
+debug_vis
+
+Whether to visualize debug information.
+
+clip
+
+Clip range for the action (dict of regex expressions).
+
+joint_names
+
+List of joint names or regex expressions that the action will be mapped to.
+
+scale
+
+Scale factor for the action (float or dict of regex expressions).
+
+offset
+
+Offset factor for the action (float or dict of regex expressions).
+
+preserve_order
+
+Whether to preserve the order of the joint names in the action output.
+
+use_default_offset: bool
+Whether to use default joint positions configured in the articulation asset as offset. Defaults to True.
+
+If True, this flag results in overwriting the values of offset to the default joint positions from the articulation asset.
+
+asset_name: str
+The name of the scene entity.
+
+This is the name defined in the scene configuration file. See the InteractiveSceneCfg class for more details.
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+clip: dict[str, tuple] | None
+Clip range for the action (dict of regex expressions). Defaults to None.
+
+joint_names: list[str]
+List of joint names or regex expressions that the action will be mapped to.
+
+scale: float | dict[str, float]
+Scale factor for the action (float or dict of regex expressions). Defaults to 1.0.
+
+offset: float | dict[str, float]
+Offset factor for the action (float or dict of regex expressions). Defaults to 0.0.
+
+preserve_order: bool
+Whether to preserve the order of the joint names in the action output. Defaults to False.
+
+class isaaclab.envs.mdp.actions.actions_cfg.RelativeJointPositionActionCfg[source]
+Bases: JointActionCfg
+
+Configuration for the relative joint position action term.
+
+See RelativeJointPositionAction for more details.
+
+Attributes:
+
+use_zero_offset
+
+Whether to ignore the offset defined in articulation asset.
+
+asset_name
+
+The name of the scene entity.
+
+debug_vis
+
+Whether to visualize debug information.
+
+clip
+
+Clip range for the action (dict of regex expressions).
+
+joint_names
+
+List of joint names or regex expressions that the action will be mapped to.
+
+scale
+
+Scale factor for the action (float or dict of regex expressions).
+
+offset
+
+Offset factor for the action (float or dict of regex expressions).
+
+preserve_order
+
+Whether to preserve the order of the joint names in the action output.
+
+use_zero_offset: bool
+Whether to ignore the offset defined in articulation asset. Defaults to True.
+
+If True, this flag results in overwriting the values of offset to zero.
+
+asset_name: str
+The name of the scene entity.
+
+This is the name defined in the scene configuration file. See the InteractiveSceneCfg class for more details.
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+clip: dict[str, tuple] | None
+Clip range for the action (dict of regex expressions). Defaults to None.
+
+joint_names: list[str]
+List of joint names or regex expressions that the action will be mapped to.
+
+scale: float | dict[str, float]
+Scale factor for the action (float or dict of regex expressions). Defaults to 1.0.
+
+offset: float | dict[str, float]
+Offset factor for the action (float or dict of regex expressions). Defaults to 0.0.
+
+preserve_order: bool
+Whether to preserve the order of the joint names in the action output. Defaults to False.
+
+class isaaclab.envs.mdp.actions.actions_cfg.JointVelocityActionCfg[source]
+Bases: JointActionCfg
+
+Configuration for the joint velocity action term.
+
+See JointVelocityAction for more details.
+
+Attributes:
+
+use_default_offset
+
+Whether to use default joint velocities configured in the articulation asset as offset.
+
+asset_name
+
+The name of the scene entity.
+
+debug_vis
+
+Whether to visualize debug information.
+
+clip
+
+Clip range for the action (dict of regex expressions).
+
+joint_names
+
+List of joint names or regex expressions that the action will be mapped to.
+
+scale
+
+Scale factor for the action (float or dict of regex expressions).
+
+offset
+
+Offset factor for the action (float or dict of regex expressions).
+
+preserve_order
+
+Whether to preserve the order of the joint names in the action output.
+
+use_default_offset: bool
+Whether to use default joint velocities configured in the articulation asset as offset. Defaults to True.
+
+This overrides the settings from offset if set to True.
+
+asset_name: str
+The name of the scene entity.
+
+This is the name defined in the scene configuration file. See the InteractiveSceneCfg class for more details.
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+clip: dict[str, tuple] | None
+Clip range for the action (dict of regex expressions). Defaults to None.
+
+joint_names: list[str]
+List of joint names or regex expressions that the action will be mapped to.
+
+scale: float | dict[str, float]
+Scale factor for the action (float or dict of regex expressions). Defaults to 1.0.
+
+offset: float | dict[str, float]
+Offset factor for the action (float or dict of regex expressions). Defaults to 0.0.
+
+preserve_order: bool
+Whether to preserve the order of the joint names in the action output. Defaults to False.
+
+class isaaclab.envs.mdp.actions.actions_cfg.JointEffortActionCfg[source]
+Bases: JointActionCfg
+
+Configuration for the joint effort action term.
+
+See JointEffortAction for more details.
+
+Attributes:
+
+asset_name
+
+The name of the scene entity.
+
+debug_vis
+
+Whether to visualize debug information.
+
+clip
+
+Clip range for the action (dict of regex expressions).
+
+joint_names
+
+List of joint names or regex expressions that the action will be mapped to.
+
+scale
+
+Scale factor for the action (float or dict of regex expressions).
+
+offset
+
+Offset factor for the action (float or dict of regex expressions).
+
+preserve_order
+
+Whether to preserve the order of the joint names in the action output.
+
+asset_name: str
+The name of the scene entity.
+
+This is the name defined in the scene configuration file. See the InteractiveSceneCfg class for more details.
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+clip: dict[str, tuple] | None
+Clip range for the action (dict of regex expressions). Defaults to None.
+
+joint_names: list[str]
+List of joint names or regex expressions that the action will be mapped to.
+
+scale: float | dict[str, float]
+Scale factor for the action (float or dict of regex expressions). Defaults to 1.0.
+
+offset: float | dict[str, float]
+Offset factor for the action (float or dict of regex expressions). Defaults to 0.0.
+
+preserve_order: bool
+Whether to preserve the order of the joint names in the action output. Defaults to False.
+
+class isaaclab.envs.mdp.actions.actions_cfg.JointPositionToLimitsActionCfg[source]
+Bases: ActionTermCfg
+
+Configuration for the bounded joint position action term.
+
+See JointPositionToLimitsAction for more details.
+
+Attributes:
+
+joint_names
+
+List of joint names or regex expressions that the action will be mapped to.
+
+scale
+
+Scale factor for the action (float or dict of regex expressions).
+
+rescale_to_limits
+
+Whether to rescale the action to the joint limits.
+
+asset_name
+
+The name of the scene entity.
+
+debug_vis
+
+Whether to visualize debug information.
+
+clip
+
+Clip range for the action (dict of regex expressions).
+
+joint_names: list[str]
+List of joint names or regex expressions that the action will be mapped to.
+
+scale: float | dict[str, float]
+Scale factor for the action (float or dict of regex expressions). Defaults to 1.0.
+
+rescale_to_limits: bool
+Whether to rescale the action to the joint limits. Defaults to True.
+
+If True, the input actions are rescaled to the joint limits, i.e., the action value in the range [-1, 1] corresponds to the joint lower and upper limits respectively.
+
+Note
+
+This operation is performed after applying the scale factor.
+
+asset_name: str
+The name of the scene entity.
+
+This is the name defined in the scene configuration file. See the InteractiveSceneCfg class for more details.
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+clip: dict[str, tuple] | None
+Clip range for the action (dict of regex expressions). Defaults to None.
+
+class isaaclab.envs.mdp.actions.actions_cfg.EMAJointPositionToLimitsActionCfg[source]
+Bases: JointPositionToLimitsActionCfg
+
+Configuration for the exponential moving average (EMA) joint position action term.
+
+See EMAJointPositionToLimitsAction for more details.
+
+Attributes:
+
+alpha
+
+The weight for the moving average (float or dict of regex expressions).
+
+asset_name
+
+The name of the scene entity.
+
+debug_vis
+
+Whether to visualize debug information.
+
+clip
+
+Clip range for the action (dict of regex expressions).
+
+joint_names
+
+List of joint names or regex expressions that the action will be mapped to.
+
+scale
+
+Scale factor for the action (float or dict of regex expressions).
+
+rescale_to_limits
+
+Whether to rescale the action to the joint limits.
+
+alpha: float | dict[str, float]
+The weight for the moving average (float or dict of regex expressions). Defaults to 1.0.
+
+If set to 1.0, the processed action is applied directly without any moving average window.
+
+asset_name: str
+The name of the scene entity.
+
+This is the name defined in the scene configuration file. See the InteractiveSceneCfg class for more details.
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+clip: dict[str, tuple] | None
+Clip range for the action (dict of regex expressions). Defaults to None.
+
+joint_names: list[str]
+List of joint names or regex expressions that the action will be mapped to.
+
+scale: float | dict[str, float]
+Scale factor for the action (float or dict of regex expressions). Defaults to 1.0.
+
+rescale_to_limits: bool
+Whether to rescale the action to the joint limits. Defaults to True.
+
+If True, the input actions are rescaled to the joint limits, i.e., the action value in the range [-1, 1] corresponds to the joint lower and upper limits respectively.
+
+Note
+
+This operation is performed after applying the scale factor.
+
+class isaaclab.envs.mdp.actions.actions_cfg.BinaryJointActionCfg[source]
+Bases: ActionTermCfg
+
+Configuration for the base binary joint action term.
+
+See BinaryJointAction for more details.
+
+Attributes:
+
+joint_names
+
+List of joint names or regex expressions that the action will be mapped to.
+
+open_command_expr
+
+The joint command to move to open configuration.
+
+close_command_expr
+
+The joint command to move to close configuration.
+
+asset_name
+
+The name of the scene entity.
+
+debug_vis
+
+Whether to visualize debug information.
+
+clip
+
+Clip range for the action (dict of regex expressions).
+
+joint_names: list[str]
+List of joint names or regex expressions that the action will be mapped to.
+
+open_command_expr: dict[str, float]
+The joint command to move to open configuration.
+
+close_command_expr: dict[str, float]
+The joint command to move to close configuration.
+
+asset_name: str
+The name of the scene entity.
+
+This is the name defined in the scene configuration file. See the InteractiveSceneCfg class for more details.
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+clip: dict[str, tuple] | None
+Clip range for the action (dict of regex expressions). Defaults to None.
+
+class isaaclab.envs.mdp.actions.actions_cfg.BinaryJointPositionActionCfg[source]
+Bases: BinaryJointActionCfg
+
+Configuration for the binary joint position action term.
+
+See BinaryJointPositionAction for more details.
+
+Attributes:
+
+asset_name
+
+The name of the scene entity.
+
+debug_vis
+
+Whether to visualize debug information.
+
+clip
+
+Clip range for the action (dict of regex expressions).
+
+joint_names
+
+List of joint names or regex expressions that the action will be mapped to.
+
+open_command_expr
+
+The joint command to move to open configuration.
+
+close_command_expr
+
+The joint command to move to close configuration.
+
+asset_name: str
+The name of the scene entity.
+
+This is the name defined in the scene configuration file. See the InteractiveSceneCfg class for more details.
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+clip: dict[str, tuple] | None
+Clip range for the action (dict of regex expressions). Defaults to None.
+
+joint_names: list[str]
+List of joint names or regex expressions that the action will be mapped to.
+
+open_command_expr: dict[str, float]
+The joint command to move to open configuration.
+
+close_command_expr: dict[str, float]
+The joint command to move to close configuration.
+
+class isaaclab.envs.mdp.actions.actions_cfg.BinaryJointVelocityActionCfg[source]
+Bases: BinaryJointActionCfg
+
+Configuration for the binary joint velocity action term.
+
+See BinaryJointVelocityAction for more details.
+
+Attributes:
+
+asset_name
+
+The name of the scene entity.
+
+debug_vis
+
+Whether to visualize debug information.
+
+clip
+
+Clip range for the action (dict of regex expressions).
+
+joint_names
+
+List of joint names or regex expressions that the action will be mapped to.
+
+open_command_expr
+
+The joint command to move to open configuration.
+
+close_command_expr
+
+The joint command to move to close configuration.
+
+asset_name: str
+The name of the scene entity.
+
+This is the name defined in the scene configuration file. See the InteractiveSceneCfg class for more details.
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+clip: dict[str, tuple] | None
+Clip range for the action (dict of regex expressions). Defaults to None.
+
+joint_names: list[str]
+List of joint names or regex expressions that the action will be mapped to.
+
+open_command_expr: dict[str, float]
+The joint command to move to open configuration.
+
+close_command_expr: dict[str, float]
+The joint command to move to close configuration.
+
+class isaaclab.envs.mdp.actions.actions_cfg.NonHolonomicActionCfg[source]
+Bases: ActionTermCfg
+
+Configuration for the non-holonomic action term with dummy joints at the base.
+
+See NonHolonomicAction for more details.
+
+Attributes:
+
+body_name
+
+Name of the body which has the dummy mechanism connected to.
+
+x_joint_name
+
+The dummy joint name in the x direction.
+
+y_joint_name
+
+The dummy joint name in the y direction.
+
+yaw_joint_name
+
+The dummy joint name in the yaw direction.
+
+scale
+
+Scale factor for the action.
+
+offset
+
+Offset factor for the action.
+
+asset_name
+
+The name of the scene entity.
+
+debug_vis
+
+Whether to visualize debug information.
+
+clip
+
+Clip range for the action (dict of regex expressions).
+
+body_name: str
+Name of the body which has the dummy mechanism connected to.
+
+x_joint_name: str
+The dummy joint name in the x direction.
+
+y_joint_name: str
+The dummy joint name in the y direction.
+
+yaw_joint_name: str
+The dummy joint name in the yaw direction.
+
+scale: tuple[float, float]
+Scale factor for the action. Defaults to (1.0, 1.0).
+
+offset: tuple[float, float]
+Offset factor for the action. Defaults to (0.0, 0.0).
+
+asset_name: str
+The name of the scene entity.
+
+This is the name defined in the scene configuration file. See the InteractiveSceneCfg class for more details.
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+clip: dict[str, tuple] | None
+Clip range for the action (dict of regex expressions). Defaults to None.
+
+class isaaclab.envs.mdp.actions.actions_cfg.DifferentialInverseKinematicsActionCfg[source]
+Bases: ActionTermCfg
+
+Configuration for inverse differential kinematics action term.
+
+See DifferentialInverseKinematicsAction for more details.
+
+Classes:
+
+OffsetCfg
+
+The offset pose from parent frame to child frame.
+
+Attributes:
+
+asset_name
+
+The name of the scene entity.
+
+debug_vis
+
+Whether to visualize debug information.
+
+clip
+
+Clip range for the action (dict of regex expressions).
+
+joint_names
+
+List of joint names or regex expressions that the action will be mapped to.
+
+body_name
+
+Name of the body or frame for which IK is performed.
+
+body_offset
+
+Offset of target frame w.r.t.
+
+scale
+
+Scale factor for the action.
+
+controller
+
+The configuration for the differential IK controller.
+
+class OffsetCfg[source]
+Bases: object
+
+The offset pose from parent frame to child frame.
+
+On many robots, end-effector frames are fictitious frames that do not have a corresponding rigid body. In such cases, it is easier to define this transform w.r.t. their parent rigid body. For instance, for the Franka Emika arm, the end-effector is defined at an offset to the the “panda_hand” frame.
+
+Attributes:
+
+pos
+
+Translation w.r.t.
+
+rot
+
+Quaternion rotation (w, x, y, z) w.r.t.
+
+pos: tuple[float, float, float]
+Translation w.r.t. the parent frame. Defaults to (0.0, 0.0, 0.0).
+
+rot: tuple[float, float, float, float]
+Quaternion rotation (w, x, y, z) w.r.t. the parent frame. Defaults to (1.0, 0.0, 0.0, 0.0).
+
+asset_name: str
+The name of the scene entity.
+
+This is the name defined in the scene configuration file. See the InteractiveSceneCfg class for more details.
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+clip: dict[str, tuple] | None
+Clip range for the action (dict of regex expressions). Defaults to None.
+
+joint_names: list[str]
+List of joint names or regex expressions that the action will be mapped to.
+
+body_name: str
+Name of the body or frame for which IK is performed.
+
+body_offset: OffsetCfg | None
+Offset of target frame w.r.t. to the body frame. Defaults to None, in which case no offset is applied.
+
+scale: float | tuple[float, ...]
+Scale factor for the action. Defaults to 1.0.
+
+controller: DifferentialIKControllerCfg
+The configuration for the differential IK controller.
+
+class isaaclab.envs.mdp.actions.actions_cfg.OperationalSpaceControllerActionCfg[source]
+Bases: ActionTermCfg
+
+Configuration for operational space controller action term.
+
+See OperationalSpaceControllerAction for more details.
+
+Attributes:
+
+asset_name
+
+The name of the scene entity.
+
+debug_vis
+
+Whether to visualize debug information.
+
+clip
+
+Clip range for the action (dict of regex expressions).
+
+joint_names
+
+List of joint names or regex expressions that the action will be mapped to.
+
+body_name
+
+Name of the body or frame for which motion/force control is performed.
+
+body_offset
+
+Offset of target frame w.r.t.
+
+task_frame_rel_path
+
+The path of a RigidObject, relative to the sub-environment, representing task frame.
+
+controller_cfg
+
+The configuration for the operational space controller.
+
+position_scale
+
+Scale factor for the position targets.
+
+orientation_scale
+
+Scale factor for the orientation (quad for pose_abs or axis-angle for pose_rel).
+
+wrench_scale
+
+Scale factor for the wrench targets.
+
+stiffness_scale
+
+Scale factor for the stiffness commands.
+
+damping_ratio_scale
+
+Scale factor for the damping ratio commands.
+
+nullspace_joint_pos_target
+
+"none", "zero", "default", "center".
+
+Classes:
+
+OffsetCfg
+
+The offset pose from parent frame to child frame.
+
+asset_name: str
+The name of the scene entity.
+
+This is the name defined in the scene configuration file. See the InteractiveSceneCfg class for more details.
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+clip: dict[str, tuple] | None
+Clip range for the action (dict of regex expressions). Defaults to None.
+
+class OffsetCfg[source]
+Bases: object
+
+The offset pose from parent frame to child frame.
+
+On many robots, end-effector frames are fictitious frames that do not have a corresponding rigid body. In such cases, it is easier to define this transform w.r.t. their parent rigid body. For instance, for the Franka Emika arm, the end-effector is defined at an offset to the the “panda_hand” frame.
+
+Attributes:
+
+pos
+
+Translation w.r.t.
+
+rot
+
+Quaternion rotation (w, x, y, z) w.r.t.
+
+pos: tuple[float, float, float]
+Translation w.r.t. the parent frame. Defaults to (0.0, 0.0, 0.0).
+
+rot: tuple[float, float, float, float]
+Quaternion rotation (w, x, y, z) w.r.t. the parent frame. Defaults to (1.0, 0.0, 0.0, 0.0).
+
+joint_names: list[str]
+List of joint names or regex expressions that the action will be mapped to.
+
+body_name: str
+Name of the body or frame for which motion/force control is performed.
+
+body_offset: OffsetCfg | None
+Offset of target frame w.r.t. to the body frame. Defaults to None, in which case no offset is applied.
+
+task_frame_rel_path: str
+The path of a RigidObject, relative to the sub-environment, representing task frame. Defaults to None.
+
+controller_cfg: OperationalSpaceControllerCfg
+The configuration for the operational space controller.
+
+position_scale: float
+Scale factor for the position targets. Defaults to 1.0.
+
+orientation_scale: float
+Scale factor for the orientation (quad for pose_abs or axis-angle for pose_rel). Defaults to 1.0.
+
+wrench_scale: float
+Scale factor for the wrench targets. Defaults to 1.0.
+
+stiffness_scale: float
+Scale factor for the stiffness commands. Defaults to 1.0.
+
+damping_ratio_scale: float
+Scale factor for the damping ratio commands. Defaults to 1.0.
+
+nullspace_joint_pos_target: str
+"none", "zero", "default", "center".
+
+Note: Functional only when
+nullspace_control
+is set to
+"position"
+within the
+OperationalSpaceControllerCfg.
+
+Type
+:
+The joint targets for the null-space control
+
+Events
+Common functions that can be used to enable different events.
+
+Events include anything related to altering the simulation state. This includes changing the physics materials, applying external forces, and resetting the state of the asset.
+
+The functions can be passed to the isaaclab.managers.EventTermCfg object to enable the event introduced by the function.
+
+Functions:
+
+randomize_rigid_body_scale(env, env_ids, ...)
+
+Randomize the scale of a rigid body asset in the USD stage.
+
+randomize_rigid_body_mass(env, env_ids, ...)
+
+Randomize the mass of the bodies by adding, scaling, or setting random values.
+
+randomize_rigid_body_collider_offsets(env, ...)
+
+Randomize the collider parameters of rigid bodies in an asset by adding, scaling, or setting random values.
+
+randomize_physics_scene_gravity(env, ...[, ...])
+
+Randomize gravity by adding, scaling, or setting random values.
+
+randomize_actuator_gains(env, env_ids, asset_cfg)
+
+Randomize the actuator gains in an articulation by adding, scaling, or setting random values.
+
+randomize_joint_parameters(env, env_ids, ...)
+
+Randomize the simulated joint parameters of an articulation by adding, scaling, or setting random values.
+
+randomize_fixed_tendon_parameters(env, ...)
+
+Randomize the simulated fixed tendon parameters of an articulation by adding, scaling, or setting random values.
+
+apply_external_force_torque(env, env_ids, ...)
+
+Randomize the external forces and torques applied to the bodies.
+
+push_by_setting_velocity(env, env_ids, ...)
+
+Push the asset by setting the root velocity to a random value within the given ranges.
+
+reset_root_state_uniform(env, env_ids, ...)
+
+Reset the asset root state to a random position and velocity uniformly within the given ranges.
+
+reset_root_state_with_random_orientation(...)
+
+Reset the asset root position and velocities sampled randomly within the given ranges and the asset root orientation sampled randomly from the SO(3).
+
+reset_root_state_from_terrain(env, env_ids, ...)
+
+Reset the asset root state by sampling a random valid pose from the terrain.
+
+reset_joints_by_scale(env, env_ids, ...[, ...])
+
+Reset the robot joints by scaling the default position and velocity by the given ranges.
+
+reset_joints_by_offset(env, env_ids, ...[, ...])
+
+Reset the robot joints with offsets around the default position and velocity by the given ranges.
+
+reset_nodal_state_uniform(env, env_ids, ...)
+
+Reset the asset nodal state to a random position and velocity uniformly within the given ranges.
+
+reset_scene_to_default(env, env_ids)
+
+Reset the scene to the default state specified in the scene configuration.
+
+Classes:
+
+randomize_rigid_body_material
+
+Randomize the physics materials on all geometries of the asset.
+
+randomize_visual_texture_material
+
+Randomize the visual texture of bodies on an asset using Replicator API.
+
+randomize_visual_color
+
+Randomize the visual color of bodies on an asset using Replicator API.
+
+isaaclab.envs.mdp.events.randomize_rigid_body_scale(env: ManagerBasedEnv, env_ids: torch.Tensor | None, scale_range: tuple[float, float] | dict[str, tuple[float, float]], asset_cfg: SceneEntityCfg, relative_child_path: str | None = None)[source]
+Randomize the scale of a rigid body asset in the USD stage.
+
+This function modifies the “xformOp:scale” property of all the prims corresponding to the asset.
+
+It takes a tuple or dictionary for the scale ranges. If it is a tuple, then the scaling along individual axis is performed equally. If it is a dictionary, the scaling is independent across each dimension. The keys of the dictionary are x, y, and z. The values are tuples of the form (min, max).
+
+If the dictionary does not contain a key, the range is set to one for that axis.
+
+Relative child path can be used to randomize the scale of a specific child prim of the asset. For example, if the asset at prim path expression “/World/envs/env_.*/Object” has a child with the path “/World/envs/env_.*/Object/mesh”, then the relative child path should be “mesh” or “/mesh”.
+
+Attention
+
+Since this function modifies USD properties that are parsed by the physics engine once the simulation starts, the term should only be used before the simulation starts playing. This corresponds to the event mode named “usd”. Using it at simulation time, may lead to unpredictable behaviors.
+
+Note
+
+When randomizing the scale of individual assets, please make sure to set isaaclab.scene.InteractiveSceneCfg.replicate_physics to False. This ensures that physics parser will parse the individual asset properties separately.
+
+class isaaclab.envs.mdp.events.randomize_rigid_body_material[source]
+Randomize the physics materials on all geometries of the asset.
+
+This function creates a set of physics materials with random static friction, dynamic friction, and restitution values. The number of materials is specified by num_buckets. The materials are generated by sampling uniform random values from the given ranges.
+
+The material properties are then assigned to the geometries of the asset. The assignment is done by creating a random integer tensor of shape (num_instances, max_num_shapes) where num_instances is the number of assets spawned and max_num_shapes is the maximum number of shapes in the asset (over all bodies). The integer values are used as indices to select the material properties from the material buckets.
+
+If the flag make_consistent is set to True, the dynamic friction is set to be less than or equal to the static friction. This obeys the physics constraint on friction values. However, it may not always be essential for the application. Thus, the flag is set to False by default.
+
+Attention
+
+This function uses CPU tensors to assign the material properties. It is recommended to use this function only during the initialization of the environment. Otherwise, it may lead to a significant performance overhead.
+
+Note
+
+PhysX only allows 64000 unique physics materials in the scene. If the number of materials exceeds this limit, the simulation will crash. Due to this reason, we sample the materials only once during initialization. Afterwards, these materials are randomly assigned to the geometries of the asset.
+
+Methods:
+
+__init__(cfg, env)
+
+Initialize the term.
+
+__init__(cfg: EventTermCfg, env: ManagerBasedEnv)[source]
+Initialize the term.
+
+Parameters
+:
+cfg – The configuration of the event term.
+
+env – The environment instance.
+
+Raises
+:
+ValueError – If the asset is not a RigidObject or an Articulation.
+
+isaaclab.envs.mdp.events.randomize_rigid_body_mass(env: ManagerBasedEnv, env_ids: torch.Tensor | None, asset_cfg: SceneEntityCfg, mass_distribution_params: tuple[float, float], operation: Literal['add', 'scale', 'abs'], distribution: Literal['uniform', 'log_uniform', 'gaussian'] = 'uniform', recompute_inertia: bool = True)[source]
+Randomize the mass of the bodies by adding, scaling, or setting random values.
+
+This function allows randomizing the mass of the bodies of the asset. The function samples random values from the given distribution parameters and adds, scales, or sets the values into the physics simulation based on the operation.
+
+If the recompute_inertia flag is set to True, the function recomputes the inertia tensor of the bodies after setting the mass. This is useful when the mass is changed significantly, as the inertia tensor depends on the mass. It assumes the body is a uniform density object. If the body is not a uniform density object, the inertia tensor may not be accurate.
+
+Tip
+
+This function uses CPU tensors to assign the body masses. It is recommended to use this function only during the initialization of the environment.
+
+isaaclab.envs.mdp.events.randomize_rigid_body_collider_offsets(env: ManagerBasedEnv, env_ids: torch.Tensor | None, asset_cfg: SceneEntityCfg, rest_offset_distribution_params: tuple[float, float] | None = None, contact_offset_distribution_params: tuple[float, float] | None = None, distribution: Literal['uniform', 'log_uniform', 'gaussian'] = 'uniform')[source]
+Randomize the collider parameters of rigid bodies in an asset by adding, scaling, or setting random values.
+
+This function allows randomizing the collider parameters of the asset, such as rest and contact offsets. These correspond to the physics engine collider properties that affect the collision checking.
+
+The function samples random values from the given distribution parameters and applies the operation to the collider properties. It then sets the values into the physics simulation. If the distribution parameters are not provided for a particular property, the function does not modify the property.
+
+Currently, the distribution parameters are applied as absolute values.
+
+Tip
+
+This function uses CPU tensors to assign the collision properties. It is recommended to use this function only during the initialization of the environment.
+
+isaaclab.envs.mdp.events.randomize_physics_scene_gravity(env: ManagerBasedEnv, env_ids: torch.Tensor | None, gravity_distribution_params: tuple[list[float], list[float]], operation: Literal['add', 'scale', 'abs'], distribution: Literal['uniform', 'log_uniform', 'gaussian'] = 'uniform')[source]
+Randomize gravity by adding, scaling, or setting random values.
+
+This function allows randomizing gravity of the physics scene. The function samples random values from the given distribution parameters and adds, scales, or sets the values into the physics simulation based on the operation.
+
+The distribution parameters are lists of two elements each, representing the lower and upper bounds of the distribution for the x, y, and z components of the gravity vector. The function samples random values for each component independently.
+
+Attention
+
+This function applied the same gravity for all the environments.
+
+Tip
+
+This function uses CPU tensors to assign gravity.
+
+isaaclab.envs.mdp.events.randomize_actuator_gains(env: ManagerBasedEnv, env_ids: torch.Tensor | None, asset_cfg: SceneEntityCfg, stiffness_distribution_params: tuple[float, float] | None = None, damping_distribution_params: tuple[float, float] | None = None, operation: Literal['add', 'scale', 'abs'] = 'abs', distribution: Literal['uniform', 'log_uniform', 'gaussian'] = 'uniform')[source]
+Randomize the actuator gains in an articulation by adding, scaling, or setting random values.
+
+This function allows randomizing the actuator stiffness and damping gains.
+
+The function samples random values from the given distribution parameters and applies the operation to the joint properties. It then sets the values into the actuator models. If the distribution parameters are not provided for a particular property, the function does not modify the property.
+
+Tip
+
+For implicit actuators, this function uses CPU tensors to assign the actuator gains into the simulation. In such cases, it is recommended to use this function only during the initialization of the environment.
+
+isaaclab.envs.mdp.events.randomize_joint_parameters(env: ManagerBasedEnv, env_ids: torch.Tensor | None, asset_cfg: SceneEntityCfg, friction_distribution_params: tuple[float, float] | None = None, armature_distribution_params: tuple[float, float] | None = None, lower_limit_distribution_params: tuple[float, float] | None = None, upper_limit_distribution_params: tuple[float, float] | None = None, operation: Literal['add', 'scale', 'abs'] = 'abs', distribution: Literal['uniform', 'log_uniform', 'gaussian'] = 'uniform')[source]
+Randomize the simulated joint parameters of an articulation by adding, scaling, or setting random values.
+
+This function allows randomizing the joint parameters of the asset. These correspond to the physics engine joint properties that affect the joint behavior. The properties include the joint friction coefficient, armature, and joint position limits.
+
+The function samples random values from the given distribution parameters and applies the operation to the joint properties. It then sets the values into the physics simulation. If the distribution parameters are not provided for a particular property, the function does not modify the property.
+
+Tip
+
+This function uses CPU tensors to assign the joint properties. It is recommended to use this function only during the initialization of the environment.
+
+isaaclab.envs.mdp.events.randomize_fixed_tendon_parameters(env: ManagerBasedEnv, env_ids: torch.Tensor | None, asset_cfg: SceneEntityCfg, stiffness_distribution_params: tuple[float, float] | None = None, damping_distribution_params: tuple[float, float] | None = None, limit_stiffness_distribution_params: tuple[float, float] | None = None, lower_limit_distribution_params: tuple[float, float] | None = None, upper_limit_distribution_params: tuple[float, float] | None = None, rest_length_distribution_params: tuple[float, float] | None = None, offset_distribution_params: tuple[float, float] | None = None, operation: Literal['add', 'scale', 'abs'] = 'abs', distribution: Literal['uniform', 'log_uniform', 'gaussian'] = 'uniform')[source]
+Randomize the simulated fixed tendon parameters of an articulation by adding, scaling, or setting random values.
+
+This function allows randomizing the fixed tendon parameters of the asset. These correspond to the physics engine tendon properties that affect the joint behavior.
+
+The function samples random values from the given distribution parameters and applies the operation to the tendon properties. It then sets the values into the physics simulation. If the distribution parameters are not provided for a particular property, the function does not modify the property.
+
+isaaclab.envs.mdp.events.apply_external_force_torque(env: ManagerBasedEnv, env_ids: torch.Tensor, force_range: tuple[float, float], torque_range: tuple[float, float], asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False))[source]
+Randomize the external forces and torques applied to the bodies.
+
+This function creates a set of random forces and torques sampled from the given ranges. The number of forces and torques is equal to the number of bodies times the number of environments. The forces and torques are applied to the bodies by calling asset.set_external_force_and_torque. The forces and torques are only applied when asset.write_data_to_sim() is called in the environment.
+
+isaaclab.envs.mdp.events.push_by_setting_velocity(env: ManagerBasedEnv, env_ids: torch.Tensor, velocity_range: dict[str, tuple[float, float]], asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False))[source]
+Push the asset by setting the root velocity to a random value within the given ranges.
+
+This creates an effect similar to pushing the asset with a random impulse that changes the asset’s velocity. It samples the root velocity from the given ranges and sets the velocity into the physics simulation.
+
+The function takes a dictionary of velocity ranges for each axis and rotation. The keys of the dictionary are x, y, z, roll, pitch, and yaw. The values are tuples of the form (min, max). If the dictionary does not contain a key, the velocity is set to zero for that axis.
+
+isaaclab.envs.mdp.events.reset_root_state_uniform(env: ManagerBasedEnv, env_ids: torch.Tensor, pose_range: dict[str, tuple[float, float]], velocity_range: dict[str, tuple[float, float]], asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False))[source]
+Reset the asset root state to a random position and velocity uniformly within the given ranges.
+
+This function randomizes the root position and velocity of the asset.
+
+It samples the root position from the given ranges and adds them to the default root position, before setting them into the physics simulation.
+
+It samples the root orientation from the given ranges and sets them into the physics simulation.
+
+It samples the root velocity from the given ranges and sets them into the physics simulation.
+
+The function takes a dictionary of pose and velocity ranges for each axis and rotation. The keys of the dictionary are x, y, z, roll, pitch, and yaw. The values are tuples of the form (min, max). If the dictionary does not contain a key, the position or velocity is set to zero for that axis.
+
+isaaclab.envs.mdp.events.reset_root_state_with_random_orientation(env: ManagerBasedEnv, env_ids: torch.Tensor, pose_range: dict[str, tuple[float, float]], velocity_range: dict[str, tuple[float, float]], asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False))[source]
+Reset the asset root position and velocities sampled randomly within the given ranges and the asset root orientation sampled randomly from the SO(3).
+
+This function randomizes the root position and velocity of the asset.
+
+It samples the root position from the given ranges and adds them to the default root position, before setting them into the physics simulation.
+
+It samples the root orientation uniformly from the SO(3) and sets them into the physics simulation.
+
+It samples the root velocity from the given ranges and sets them into the physics simulation.
+
+The function takes a dictionary of position and velocity ranges for each axis and rotation:
+
+pose_range - a dictionary of position ranges for each axis. The keys of the dictionary are x, y, and z. The orientation is sampled uniformly from the SO(3).
+
+velocity_range - a dictionary of velocity ranges for each axis and rotation. The keys of the dictionary are x, y, z, roll, pitch, and yaw.
+
+The values are tuples of the form (min, max). If the dictionary does not contain a particular key, the position is set to zero for that axis.
+
+isaaclab.envs.mdp.events.reset_root_state_from_terrain(env: ManagerBasedEnv, env_ids: torch.Tensor, pose_range: dict[str, tuple[float, float]], velocity_range: dict[str, tuple[float, float]], asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False))[source]
+Reset the asset root state by sampling a random valid pose from the terrain.
+
+This function samples a random valid pose(based on flat patches) from the terrain and sets the root state of the asset to this position. The function also samples random velocities from the given ranges and sets them into the physics simulation.
+
+The function takes a dictionary of position and velocity ranges for each axis and rotation:
+
+pose_range - a dictionary of pose ranges for each axis. The keys of the dictionary are roll, pitch, and yaw. The position is sampled from the flat patches of the terrain.
+
+velocity_range - a dictionary of velocity ranges for each axis and rotation. The keys of the dictionary are x, y, z, roll, pitch, and yaw.
+
+The values are tuples of the form (min, max). If the dictionary does not contain a particular key, the position is set to zero for that axis.
+
+Note
+
+The function expects the terrain to have valid flat patches under the key “init_pos”. The flat patches are used to sample the random pose for the robot.
+
+Raises
+:
+ValueError – If the terrain does not have valid flat patches under the key “init_pos”.
+
+isaaclab.envs.mdp.events.reset_joints_by_scale(env: ManagerBasedEnv, env_ids: torch.Tensor, position_range: tuple[float, float], velocity_range: tuple[float, float], asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False))[source]
+Reset the robot joints by scaling the default position and velocity by the given ranges.
+
+This function samples random values from the given ranges and scales the default joint positions and velocities by these values. The scaled values are then set into the physics simulation.
+
+isaaclab.envs.mdp.events.reset_joints_by_offset(env: ManagerBasedEnv, env_ids: torch.Tensor, position_range: tuple[float, float], velocity_range: tuple[float, float], asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False))[source]
+Reset the robot joints with offsets around the default position and velocity by the given ranges.
+
+This function samples random values from the given ranges and biases the default joint positions and velocities by these values. The biased values are then set into the physics simulation.
+
+isaaclab.envs.mdp.events.reset_nodal_state_uniform(env: ManagerBasedEnv, env_ids: torch.Tensor, position_range: dict[str, tuple[float, float]], velocity_range: dict[str, tuple[float, float]], asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False))[source]
+Reset the asset nodal state to a random position and velocity uniformly within the given ranges.
+
+This function randomizes the nodal position and velocity of the asset.
+
+It samples the root position from the given ranges and adds them to the default nodal position, before setting them into the physics simulation.
+
+It samples the root velocity from the given ranges and sets them into the physics simulation.
+
+The function takes a dictionary of position and velocity ranges for each axis. The keys of the dictionary are x, y, z. The values are tuples of the form (min, max). If the dictionary does not contain a key, the position or velocity is set to zero for that axis.
+
+isaaclab.envs.mdp.events.reset_scene_to_default(env: ManagerBasedEnv, env_ids: torch.Tensor)[source]
+Reset the scene to the default state specified in the scene configuration.
+
+class isaaclab.envs.mdp.events.randomize_visual_texture_material[source]
+Randomize the visual texture of bodies on an asset using Replicator API.
+
+This function randomizes the visual texture of the bodies of the asset using the Replicator API. The function samples random textures from the given texture paths and applies them to the bodies of the asset. The textures are projected onto the bodies and rotated by the given angles.
+
+Note
+
+The function assumes that the asset follows the prim naming convention as: “{asset_prim_path}/{body_name}/visuals” where the body name is the name of the body to which the texture is applied. This is the default prim ordering when importing assets from the asset converters in Isaac Lab.
+
+Note
+
+When randomizing the texture of individual assets, please make sure to set isaaclab.scene.InteractiveSceneCfg.replicate_physics to False. This ensures that physics parser will parse the individual asset properties separately.
+
+Methods:
+
+__init__(cfg, env)
+
+Initialize the term.
+
+__init__(cfg: EventTermCfg, env: ManagerBasedEnv)[source]
+Initialize the term.
+
+Parameters
+:
+cfg – The configuration of the event term.
+
+env – The environment instance.
+
+class isaaclab.envs.mdp.events.randomize_visual_color[source]
+Randomize the visual color of bodies on an asset using Replicator API.
+
+This function randomizes the visual color of the bodies of the asset using the Replicator API. The function samples random colors from the given colors and applies them to the bodies of the asset.
+
+The function assumes that the asset follows the prim naming convention as: “{asset_prim_path}/{mesh_name}” where the mesh name is the name of the mesh to which the color is applied. For instance, if the asset has a prim path “/World/asset” and a mesh named “body_0/mesh”, the prim path for the mesh would be “/World/asset/body_0/mesh”.
+
+The colors can be specified as a list of tuples of the form (r, g, b) or as a dictionary with the keys r, g, b and values as tuples of the form (low, high). If a dictionary is used, the function will sample random colors from the given ranges.
+
+Note
+
+When randomizing the color of individual assets, please make sure to set isaaclab.scene.InteractiveSceneCfg.replicate_physics to False. This ensures that physics parser will parse the individual asset properties separately.
+
+Methods:
+
+__init__(cfg, env)
+
+Initialize the randomization term.
+
+__init__(cfg: EventTermCfg, env: ManagerBasedEnv)[source]
+Initialize the randomization term.
+
+Commands
+Various command terms that can be used in the environment.
+
+Classes:
+
+NullCommandCfg
+
+Configuration for the null command generator.
+
+UniformVelocityCommandCfg
+
+Configuration for the uniform velocity command generator.
+
+NormalVelocityCommandCfg
+
+Configuration for the normal velocity command generator.
+
+UniformPoseCommandCfg
+
+Configuration for uniform pose command generator.
+
+UniformPose2dCommandCfg
+
+Configuration for the uniform 2D-pose command generator.
+
+TerrainBasedPose2dCommandCfg
+
+Configuration for the terrain-based position command generator.
+
+class isaaclab.envs.mdp.commands.commands_cfg.NullCommandCfg[source]
+Bases: CommandTermCfg
+
+Configuration for the null command generator.
+
+Attributes:
+
+resampling_time_range
+
+Time before commands are changed [s].
+
+debug_vis
+
+Whether to visualize debug information.
+
+resampling_time_range: tuple[float, float]
+Time before commands are changed [s].
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+class isaaclab.envs.mdp.commands.commands_cfg.UniformVelocityCommandCfg[source]
+Bases: CommandTermCfg
+
+Configuration for the uniform velocity command generator.
+
+Attributes:
+
+asset_name
+
+Name of the asset in the environment for which the commands are generated.
+
+heading_command
+
+Whether to use heading command or angular velocity command.
+
+heading_control_stiffness
+
+Scale factor to convert the heading error to angular velocity command.
+
+rel_standing_envs
+
+The sampled probability of environments that should be standing still.
+
+rel_heading_envs
+
+The sampled probability of environments where the robots follow the heading-based angular velocity command (the others follow the sampled angular velocity command).
+
+ranges
+
+Distribution ranges for the velocity commands.
+
+goal_vel_visualizer_cfg
+
+The configuration for the goal velocity visualization marker.
+
+current_vel_visualizer_cfg
+
+The configuration for the current velocity visualization marker.
+
+resampling_time_range
+
+Time before commands are changed [s].
+
+debug_vis
+
+Whether to visualize debug information.
+
+Classes:
+
+Ranges
+
+Uniform distribution ranges for the velocity commands.
+
+asset_name: str
+Name of the asset in the environment for which the commands are generated.
+
+heading_command: bool
+Whether to use heading command or angular velocity command. Defaults to False.
+
+If True, the angular velocity command is computed from the heading error, where the target heading is sampled uniformly from provided range. Otherwise, the angular velocity command is sampled uniformly from provided range.
+
+heading_control_stiffness: float
+Scale factor to convert the heading error to angular velocity command. Defaults to 1.0.
+
+rel_standing_envs: float
+The sampled probability of environments that should be standing still. Defaults to 0.0.
+
+rel_heading_envs: float
+The sampled probability of environments where the robots follow the heading-based angular velocity command (the others follow the sampled angular velocity command). Defaults to 1.0.
+
+This parameter is only used if heading_command is True.
+
+class Ranges[source]
+Bases: object
+
+Uniform distribution ranges for the velocity commands.
+
+Attributes:
+
+lin_vel_x
+
+Range for the linear-x velocity command (in m/s).
+
+lin_vel_y
+
+Range for the linear-y velocity command (in m/s).
+
+ang_vel_z
+
+Range for the angular-z velocity command (in rad/s).
+
+heading
+
+Range for the heading command (in rad).
+
+lin_vel_x: tuple[float, float]
+Range for the linear-x velocity command (in m/s).
+
+lin_vel_y: tuple[float, float]
+Range for the linear-y velocity command (in m/s).
+
+ang_vel_z: tuple[float, float]
+Range for the angular-z velocity command (in rad/s).
+
+heading: tuple[float, float] | None
+Range for the heading command (in rad). Defaults to None.
+
+This parameter is only used if heading_command is True.
+
+ranges: Ranges
+Distribution ranges for the velocity commands.
+
+goal_vel_visualizer_cfg: VisualizationMarkersCfg
+The configuration for the goal velocity visualization marker. Defaults to GREEN_ARROW_X_MARKER_CFG.
+
+current_vel_visualizer_cfg: VisualizationMarkersCfg
+The configuration for the current velocity visualization marker. Defaults to BLUE_ARROW_X_MARKER_CFG.
+
+resampling_time_range: tuple[float, float]
+Time before commands are changed [s].
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+class isaaclab.envs.mdp.commands.commands_cfg.NormalVelocityCommandCfg[source]
+Bases: UniformVelocityCommandCfg
+
+Configuration for the normal velocity command generator.
+
+Attributes:
+
+heading_command
+
+Whether to use heading command or angular velocity command.
+
+ranges
+
+Distribution ranges for the velocity commands.
+
+resampling_time_range
+
+Time before commands are changed [s].
+
+debug_vis
+
+Whether to visualize debug information.
+
+asset_name
+
+Name of the asset in the environment for which the commands are generated.
+
+heading_control_stiffness
+
+Scale factor to convert the heading error to angular velocity command.
+
+rel_standing_envs
+
+The sampled probability of environments that should be standing still.
+
+rel_heading_envs
+
+The sampled probability of environments where the robots follow the heading-based angular velocity command (the others follow the sampled angular velocity command).
+
+goal_vel_visualizer_cfg
+
+The configuration for the goal velocity visualization marker.
+
+current_vel_visualizer_cfg
+
+The configuration for the current velocity visualization marker.
+
+Classes:
+
+Ranges
+
+Normal distribution ranges for the velocity commands.
+
+heading_command: bool
+Whether to use heading command or angular velocity command. Defaults to False.
+
+If True, the angular velocity command is computed from the heading error, where the target heading is sampled uniformly from provided range. Otherwise, the angular velocity command is sampled uniformly from provided range.
+
+class Ranges[source]
+Bases: object
+
+Normal distribution ranges for the velocity commands.
+
+Attributes:
+
+mean_vel
+
+Mean velocity for the normal distribution (in m/s).
+
+std_vel
+
+Standard deviation for the normal distribution (in m/s).
+
+zero_prob
+
+Probability of zero velocity for the normal distribution.
+
+mean_vel: tuple[float, float, float]
+Mean velocity for the normal distribution (in m/s).
+
+The tuple contains the mean linear-x, linear-y, and angular-z velocity.
+
+std_vel: tuple[float, float, float]
+Standard deviation for the normal distribution (in m/s).
+
+The tuple contains the standard deviation linear-x, linear-y, and angular-z velocity.
+
+zero_prob: tuple[float, float, float]
+Probability of zero velocity for the normal distribution.
+
+The tuple contains the probability of zero linear-x, linear-y, and angular-z velocity.
+
+ranges: Ranges
+Distribution ranges for the velocity commands.
+
+resampling_time_range: tuple[float, float]
+Time before commands are changed [s].
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+asset_name: str
+Name of the asset in the environment for which the commands are generated.
+
+heading_control_stiffness: float
+Scale factor to convert the heading error to angular velocity command. Defaults to 1.0.
+
+rel_standing_envs: float
+The sampled probability of environments that should be standing still. Defaults to 0.0.
+
+rel_heading_envs: float
+The sampled probability of environments where the robots follow the heading-based angular velocity command (the others follow the sampled angular velocity command). Defaults to 1.0.
+
+This parameter is only used if heading_command is True.
+
+goal_vel_visualizer_cfg: VisualizationMarkersCfg
+The configuration for the goal velocity visualization marker. Defaults to GREEN_ARROW_X_MARKER_CFG.
+
+current_vel_visualizer_cfg: VisualizationMarkersCfg
+The configuration for the current velocity visualization marker. Defaults to BLUE_ARROW_X_MARKER_CFG.
+
+class isaaclab.envs.mdp.commands.commands_cfg.UniformPoseCommandCfg[source]
+Bases: CommandTermCfg
+
+Configuration for uniform pose command generator.
+
+Attributes:
+
+asset_name
+
+Name of the asset in the environment for which the commands are generated.
+
+body_name
+
+Name of the body in the asset for which the commands are generated.
+
+make_quat_unique
+
+Whether to make the quaternion unique or not.
+
+resampling_time_range
+
+Time before commands are changed [s].
+
+debug_vis
+
+Whether to visualize debug information.
+
+ranges
+
+Ranges for the commands.
+
+goal_pose_visualizer_cfg
+
+The configuration for the goal pose visualization marker.
+
+current_pose_visualizer_cfg
+
+The configuration for the current pose visualization marker.
+
+Classes:
+
+Ranges
+
+Uniform distribution ranges for the pose commands.
+
+asset_name: str
+Name of the asset in the environment for which the commands are generated.
+
+body_name: str
+Name of the body in the asset for which the commands are generated.
+
+make_quat_unique: bool
+Whether to make the quaternion unique or not. Defaults to False.
+
+If True, the quaternion is made unique by ensuring the real part is positive.
+
+class Ranges[source]
+Bases: object
+
+Uniform distribution ranges for the pose commands.
+
+Attributes:
+
+pos_x
+
+Range for the x position (in m).
+
+pos_y
+
+Range for the y position (in m).
+
+pos_z
+
+Range for the z position (in m).
+
+roll
+
+Range for the roll angle (in rad).
+
+pitch
+
+Range for the pitch angle (in rad).
+
+yaw
+
+Range for the yaw angle (in rad).
+
+pos_x: tuple[float, float]
+Range for the x position (in m).
+
+pos_y: tuple[float, float]
+Range for the y position (in m).
+
+pos_z: tuple[float, float]
+Range for the z position (in m).
+
+roll: tuple[float, float]
+Range for the roll angle (in rad).
+
+pitch: tuple[float, float]
+Range for the pitch angle (in rad).
+
+yaw: tuple[float, float]
+Range for the yaw angle (in rad).
+
+resampling_time_range: tuple[float, float]
+Time before commands are changed [s].
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+ranges: Ranges
+Ranges for the commands.
+
+goal_pose_visualizer_cfg: VisualizationMarkersCfg
+The configuration for the goal pose visualization marker. Defaults to FRAME_MARKER_CFG.
+
+current_pose_visualizer_cfg: VisualizationMarkersCfg
+The configuration for the current pose visualization marker. Defaults to FRAME_MARKER_CFG.
+
+class isaaclab.envs.mdp.commands.commands_cfg.UniformPose2dCommandCfg[source]
+Bases: CommandTermCfg
+
+Configuration for the uniform 2D-pose command generator.
+
+Attributes:
+
+resampling_time_range
+
+Time before commands are changed [s].
+
+debug_vis
+
+Whether to visualize debug information.
+
+asset_name
+
+Name of the asset in the environment for which the commands are generated.
+
+simple_heading
+
+Whether to use simple heading or not.
+
+ranges
+
+Distribution ranges for the position commands.
+
+goal_pose_visualizer_cfg
+
+The configuration for the goal pose visualization marker.
+
+Classes:
+
+Ranges
+
+Uniform distribution ranges for the position commands.
+
+resampling_time_range: tuple[float, float]
+Time before commands are changed [s].
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+asset_name: str
+Name of the asset in the environment for which the commands are generated.
+
+simple_heading: bool
+Whether to use simple heading or not.
+
+If True, the heading is in the direction of the target position.
+
+class Ranges[source]
+Bases: object
+
+Uniform distribution ranges for the position commands.
+
+Attributes:
+
+pos_x
+
+Range for the x position (in m).
+
+pos_y
+
+Range for the y position (in m).
+
+heading
+
+Heading range for the position commands (in rad).
+
+pos_x: tuple[float, float]
+Range for the x position (in m).
+
+pos_y: tuple[float, float]
+Range for the y position (in m).
+
+heading: tuple[float, float]
+Heading range for the position commands (in rad).
+
+Used only if simple_heading is False.
+
+ranges: Ranges
+Distribution ranges for the position commands.
+
+goal_pose_visualizer_cfg: VisualizationMarkersCfg
+The configuration for the goal pose visualization marker. Defaults to GREEN_ARROW_X_MARKER_CFG.
+
+class isaaclab.envs.mdp.commands.commands_cfg.TerrainBasedPose2dCommandCfg[source]
+Bases: UniformPose2dCommandCfg
+
+Configuration for the terrain-based position command generator.
+
+Attributes:
+
+resampling_time_range
+
+Time before commands are changed [s].
+
+debug_vis
+
+Whether to visualize debug information.
+
+asset_name
+
+Name of the asset in the environment for which the commands are generated.
+
+simple_heading
+
+Whether to use simple heading or not.
+
+goal_pose_visualizer_cfg
+
+The configuration for the goal pose visualization marker.
+
+ranges
+
+Distribution ranges for the sampled commands.
+
+Classes:
+
+Ranges
+
+Uniform distribution ranges for the position commands.
+
+resampling_time_range: tuple[float, float]
+Time before commands are changed [s].
+
+debug_vis: bool
+Whether to visualize debug information. Defaults to False.
+
+asset_name: str
+Name of the asset in the environment for which the commands are generated.
+
+simple_heading: bool
+Whether to use simple heading or not.
+
+If True, the heading is in the direction of the target position.
+
+goal_pose_visualizer_cfg: VisualizationMarkersCfg
+The configuration for the goal pose visualization marker. Defaults to GREEN_ARROW_X_MARKER_CFG.
+
+class Ranges[source]
+Bases: object
+
+Uniform distribution ranges for the position commands.
+
+Attributes:
+
+heading
+
+Heading range for the position commands (in rad).
+
+heading: tuple[float, float]
+Heading range for the position commands (in rad).
+
+Used only if simple_heading is False.
+
+ranges: Ranges
+Distribution ranges for the sampled commands.
+
+Rewards
+Common functions that can be used to enable reward functions.
+
+The functions can be passed to the isaaclab.managers.RewardTermCfg object to include the reward introduced by the function.
+
+Functions:
+
+is_alive(env)
+
+Reward for being alive.
+
+is_terminated(env)
+
+Penalize terminated episodes that don't correspond to episodic timeouts.
+
+lin_vel_z_l2(env[, asset_cfg])
+
+Penalize z-axis base linear velocity using L2 squared kernel.
+
+ang_vel_xy_l2(env[, asset_cfg])
+
+Penalize xy-axis base angular velocity using L2 squared kernel.
+
+flat_orientation_l2(env[, asset_cfg])
+
+Penalize non-flat base orientation using L2 squared kernel.
+
+base_height_l2(env, target_height[, ...])
+
+Penalize asset height from its target using L2 squared kernel.
+
+body_lin_acc_l2(env[, asset_cfg])
+
+Penalize the linear acceleration of bodies using L2-kernel.
+
+joint_torques_l2(env[, asset_cfg])
+
+Penalize joint torques applied on the articulation using L2 squared kernel.
+
+joint_vel_l1(env, asset_cfg)
+
+Penalize joint velocities on the articulation using an L1-kernel.
+
+joint_vel_l2(env[, asset_cfg])
+
+Penalize joint velocities on the articulation using L2 squared kernel.
+
+joint_acc_l2(env[, asset_cfg])
+
+Penalize joint accelerations on the articulation using L2 squared kernel.
+
+joint_deviation_l1(env[, asset_cfg])
+
+Penalize joint positions that deviate from the default one.
+
+joint_pos_limits(env[, asset_cfg])
+
+Penalize joint positions if they cross the soft limits.
+
+joint_vel_limits(env, soft_ratio[, asset_cfg])
+
+Penalize joint velocities if they cross the soft limits.
+
+applied_torque_limits(env[, asset_cfg])
+
+Penalize applied torques if they cross the limits.
+
+action_rate_l2(env)
+
+Penalize the rate of change of the actions using L2 squared kernel.
+
+action_l2(env)
+
+Penalize the actions using L2 squared kernel.
+
+undesired_contacts(env, threshold, sensor_cfg)
+
+Penalize undesired contacts as the number of violations that are above a threshold.
+
+contact_forces(env, threshold, sensor_cfg)
+
+Penalize contact forces as the amount of violations of the net contact force.
+
+track_lin_vel_xy_exp(env, std, command_name)
+
+Reward tracking of linear velocity commands (xy axes) using exponential kernel.
+
+track_ang_vel_z_exp(env, std, command_name)
+
+Reward tracking of angular velocity commands (yaw) using exponential kernel.
+
+Classes:
+
+is_terminated_term
+
+Penalize termination for specific terms that don't correspond to episodic timeouts.
+
+isaaclab.envs.mdp.rewards.is_alive(env: ManagerBasedRLEnv) → torch.Tensor[source]
+Reward for being alive.
+
+isaaclab.envs.mdp.rewards.is_terminated(env: ManagerBasedRLEnv) → torch.Tensor[source]
+Penalize terminated episodes that don’t correspond to episodic timeouts.
+
+class isaaclab.envs.mdp.rewards.is_terminated_term[source]
+Penalize termination for specific terms that don’t correspond to episodic timeouts.
+
+The parameters are as follows:
+
+attr:term_keys: The termination terms to penalize. This can be a string, a list of strings or regular expressions. Default is “.*” which penalizes all terminations.
+
+The reward is computed as the sum of the termination terms that are not episodic timeouts. This means that the reward is 0 if the episode is terminated due to an episodic timeout. Otherwise, if two termination terms are active, the reward is 2.
+
+Methods:
+
+__init__(cfg, env)
+
+Initialize the manager term.
+
+__init__(cfg: RewardTermCfg, env: ManagerBasedRLEnv)[source]
+Initialize the manager term.
+
+Parameters
+:
+cfg – The configuration object.
+
+env – The environment instance.
+
+isaaclab.envs.mdp.rewards.lin_vel_z_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Penalize z-axis base linear velocity using L2 squared kernel.
+
+isaaclab.envs.mdp.rewards.ang_vel_xy_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Penalize xy-axis base angular velocity using L2 squared kernel.
+
+isaaclab.envs.mdp.rewards.flat_orientation_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Penalize non-flat base orientation using L2 squared kernel.
+
+This is computed by penalizing the xy-components of the projected gravity vector.
+
+isaaclab.envs.mdp.rewards.base_height_l2(env: ManagerBasedRLEnv, target_height: float, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False), sensor_cfg: SceneEntityCfg | None = None) → torch.Tensor[source]
+Penalize asset height from its target using L2 squared kernel.
+
+Note
+
+For flat terrain, target height is in the world frame. For rough terrain, sensor readings can adjust the target height to account for the terrain.
+
+isaaclab.envs.mdp.rewards.body_lin_acc_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Penalize the linear acceleration of bodies using L2-kernel.
+
+isaaclab.envs.mdp.rewards.joint_torques_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Penalize joint torques applied on the articulation using L2 squared kernel.
+
+NOTE: Only the joints configured in asset_cfg.joint_ids will have their joint torques contribute to the term.
+
+isaaclab.envs.mdp.rewards.joint_vel_l1(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) → torch.Tensor[source]
+Penalize joint velocities on the articulation using an L1-kernel.
+
+isaaclab.envs.mdp.rewards.joint_vel_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Penalize joint velocities on the articulation using L2 squared kernel.
+
+NOTE: Only the joints configured in asset_cfg.joint_ids will have their joint velocities contribute to the term.
+
+isaaclab.envs.mdp.rewards.joint_acc_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Penalize joint accelerations on the articulation using L2 squared kernel.
+
+NOTE: Only the joints configured in asset_cfg.joint_ids will have their joint accelerations contribute to the term.
+
+isaaclab.envs.mdp.rewards.joint_deviation_l1(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Penalize joint positions that deviate from the default one.
+
+isaaclab.envs.mdp.rewards.joint_pos_limits(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Penalize joint positions if they cross the soft limits.
+
+This is computed as a sum of the absolute value of the difference between the joint position and the soft limits.
+
+isaaclab.envs.mdp.rewards.joint_vel_limits(env: ManagerBasedRLEnv, soft_ratio: float, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Penalize joint velocities if they cross the soft limits.
+
+This is computed as a sum of the absolute value of the difference between the joint velocity and the soft limits.
+
+Parameters
+:
+soft_ratio – The ratio of the soft limits to be used.
+
+isaaclab.envs.mdp.rewards.applied_torque_limits(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Penalize applied torques if they cross the limits.
+
+This is computed as a sum of the absolute value of the difference between the applied torques and the limits.
+
+Caution
+
+Currently, this only works for explicit actuators since we manually compute the applied torques. For implicit actuators, we currently cannot retrieve the applied torques from the physics engine.
+
+isaaclab.envs.mdp.rewards.action_rate_l2(env: ManagerBasedRLEnv) → torch.Tensor[source]
+Penalize the rate of change of the actions using L2 squared kernel.
+
+isaaclab.envs.mdp.rewards.action_l2(env: ManagerBasedRLEnv) → torch.Tensor[source]
+Penalize the actions using L2 squared kernel.
+
+isaaclab.envs.mdp.rewards.undesired_contacts(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: SceneEntityCfg) → torch.Tensor[source]
+Penalize undesired contacts as the number of violations that are above a threshold.
+
+isaaclab.envs.mdp.rewards.contact_forces(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: SceneEntityCfg) → torch.Tensor[source]
+Penalize contact forces as the amount of violations of the net contact force.
+
+isaaclab.envs.mdp.rewards.track_lin_vel_xy_exp(env: ManagerBasedRLEnv, std: float, command_name: str, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Reward tracking of linear velocity commands (xy axes) using exponential kernel.
+
+isaaclab.envs.mdp.rewards.track_ang_vel_z_exp(env: ManagerBasedRLEnv, std: float, command_name: str, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Reward tracking of angular velocity commands (yaw) using exponential kernel.
+
+Terminations
+Common functions that can be used to activate certain terminations.
+
+The functions can be passed to the isaaclab.managers.TerminationTermCfg object to enable the termination introduced by the function.
+
+Functions:
+
+time_out(env)
+
+Terminate the episode when the episode length exceeds the maximum episode length.
+
+command_resample(env, command_name[, ...])
+
+Terminate the episode based on the total number of times commands have been re-sampled.
+
+bad_orientation(env, limit_angle[, asset_cfg])
+
+Terminate when the asset's orientation is too far from the desired orientation limits.
+
+root_height_below_minimum(env, minimum_height)
+
+Terminate when the asset's root height is below the minimum height.
+
+joint_pos_out_of_limit(env[, asset_cfg])
+
+Terminate when the asset's joint positions are outside of the soft joint limits.
+
+joint_pos_out_of_manual_limit(env, bounds[, ...])
+
+Terminate when the asset's joint positions are outside of the configured bounds.
+
+joint_vel_out_of_limit(env[, asset_cfg])
+
+Terminate when the asset's joint velocities are outside of the soft joint limits.
+
+joint_vel_out_of_manual_limit(env, max_velocity)
+
+Terminate when the asset's joint velocities are outside the provided limits.
+
+joint_effort_out_of_limit(env[, asset_cfg])
+
+Terminate when effort applied on the asset's joints are outside of the soft joint limits.
+
+illegal_contact(env, threshold, sensor_cfg)
+
+Terminate when the contact force on the sensor exceeds the force threshold.
+
+isaaclab.envs.mdp.terminations.time_out(env: ManagerBasedRLEnv) → torch.Tensor[source]
+Terminate the episode when the episode length exceeds the maximum episode length.
+
+isaaclab.envs.mdp.terminations.command_resample(env: ManagerBasedRLEnv, command_name: str, num_resamples: int = 1) → torch.Tensor[source]
+Terminate the episode based on the total number of times commands have been re-sampled.
+
+This makes the maximum episode length fluid in nature as it depends on how the commands are sampled. It is useful in situations where delayed rewards are used [RHBH22].
+
+isaaclab.envs.mdp.terminations.bad_orientation(env: ManagerBasedRLEnv, limit_angle: float, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Terminate when the asset’s orientation is too far from the desired orientation limits.
+
+This is computed by checking the angle between the projected gravity vector and the z-axis.
+
+isaaclab.envs.mdp.terminations.root_height_below_minimum(env: ManagerBasedRLEnv, minimum_height: float, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Terminate when the asset’s root height is below the minimum height.
+
+Note
+
+This is currently only supported for flat terrains, i.e. the minimum height is in the world frame.
+
+isaaclab.envs.mdp.terminations.joint_pos_out_of_limit(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Terminate when the asset’s joint positions are outside of the soft joint limits.
+
+isaaclab.envs.mdp.terminations.joint_pos_out_of_manual_limit(env: ManagerBasedRLEnv, bounds: tuple[float, float], asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Terminate when the asset’s joint positions are outside of the configured bounds.
+
+Note
+
+This function is similar to joint_pos_out_of_limit() but allows the user to specify the bounds manually.
+
+isaaclab.envs.mdp.terminations.joint_vel_out_of_limit(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Terminate when the asset’s joint velocities are outside of the soft joint limits.
+
+isaaclab.envs.mdp.terminations.joint_vel_out_of_manual_limit(env: ManagerBasedRLEnv, max_velocity: float, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Terminate when the asset’s joint velocities are outside the provided limits.
+
+isaaclab.envs.mdp.terminations.joint_effort_out_of_limit(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg(name='robot', joint_names=None, joint_ids=slice(None, None, None), fixed_tendon_names=None, fixed_tendon_ids=slice(None, None, None), body_names=None, body_ids=slice(None, None, None), object_collection_names=None, object_collection_ids=slice(None, None, None), preserve_order=False)) → torch.Tensor[source]
+Terminate when effort applied on the asset’s joints are outside of the soft joint limits.
+
+In the actuators, the applied torque are the efforts applied on the joints. These are computed by clipping the computed torques to the joint limits. Hence, we check if the computed torques are equal to the applied torques.
+
+isaaclab.envs.mdp.terminations.illegal_contact(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: SceneEntityCfg) → torch.Tensor[source]
+Terminate when the contact force on the sensor exceeds the force threshold.
+
+Curriculum
+Common functions that can be used to create curriculum for the learning environment.
+
+The functions can be passed to the isaaclab.managers.CurriculumTermCfg object to enable the curriculum introduced by the function.
+
+Functions:
+
+modify_reward_weight(env, env_ids, ...)
+
+Curriculum that modifies a reward weight a given number of steps.
+
+isaaclab.envs.mdp.curriculums.modify_reward_weight(env: ManagerBasedRLEnv, env_ids: Sequence[int], term_name: str, weight: float, num_steps: int)[source]
+Curriculum that modifies a reward weight a given number of steps.
+
+Parameters
+:
+env – The learning environment.
+
+env_ids – Not used since all environments are affected.
+
+term_name – The name of the reward term.
+
+weight – The weight of the reward term.
+
+num_steps – The number of steps after which the change should be applied.

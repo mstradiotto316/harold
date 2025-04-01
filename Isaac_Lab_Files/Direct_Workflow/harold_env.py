@@ -30,6 +30,7 @@ class HaroldEnv(DirectRLEnv):
 
         # Actions tensor holds the raw position commands outputted by the policy
         self._actions = torch.zeros(self.num_envs, self.cfg.num_actions, device=self.device)
+        self._processed_actions = self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
         self._previous_actions = torch.zeros(self.num_envs, self.cfg.num_actions, device=self.device)
 
         # Commands tensor has shape [num_envs, 3], the three dimensions are: X lin vel, Y lin vel, Yaw rate
@@ -39,45 +40,38 @@ class HaroldEnv(DirectRLEnv):
         self._JOINT_ANGLE_MAX = torch.tensor([0.3491, 0.3491, 0.3491, 0.3491, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853], device=self.device)
         self._JOINT_ANGLE_MIN = torch.tensor([-0.3491, -0.3491, -0.3491, -0.3491, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853], device=self.device)
 
-        # Contact sensor IDs (for debugging or specialized foot contact checks)
-        self._contact_ids, _ = self._contact_sensor.find_bodies(".*")
-        self._body_contact_id, _ = self._contact_sensor.find_bodies(".*body")
-        self._shoulder_contact_ids, _ = self._contact_sensor.find_bodies(".*shoulder")
-        self._thigh_contact_ids, _ = self._contact_sensor.find_bodies(".*thigh")
-        self._knee_contact_ids, _ = self._contact_sensor.find_bodies(".*knee")
-        self._undesired_contact_body_ids, _ = self._contact_sensor.find_bodies(".*thigh")
-
         # Print body names and masses
+        print("--------------------------------")
         print("Body Names: ", self._robot.data.body_names)
         print("Body Masses: ", self._robot.data.default_mass[0])
+        print()
 
         # Print joint names and positions
+        print("--------------------------------")
         print("Joint Names: ", self._robot.data.joint_names)
         print("Joint Positions: ", torch.round(self._robot.data.joint_pos[0] * 100) / 100)
+        print()
 
-        print("CONTACT IDS: ", self._contact_ids)
-        print("BODY CONTACT ID: ", self._body_contact_id)
-        print("SHOULDER CONTACT IDS: ", self._shoulder_contact_ids)
-        print("THIGH CONTACT IDS: ", self._thigh_contact_ids)
-        print("KNEE CONTACT IDS: ", self._knee_contact_ids)
-        print("UNDESIRED CONTACT BODY IDS: ", self._undesired_contact_body_ids)
+        # Contact sensor IDs (for debugging or specialized foot contact checks)
+        self._contact_ids, contact_names = self._contact_sensor.find_bodies(".*", preserve_order=True)
+        self._body_contact_id, body_names = self._contact_sensor.find_bodies(".*body", preserve_order=True)
+        self._shoulder_contact_ids, shoulder_names = self._contact_sensor.find_bodies(".*shoulder", preserve_order=True)
+        self._thigh_contact_ids, thigh_names = self._contact_sensor.find_bodies(".*thigh", preserve_order=True)
+        self._knee_contact_ids, knee_names = self._contact_sensor.find_bodies(".*knee", preserve_order=True)
+        self._undesired_contact_body_ids, undesired_names = self._contact_sensor.find_bodies(".*thigh", preserve_order=True)
 
-        # Prepare processed actions tensor
-        self._processed_actions = self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
+        # Print contact sensor IDs and names (NOTE: For some reason these are added in a depth first manner by regex)
+        print("--------------------------------")
+        print("CONTACT IDS: ", self._contact_ids, "\nALL CONTACT NAMES: ", contact_names)
+        print("BODY CONTACT ID: ", self._body_contact_id, "\nBODY NAMES: ", body_names)
+        print("SHOULDER CONTACT IDS: ", self._shoulder_contact_ids, "\nSHOULDER NAMES: ", shoulder_names)
+        print("THIGH CONTACT IDS: ", self._thigh_contact_ids, "\nTHIGH NAMES: ", thigh_names)
+        print("KNEE CONTACT IDS: ", self._knee_contact_ids, "\nKNEE NAMES: ", knee_names)
+        print("UNDESIRED CONTACT BODY IDS: ", self._undesired_contact_body_ids, "\nALL UNDESIRED CONTACT NAMES: ", undesired_names)
+        print()
 
         # Add time tracking for temporal (sinusoidal) observations
         self._time = torch.zeros(self.num_envs, device=self.device)
-
-        # Add velocity history buffer after other initializations
-        self._vel_history_length = 1 #10
-        self._lin_vel_history = torch.zeros(
-            (self.num_envs, self._vel_history_length, 3),
-            device=self.device
-        )
-        self._yaw_vel_history = torch.zeros(
-            (self.num_envs, self._vel_history_length),
-            device=self.device
-        )
 
         """
         # Randomize robot friction 
@@ -118,7 +112,7 @@ class HaroldEnv(DirectRLEnv):
                 "feet_air_time",
                 "undesired_contacts",
                 "height_reward",
-                "xy_acceleration_l2"
+                "xy_acceleration_l2",
             ]
         }
 
@@ -269,69 +263,161 @@ class HaroldEnv(DirectRLEnv):
 
     def _get_rewards(self) -> torch.Tensor:
 
-        # Linear velocity tracking
+        """
+        # Linear velocity tracking =====================================================================================
+        """
         lin_vel_error_abs = torch.sum(torch.abs(self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]), dim=1)
 
-        #print("Env 0 XY Commands: ", self._commands[:, :2])
-        #print("Env 0 XY Actual: ", self._robot.data.root_lin_vel_b[:, :2])
+        #print("Env 0 XY Commands: ", self._commands[:, :2][0].tolist())
+        #print("Env 0 XY Actual: ", self._robot.data.root_lin_vel_b[:, :2][0].tolist())
         #print("lin_vel_error_abs: ", lin_vel_error_abs[0])
         #print()
 
-        # Yaw rate tracking
+        """
+        # Yaw Rate Tracking ============================================================================================
+        """
         yaw_error_tracking_abs = torch.abs(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
 
-        #print("Env 0 Yaw Commands: ", self._commands[:, 2])
-        #print("Env 0 Yaw Actual: ", self._robot.data.root_ang_vel_b[:, 2])
+        #print("Env 0 Yaw Commands: ", self._commands[:, 2][0].tolist())
+        #print("Env 0 Yaw Actual: ", self._robot.data.root_ang_vel_b[:, 2][0].tolist())
         #print("yaw_error_tracking_abs: ", yaw_error_tracking_abs[0])
         #print()
 
         """
-        # z velocity tracking
+        # z velocity tracking ==========================================================================================
         """
         z_vel_error = torch.square(self._robot.data.root_lin_vel_b[:, 2])
 
+        #print("z_vel_error: ", z_vel_error[0])
+        #print()
+
         """
-        # angular velocity x/y
+        # angular velocity x/y =========================================================================================
         """
         ang_vel_error = torch.sum(torch.square(self._robot.data.root_ang_vel_b[:, :2]), dim=1)
+
+        #print("ang_vel_error: ", ang_vel_error[0])
+        #print()
         
         """
-        # Get joint torques
+        # Get joint torques ============================================================================================
         """
         joint_torques = torch.sum(torch.square(self._robot.data.applied_torque), dim=1)
 
+        #print("joint_torques: ", joint_torques[0])
+        #print()
+
         """
-        # joint acceleration
+        # joint acceleration ===========================================================================================
         """
         joint_accel = torch.sum(torch.square(self._robot.data.joint_acc), dim=1)
 
         """
-        # Get action rate
+        # Get action rate ==============================================================================================
         """
         action_rate = torch.sum(torch.square(self._actions - self._previous_actions), dim=1)
 
         """
-        # Get feet air time (Note that the "knee" body parts are actually the feet due to my bad naming convention)
+        # Get feet air time ============================================================================================
+        # (Note that the "knee" body parts are actually the feet due to my bad naming convention)
         """
 
-        target_air_time = 0.2
-        sigma = 0.1  # Tolerance around target
-        air_time_diff = self._contact_sensor.data.current_air_time[:, self._knee_contact_ids] - target_air_time
-        # Calculate air time reward for each foot
-        foot_air_time_rewards = torch.exp(-(air_time_diff / sigma)**2)
+        # Track how long each foot has been in the air for
+        foot_1_air_time = self._contact_sensor.data.current_air_time[:, self._knee_contact_ids[0]]
+        foot_2_air_time = self._contact_sensor.data.current_air_time[:, self._knee_contact_ids[1]]
+        foot_3_air_time = self._contact_sensor.data.current_air_time[:, self._knee_contact_ids[2]]
+        foot_4_air_time = self._contact_sensor.data.current_air_time[:, self._knee_contact_ids[3]]
 
-        # Count how many feet are in contact with the ground
-        feet_in_contact = (self._contact_sensor.data.current_air_time[:, self._knee_contact_ids] <= 0.05).sum(dim=1)
-        # Penalize having too many feet on ground (optimal is 2-3 for quadruped)
-        contact_penalty = torch.clamp(feet_in_contact - 2.5, min=0, max=1.5)
+        print("Feet air times: ", foot_1_air_time[0], foot_2_air_time[0], foot_3_air_time[0], foot_4_air_time[0])
+        
+        # Create foot cycle signals --> 1s period, offset by pi/2 each, signal is btw -1 (grounded) and 1 (in air)
+        #Order: Front left, back right, front right, back left
+        foot_cycle_1 = torch.sin(2 * math.pi * 1 * self._time + math.pi/2) # Front Left
+        foot_cycle_2 = torch.sin(2 * math.pi * 1 * self._time + math.pi) # Front Right
+        foot_cycle_3 = torch.sin(2 * math.pi * 1 * self._time + 3*math.pi/2) # Back Left
+        foot_cycle_4 = torch.sin(2 * math.pi * 1 * self._time + 2*math.pi) # Back Right
 
-        # Use mean instead of sum for more balanced gait
-        air_time_reward = torch.mean(foot_air_time_rewards, dim=1) - 0.2 * contact_penalty  
-        air_time_reward *= (torch.norm(self._commands[:, :2], dim=1) > 0.01)  # Only when commanded to move
+        print("Feet cycles: ", foot_cycle_1[0], foot_cycle_2[0], foot_cycle_3[0], foot_cycle_4[0])
+
+        # If cycle is <0 then the foot should be on the ground so target air time is 0.0
+        # If cycle is >0 then the foot should be in the air so target air time is the cycle value
+        foot_1_target_air_time = torch.where(foot_cycle_1 < 0.0, torch.zeros_like(foot_cycle_1), foot_cycle_1) # Front left 1st
+        foot_2_target_air_time = torch.where(foot_cycle_2 < 0.0, torch.zeros_like(foot_cycle_3), foot_cycle_3) # Front right 3rd
+        foot_3_target_air_time = torch.where(foot_cycle_3 < 0.0, torch.zeros_like(foot_cycle_4), foot_cycle_4) # Back left 4th
+        foot_4_target_air_time = torch.where(foot_cycle_4 < 0.0, torch.zeros_like(foot_cycle_2), foot_cycle_2) # Back right 2th
+
+        print("Feet air time targets: ", foot_1_target_air_time[0], foot_2_target_air_time[0], foot_3_target_air_time[0], foot_4_target_air_time[0])
+
+        foot_1_error = torch.abs(foot_1_target_air_time - foot_1_air_time)
+        foot_2_error = torch.abs(foot_2_target_air_time - foot_2_air_time)
+        foot_3_error = torch.abs(foot_3_target_air_time - foot_3_air_time)
+        foot_4_error = torch.abs(foot_4_target_air_time - foot_4_air_time)
+
+        print("Foot 1 error: ", foot_1_error[0])
+        print("Foot 2 error: ", foot_2_error[0])
+        print("Foot 3 error: ", foot_3_error[0])
+        print("Foot 4 error: ", foot_4_error[0])
+
+        # Sum of absolute errors
+        foot_error = foot_1_error + foot_2_error + foot_3_error + foot_4_error
+
+        print("Foot error: ", foot_error[0])
 
         
         """
-        # Undersired contacts
+        
+        # Define diagonal pairs for trotting (indices into self._knee_contact_ids)
+        diagonal_pair_1 = [0, 3]  # Front left and back right knees in _knee_contact_ids
+        diagonal_pair_2 = [1, 2]  # Front right and back left knees in _knee_contact_ids
+        
+        target_air_time = 0.2
+        sigma = 0.1  # Tolerance around target
+        
+        # Get current air times for all feet
+        current_air_times = self._contact_sensor.data.current_air_time[:, self._knee_contact_ids]
+        air_time_diff = current_air_times - target_air_time
+        
+        # Calculate air time rewards for each foot
+        foot_air_time_rewards = torch.exp(-(air_time_diff / sigma)**2)
+
+        # Calculate diagonal pair synchronization
+        pair1_air_times = current_air_times[:, diagonal_pair_1]
+        pair2_air_times = current_air_times[:, diagonal_pair_2]
+        
+        # Reward when diagonal pairs are synchronized (both feet in air or both on ground)
+        pair1_sync = torch.exp(-((pair1_air_times[:, 0] - pair1_air_times[:, 1]) / sigma)**2)
+        pair2_sync = torch.exp(-((pair2_air_times[:, 0] - pair2_air_times[:, 1]) / sigma)**2)
+        
+        # Calculate phase difference between diagonal pairs
+        pair1_mean = pair1_air_times.mean(dim=1)
+        pair2_mean = pair2_air_times.mean(dim=1)
+        pairs_phase_diff = torch.abs(pair1_mean - pair2_mean)
+        
+        # We want the phase difference to be half the target air time (when one pair is up, other should be down)
+        desired_phase_diff = target_air_time / 2
+        pairs_antiphase = torch.exp(-((pairs_phase_diff - desired_phase_diff) / sigma)**2)
+
+        # Count feet in contact with more precise threshold
+        contact_threshold = 0.02  # Slightly more strict contact detection
+        feet_in_contact = (current_air_times <= contact_threshold)
+        diagonal_1_contact = feet_in_contact[:, diagonal_pair_1].sum(dim=1)
+        diagonal_2_contact = feet_in_contact[:, diagonal_pair_2].sum(dim=1)
+        
+        # Penalize when both diagonals have same contact state (we want alternating)
+        contact_penalty = torch.abs(diagonal_1_contact - diagonal_2_contact)
+        
+        # Combine rewards with balanced weights
+        air_time_reward = (
+            0.4 * torch.mean(foot_air_time_rewards, dim=1) +    # Base air time reward
+            0.3 * (pair1_sync + pair2_sync) / 2.0 +            # Diagonal synchronization (normalized)
+            0.3 * pairs_antiphase -                            # Phase difference between pairs
+            0.2 * contact_penalty                              # Contact state penalty (reduced weight)
+        )
+        
+        """
+        
+        """
+        # Undersired contacts ==========================================================================================
         """
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
         is_contact = (
@@ -339,9 +425,8 @@ class HaroldEnv(DirectRLEnv):
         )
         contacts = torch.sum(is_contact, dim=1)
 
-
         """
-        # Height Reward
+        # Height Reward ================================================================================================
         """
         # Get height data from scanner
         height_data = (
@@ -361,9 +446,10 @@ class HaroldEnv(DirectRLEnv):
         #print("Current height from scanner: ", current_height[0], " Height reward: ", height_reward[0])
         #print("Target height: ", target_height)
         #print('Height reward: ', height_reward)
-        
+
+
         """
-        # XY acceleration penalty
+        # XY acceleration penalty ======================================================================================
         """
         # Get root body xy acceleration (first 2 components of linear acceleration)
         xy_acceleration = self._robot.data.body_acc_w[:, 0, :2]  # Shape: [num_envs, 2]
@@ -371,6 +457,7 @@ class HaroldEnv(DirectRLEnv):
 
         #print("xy_acceleration: ", xy_acceleration[0].tolist())
         #print("xy_acceleration_error: ", xy_acceleration_error[0])
+
 
         rewards = {
             "track_xy_lin_commands": lin_vel_error_abs * self.step_dt * -4.0, #(CONFIRMED -4.0)
@@ -380,10 +467,11 @@ class HaroldEnv(DirectRLEnv):
             "dof_torques_l2": joint_torques * self.step_dt * -0.01, #(CONFIRMED -0.01)
             "dof_acc_l2": joint_accel * self.step_dt * 0.0, #-0.5e-6, #-1.0e-6, #-2.5e-7,
             "action_rate_l2": action_rate * self.step_dt * -0.01, #(CONFIRMED -0.01)
-            "feet_air_time": air_time_reward * self.step_dt * 0.3, #(CONFIRMED 0.3)
-            #"undesired_contacts": contacts * self.step_dt * -1.0, #-1.0,
-            "height_reward": height_reward * self.step_dt * 1.5, #(CONFIRMED 1.5)
-            "xy_acceleration_l2": xy_acceleration_error * self.step_dt * 0.0 #-0.5 #-0.15,
+            #"feet_air_time": air_time_reward * self.step_dt * 0.3, #(CONFIRMED 0.3)
+            "feet_air_time": foot_error * self.step_dt * -1.0, #(CONFIRMED 0.3)
+            "undesired_contacts": contacts * self.step_dt * 0.0, #-1.0,
+            "height_reward": height_error * self.step_dt * -1.5, #(CONFIRMED 1.5)
+            "xy_acceleration_l2": xy_acceleration_error * self.step_dt * 0.0, #-0.5 #-0.15,
         }
 
         #print("Commands: ", self._commands[0].tolist())
@@ -443,17 +531,21 @@ class HaroldEnv(DirectRLEnv):
         # Get commands for resetting envs
         temp_commands = self._commands[env_ids]
 
+        # Overall commands tests
+        # TEST 1 (COMPLETE): Commands all 0, with height reward results in the robot standing upright and still
+        # TEST 2 (PENDING): Commands all 0, with height reward and feet air time reward gives us in place trotting.
+
         # X velocity 
         # TEST 1 (COMPLETE): Works with set command at 0.25
-        # TEST 2 (PENDING): Works with set command at -0.25
+        # TEST 2 (FAILED): Works with set command at -0.25
         # TEST 3 (COMPLETE): Works with range of 0 to 0.25
-        temp_commands[:, 0].uniform_(0.0, 0.0)
+        temp_commands[:, 0].uniform_(0.25, 0.25)
         
         # Y velocity
         # TEST 1 (FAILED): Works with set command at 0.25
         # TEST 2 (PENDING): Works with set command at -0.25
         # TEST 3 (PENDING): Works with range of 0 to 0.25
-        temp_commands[:, 1].uniform_(0.25, 0.25)
+        temp_commands[:, 1].uniform_(0.0, 0.0)
 
         # Yaw rate (Note: The policy takes longer to train with yaw rate commands)
         # TEST 1 (COMPLETE): Works with set command at 0.25
@@ -463,7 +555,6 @@ class HaroldEnv(DirectRLEnv):
 
         # Write back the randomized commands
         self._commands[env_ids] = temp_commands  
-        
 
         # Reset to default root pose/vel and joint state
         joint_pos = self._robot.data.default_joint_pos[env_ids]
@@ -476,10 +567,6 @@ class HaroldEnv(DirectRLEnv):
 
         # Reset time for sinusoidal observation
         self._time[env_ids] = 0
-
-        # Reset velocity history for reset environments
-        self._lin_vel_history[env_ids] = 0.0
-        self._yaw_vel_history[env_ids] = 0.0
 
     def _get_info(self) -> dict:
         info = {}

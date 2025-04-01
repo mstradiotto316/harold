@@ -5,39 +5,49 @@ from omni.isaac.lab.assets.articulation import ArticulationCfg
 from omni.isaac.lab.sensors import ContactSensorCfg
 
 """
+# WHEN USING RL_GAMES TRAINING LIBRARY
 Train model:
 ./isaaclab.sh -p source/standalone/workflows/rl_games/train.py --task Isaac-Harold-Direct-v3 --num_envs 1024
 
-Play back trained model:
-(BUILT IN ISAAC LAB VERSION)
-./isaaclab.sh -p source/standalone/workflows/rl_games/play.py --task Isaac-Harold-Direct-v3 --num_envs 1 --use_last_checkpoint
-(MY CUSTOM VERSION)
-./isaaclab.sh -p source/standalone/environments/run_harold_v3.py --task Isaac-Harold-Direct-v3 --num_envs 1 --use_last_checkpoint
-(MY CUSTOM VERSION WITH MODEL EXPORT Note: You may need to run this with sudo for it to get write priveleges)
-./isaaclab.sh -p source/standalone/environments/run_harold_v3.py --task Isaac-Harold-Direct-v3 --num_envs 1 --use_last_checkpoint --export_policy
+Train model in headless mode with video recording:
+./isaaclab.sh -p source/standalone/workflows/rl_games/train.py --task Isaac-Harold-Direct-v3 --num_envs 1024 --headless --video --video_length 500 --video_interval 3000
 
-
-Play back trained model with ROS2 Bridge:
- 
-How to start ROS2 Bridge:
-conda deactivate
-ros2 launch rosbridge_server rosbridge_websocket_launch.xml
-
-How to listen to ROS2 Bridge joint states:
-ros2 topic echo /joint_states
-
-How to start Tensorboard:
+Start Tensorboard:
 python3 -m tensorboard.main --logdir /home/matteo/IsaacLab/logs/rl_games/harold_direct
 
+Play back trained model (BUILT IN ISAAC LAB VERSION)
+./isaaclab.sh -p source/standalone/workflows/rl_games/play.py --task Isaac-Harold-Direct-v3 --num_envs 1 --use_last_checkpoint
 
-Edit USD file:
+Play back trained model (MY CUSTOM VERSION)
+./isaaclab.sh -p source/standalone/environments/run_harold_v3.py --task Isaac-Harold-Direct-v3 --num_envs 1 --use_last_checkpoint
+
+Export trained model (MY CUSTOM VERSION) Note: You may need to run this with sudo for it to get write priveleges)
+./isaaclab.sh -p source/standalone/environments/run_harold_v3.py --task Isaac-Harold-Direct-v3 --num_envs 1 --use_last_checkpoint --export_policy
+"""
+
+"""
+# WHEN USING SKRL TRAINING LIBRARY
+
+Train model:
+./isaaclab.sh -p source/standalone/workflows/skrl/train.py --task Isaac-Harold-Direct-v3 --num_envs 1024
+
+Start Tensorboard:
+python3 -m tensorboard.main --logdir /home/matteo/IsaacLab/logs/skrl/harold_direct
+"""
+
+"""
+# WHEN USING ROS2 BRIDGE
+Start ROS2 Bridge
+ros2 launch rosbridge_server rosbridge_websocket_launch.xml
+
+Start server to listen to ROS2 Bridge joint states (local server for debugging purposes):
+ros2 topic echo /joint_states
+"""
+
+
+"""
+# To edit USD files:
 usdedit Harold_V4_STABLE_V2.usd
-
-Resource Monitors:
-nvtop
-system monitor
-
-
 """
 
 

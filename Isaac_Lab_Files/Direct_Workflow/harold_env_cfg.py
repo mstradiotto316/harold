@@ -34,8 +34,6 @@ class HaroldEnvCfg(DirectRLEnvCfg):
             restitution=0.0,
         ),
     )
-
-    
     
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",

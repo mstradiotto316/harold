@@ -328,16 +328,16 @@ class HaroldEnv(DirectRLEnv):
         foot_3_air_time = self._contact_sensor.data.current_air_time[:, self._knee_contact_ids[2]]
         foot_4_air_time = self._contact_sensor.data.current_air_time[:, self._knee_contact_ids[3]]
 
-        print("Feet air times: ", foot_1_air_time[0], foot_2_air_time[0], foot_3_air_time[0], foot_4_air_time[0])
+        #print("Feet air times: ", foot_1_air_time[0], foot_2_air_time[0], foot_3_air_time[0], foot_4_air_time[0])
         
         # Create foot cycle signals --> 1s period, offset by pi/2 each, signal is btw -1 (grounded) and 1 (in air)
         #Order: Front left, back right, front right, back left
-        foot_cycle_1 = torch.sin(2 * math.pi * 1 * self._time + math.pi/2) # Front Left
-        foot_cycle_2 = torch.sin(2 * math.pi * 1 * self._time + math.pi) # Front Right
-        foot_cycle_3 = torch.sin(2 * math.pi * 1 * self._time + 3*math.pi/2) # Back Left
-        foot_cycle_4 = torch.sin(2 * math.pi * 1 * self._time + 2*math.pi) # Back Right
+        foot_cycle_1 = torch.sin(2 * math.pi * 0.5 * self._time + math.pi/2) # Front Left
+        foot_cycle_2 = torch.sin(2 * math.pi * 0.5 * self._time + math.pi) # Front Right
+        foot_cycle_3 = torch.sin(2 * math.pi * 0.5 * self._time + 3*math.pi/2) # Back Left
+        foot_cycle_4 = torch.sin(2 * math.pi * 0.5 * self._time + 2*math.pi) # Back Right
 
-        print("Feet cycles: ", foot_cycle_1[0], foot_cycle_2[0], foot_cycle_3[0], foot_cycle_4[0])
+        #print("Feet cycles: ", foot_cycle_1[0], foot_cycle_2[0], foot_cycle_3[0], foot_cycle_4[0])
 
         # If cycle is <0 then the foot should be on the ground so target air time is 0.0
         # If cycle is >0 then the foot should be in the air so target air time is the cycle value
@@ -346,22 +346,22 @@ class HaroldEnv(DirectRLEnv):
         foot_3_target_air_time = torch.where(foot_cycle_3 < 0.0, torch.zeros_like(foot_cycle_4), foot_cycle_4) # Back left 4th
         foot_4_target_air_time = torch.where(foot_cycle_4 < 0.0, torch.zeros_like(foot_cycle_2), foot_cycle_2) # Back right 2th
 
-        print("Feet air time targets: ", foot_1_target_air_time[0], foot_2_target_air_time[0], foot_3_target_air_time[0], foot_4_target_air_time[0])
+        #print("Feet air time targets: ", foot_1_target_air_time[0], foot_2_target_air_time[0], foot_3_target_air_time[0], foot_4_target_air_time[0])
 
         foot_1_error = torch.abs(foot_1_target_air_time - foot_1_air_time)
         foot_2_error = torch.abs(foot_2_target_air_time - foot_2_air_time)
         foot_3_error = torch.abs(foot_3_target_air_time - foot_3_air_time)
         foot_4_error = torch.abs(foot_4_target_air_time - foot_4_air_time)
 
-        print("Foot 1 error: ", foot_1_error[0])
-        print("Foot 2 error: ", foot_2_error[0])
-        print("Foot 3 error: ", foot_3_error[0])
-        print("Foot 4 error: ", foot_4_error[0])
+        #print("Foot 1 error: ", foot_1_error[0])
+        #print("Foot 2 error: ", foot_2_error[0])
+        #print("Foot 3 error: ", foot_3_error[0])
+        #print("Foot 4 error: ", foot_4_error[0])
 
         # Sum of absolute errors
         foot_error = foot_1_error + foot_2_error + foot_3_error + foot_4_error
 
-        print("Foot error: ", foot_error[0])
+        #print("Foot error: ", foot_error[0])
 
         
         """
@@ -437,7 +437,7 @@ class HaroldEnv(DirectRLEnv):
         current_height = torch.mean(height_data, dim=1)
 
         # Define target height and calculate error
-        target_height = 0.20  # meters from ground
+        target_height = 0.18 #0.20  # meters from ground
         height_error = torch.abs(current_height - target_height)
 
         # Convert to reward using same exponential form as velocity rewards
@@ -460,17 +460,17 @@ class HaroldEnv(DirectRLEnv):
 
 
         rewards = {
-            "track_xy_lin_commands": lin_vel_error_abs * self.step_dt * -4.0, #(CONFIRMED -4.0)
-            "track_yaw_commands": yaw_error_tracking_abs * self.step_dt * -4.0, #(CONFIRMED -4.0)
+            "track_xy_lin_commands": lin_vel_error_abs * self.step_dt * -2.0, #(CONFIRMED -4.0)
+            "track_yaw_commands": yaw_error_tracking_abs * self.step_dt * -2.0, #(CONFIRMED -4.0)
             "lin_vel_z_l2": z_vel_error * self.step_dt * 0.0, #-10.0,
             "ang_vel_xy_l2": ang_vel_error * self.step_dt * 0.0, #-5, #-0.05,
             "dof_torques_l2": joint_torques * self.step_dt * -0.01, #(CONFIRMED -0.01)
             "dof_acc_l2": joint_accel * self.step_dt * 0.0, #-0.5e-6, #-1.0e-6, #-2.5e-7,
             "action_rate_l2": action_rate * self.step_dt * -0.01, #(CONFIRMED -0.01)
             #"feet_air_time": air_time_reward * self.step_dt * 0.3, #(CONFIRMED 0.3)
-            "feet_air_time": foot_error * self.step_dt * -1.0, #(CONFIRMED 0.3)
+            "feet_air_time": foot_error * self.step_dt * -2.0, #-2.0,#-1.0, #(CONFIRMED 0.3)
             "undesired_contacts": contacts * self.step_dt * 0.0, #-1.0,
-            "height_reward": height_error * self.step_dt * -1.5, #(CONFIRMED 1.5)
+            "height_reward": height_reward * self.step_dt * 4.5, #(CONFIRMED 1.5)
             "xy_acceleration_l2": xy_acceleration_error * self.step_dt * 0.0, #-0.5 #-0.15,
         }
 

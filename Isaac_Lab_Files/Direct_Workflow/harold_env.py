@@ -332,10 +332,10 @@ class HaroldEnv(DirectRLEnv):
         
         # Create foot cycle signals --> 1s period, offset by pi/2 each, signal is btw -1 (grounded) and 1 (in air)
         #Order: Front left, back right, front right, back left
-        foot_cycle_1 = torch.sin(2 * math.pi * 0.5 * self._time + math.pi/2) # Front Left
-        foot_cycle_2 = torch.sin(2 * math.pi * 0.5 * self._time + math.pi) # Front Right
-        foot_cycle_3 = torch.sin(2 * math.pi * 0.5 * self._time + 3*math.pi/2) # Back Left
-        foot_cycle_4 = torch.sin(2 * math.pi * 0.5 * self._time + 2*math.pi) # Back Right
+        foot_cycle_1 = torch.sin(2 * math.pi * 0.25 * self._time + math.pi/2) # Front Left
+        foot_cycle_2 = torch.sin(2 * math.pi * 0.25 * self._time + math.pi) # Front Right
+        foot_cycle_3 = torch.sin(2 * math.pi * 0.25 * self._time + 3*math.pi/2) # Back Left
+        foot_cycle_4 = torch.sin(2 * math.pi * 0.25 * self._time + 2*math.pi) # Back Right
 
         #print("Feet cycles: ", foot_cycle_1[0], foot_cycle_2[0], foot_cycle_3[0], foot_cycle_4[0])
 

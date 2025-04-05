@@ -335,7 +335,7 @@ class HaroldEnv(DirectRLEnv):
         foot_cycle_1 = torch.sin(2 * math.pi * 0.25 * self._time + math.pi/2) # Front Left
         foot_cycle_2 = torch.sin(2 * math.pi * 0.25 * self._time + math.pi) # Front Right
         foot_cycle_3 = torch.sin(2 * math.pi * 0.25 * self._time + 3*math.pi/2) # Back Left
-        foot_cycle_4 = torch.sin(2 * math.pi * 0.25 * self._time + 2*math.pi) # Back Right
+        foot_cycle_4 = torch.sin(2 * math.pi * 0.25 * self._time + 2*math.pi) # Back Right # was 0.125 before
 
         #print("Feet cycles: ", foot_cycle_1[0], foot_cycle_2[0], foot_cycle_3[0], foot_cycle_4[0])
 
@@ -460,13 +460,13 @@ class HaroldEnv(DirectRLEnv):
 
 
         rewards = {
-            "track_xy_lin_commands": lin_vel_error_abs * self.step_dt * -2.0, #(CONFIRMED -4.0)
+            "track_xy_lin_commands": lin_vel_error_abs * self.step_dt * -4.0, #-2.0, #(CONFIRMED -4.0)
             "track_yaw_commands": yaw_error_tracking_abs * self.step_dt * -2.0, #(CONFIRMED -4.0)
             "lin_vel_z_l2": z_vel_error * self.step_dt * 0.0, #-10.0,
             "ang_vel_xy_l2": ang_vel_error * self.step_dt * 0.0, #-5, #-0.05,
             "dof_torques_l2": joint_torques * self.step_dt * -0.01, #(CONFIRMED -0.01)
             "dof_acc_l2": joint_accel * self.step_dt * 0.0, #-0.5e-6, #-1.0e-6, #-2.5e-7,
-            "action_rate_l2": action_rate * self.step_dt * -0.01, #(CONFIRMED -0.01)
+            "action_rate_l2": action_rate * self.step_dt * -0.05, #-0.01, #(CONFIRMED -0.01)
             #"feet_air_time": air_time_reward * self.step_dt * 0.3, #(CONFIRMED 0.3)
             "feet_air_time": foot_error * self.step_dt * -2.0, #-2.0,#-1.0, #(CONFIRMED 0.3)
             "undesired_contacts": contacts * self.step_dt * 0.0, #-1.0,

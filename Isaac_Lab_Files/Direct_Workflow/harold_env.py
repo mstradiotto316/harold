@@ -460,7 +460,7 @@ class HaroldEnv(DirectRLEnv):
 
 
         rewards = {
-            "track_xy_lin_commands": lin_vel_error_abs * self.step_dt * -6.5, #-2.0, #(CONFIRMED -4.0)
+            "track_xy_lin_commands": lin_vel_error_abs * self.step_dt * -4.5, #-2.0, #(CONFIRMED -4.0)
             "track_yaw_commands": yaw_error_tracking_abs * self.step_dt * -2.0, #(CONFIRMED -4.0)
             "lin_vel_z_l2": z_vel_error * self.step_dt * 0.0, #-10.0,
             "ang_vel_xy_l2": ang_vel_error * self.step_dt * 0.0, #-5, #-0.05,
@@ -470,7 +470,7 @@ class HaroldEnv(DirectRLEnv):
             #"feet_air_time": air_time_reward * self.step_dt * 0.3, #(CONFIRMED 0.3)
             "feet_air_time": foot_error * self.step_dt * -2.0, #-2.0,#-1.0, #(CONFIRMED 0.3)
             "undesired_contacts": contacts * self.step_dt * 0.0, #-1.0,
-            "height_reward": height_reward * self.step_dt * 4.5, #(CONFIRMED 1.5)
+            "height_reward": height_reward * self.step_dt * 5.0, #4.5, #(CONFIRMED 1.5)
             "xy_acceleration_l2": xy_acceleration_error * self.step_dt * 0.0, #-0.5 #-0.15,
         }
 

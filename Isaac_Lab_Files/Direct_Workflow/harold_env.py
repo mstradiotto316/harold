@@ -365,58 +365,6 @@ class HaroldEnv(DirectRLEnv):
 
         
         """
-        
-        # Define diagonal pairs for trotting (indices into self._knee_contact_ids)
-        diagonal_pair_1 = [0, 3]  # Front left and back right knees in _knee_contact_ids
-        diagonal_pair_2 = [1, 2]  # Front right and back left knees in _knee_contact_ids
-        
-        target_air_time = 0.2
-        sigma = 0.1  # Tolerance around target
-        
-        # Get current air times for all feet
-        current_air_times = self._contact_sensor.data.current_air_time[:, self._knee_contact_ids]
-        air_time_diff = current_air_times - target_air_time
-        
-        # Calculate air time rewards for each foot
-        foot_air_time_rewards = torch.exp(-(air_time_diff / sigma)**2)
-
-        # Calculate diagonal pair synchronization
-        pair1_air_times = current_air_times[:, diagonal_pair_1]
-        pair2_air_times = current_air_times[:, diagonal_pair_2]
-        
-        # Reward when diagonal pairs are synchronized (both feet in air or both on ground)
-        pair1_sync = torch.exp(-((pair1_air_times[:, 0] - pair1_air_times[:, 1]) / sigma)**2)
-        pair2_sync = torch.exp(-((pair2_air_times[:, 0] - pair2_air_times[:, 1]) / sigma)**2)
-        
-        # Calculate phase difference between diagonal pairs
-        pair1_mean = pair1_air_times.mean(dim=1)
-        pair2_mean = pair2_air_times.mean(dim=1)
-        pairs_phase_diff = torch.abs(pair1_mean - pair2_mean)
-        
-        # We want the phase difference to be half the target air time (when one pair is up, other should be down)
-        desired_phase_diff = target_air_time / 2
-        pairs_antiphase = torch.exp(-((pairs_phase_diff - desired_phase_diff) / sigma)**2)
-
-        # Count feet in contact with more precise threshold
-        contact_threshold = 0.02  # Slightly more strict contact detection
-        feet_in_contact = (current_air_times <= contact_threshold)
-        diagonal_1_contact = feet_in_contact[:, diagonal_pair_1].sum(dim=1)
-        diagonal_2_contact = feet_in_contact[:, diagonal_pair_2].sum(dim=1)
-        
-        # Penalize when both diagonals have same contact state (we want alternating)
-        contact_penalty = torch.abs(diagonal_1_contact - diagonal_2_contact)
-        
-        # Combine rewards with balanced weights
-        air_time_reward = (
-            0.4 * torch.mean(foot_air_time_rewards, dim=1) +    # Base air time reward
-            0.3 * (pair1_sync + pair2_sync) / 2.0 +            # Diagonal synchronization (normalized)
-            0.3 * pairs_antiphase -                            # Phase difference between pairs
-            0.2 * contact_penalty                              # Contact state penalty (reduced weight)
-        )
-        
-        """
-        
-        """
         # Undersired contacts ==========================================================================================
         """
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
@@ -447,6 +395,8 @@ class HaroldEnv(DirectRLEnv):
         #print("Target height: ", target_height)
         #print('Height reward: ', height_reward)
 
+        
+
 
         """
         # XY acceleration penalty ======================================================================================
@@ -460,7 +410,7 @@ class HaroldEnv(DirectRLEnv):
 
 
         rewards = {
-            "track_xy_lin_commands": lin_vel_error_abs * self.step_dt * -4.5, #-2.0, #(CONFIRMED -4.0)
+            "track_xy_lin_commands": lin_vel_error_abs * self.step_dt * -5.5, #-2.0, #(CONFIRMED -4.0)
             "track_yaw_commands": yaw_error_tracking_abs * self.step_dt * -2.0, #(CONFIRMED -4.0)
             "lin_vel_z_l2": z_vel_error * self.step_dt * 0.0, #-10.0,
             "ang_vel_xy_l2": ang_vel_error * self.step_dt * 0.0, #-5, #-0.05,

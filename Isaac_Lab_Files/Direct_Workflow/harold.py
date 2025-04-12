@@ -1,8 +1,6 @@
-# Isaac Lab Imports
-import omni.isaac.lab.sim as sim_utils
-from omni.isaac.lab.actuators import DCMotorCfg, ImplicitActuatorCfg
-from omni.isaac.lab.assets.articulation import ArticulationCfg
-from omni.isaac.lab.sensors import ContactSensorCfg
+# THIS FILE SHOULD BE PLACED IN:
+# IsaacLab/source/extensions/omni.isaac.lab_assets/omni/isaac/lab_assets/harold.py
+
 
 """
 # WHEN USING RL_GAMES TRAINING LIBRARY
@@ -26,29 +24,15 @@ Export trained model (MY CUSTOM VERSION) Note: You may need to run this with sud
 """
 
 """
-# WHEN USING SKRL TRAINING LIBRARY
-
-Train model:
-./isaaclab.sh -p source/standalone/workflows/skrl/train.py --task Isaac-Harold-Direct-v3 --num_envs 1024
-
-Start Tensorboard:
-python3 -m tensorboard.main --logdir /home/matteo/IsaacLab/logs/skrl/harold_direct
-"""
-
-"""
-# WHEN USING ROS2 BRIDGE
-Start ROS2 Bridge
-ros2 launch rosbridge_server rosbridge_websocket_launch.xml
-
-Start server to listen to ROS2 Bridge joint states (local server for debugging purposes):
-ros2 topic echo /joint_states
-"""
-
-
-"""
 # To edit USD files:
 usdedit Harold_V4_STABLE_V2.usd
 """
+
+# Isaac Lab Imports
+import omni.isaac.lab.sim as sim_utils
+from omni.isaac.lab.actuators import DCMotorCfg, ImplicitActuatorCfg
+from omni.isaac.lab.assets.articulation import ArticulationCfg
+from omni.isaac.lab.sensors import ContactSensorCfg
 
 
 # robot

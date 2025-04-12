@@ -1,3 +1,6 @@
+# THIS FILE SHOULD BE PLACED IN:
+# IsaacLab/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/harold_v3/agents/rl_games_ppo_cfg.yaml
+
 params:
   seed: 42
 

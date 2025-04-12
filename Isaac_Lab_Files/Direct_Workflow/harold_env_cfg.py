@@ -1,3 +1,6 @@
+# THIS FILE SHOULD BE PLACED IN:
+# IsaacLab/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/harold_v3/harold_env_cfg.py
+
 from omni.isaac.lab.utils import configclass
 from omni.isaac.lab.envs import DirectRLEnvCfg
 from omni.isaac.lab.scene import InteractiveSceneCfg

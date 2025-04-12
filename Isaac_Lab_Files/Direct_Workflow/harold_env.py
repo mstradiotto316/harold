@@ -1,3 +1,6 @@
+# THIS FILE SHOULD BE PLACED IN:
+# IsaacLab/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/harold_v3/harold_env.py
+
 from typing import Sequence
 import torch
 from omni.isaac.lab.assets import Articulation

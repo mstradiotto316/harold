@@ -1,8 +1,15 @@
+# THIS FILE SHOULD BE PLACED IN:
+# IsaacLab/source/standalone/environments/run_harold_v3.py
 
+"""
+This file is used to either play back a checkpoint, or to export a policy.
 
-"""Script to play a checkpoint if an RL agent from RL-Games."""
+To play back a checkpoint:
+./isaaclab.sh -p source/standalone/environments/run_harold_v3.py --task Isaac-Harold-Direct-v3 --num_envs 1 --use_last_checkpoint
 
-"""Launch Isaac Sim Simulator first."""
+To export a policy:
+./isaaclab.sh -p source/standalone/environments/run_harold_v3.py --task Isaac-Harold-Direct-v3 --num_envs 1 --use_last_checkpoint --export_policy
+"""
 
 import argparse
 import time

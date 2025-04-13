@@ -2,6 +2,12 @@
 
 This repository contains the code for the Harold quadruped robot, a small legged robot platform for reinforcement learning research and experimentation.
 
+## Isaac Sim & Isaac Lab
+NOTE: This is meant to be used on Linux Ubuntu
+NOTE: YOU MUST INSTALL ISAAC SIM FIRST. ISAAC LAB IS ALREADY CLONED AS PART OF THIS REPO, BUT IT STILL NEEDS TO BE INSTALLED!
+
+https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/binaries_installation.html#isaaclab-binaries-installation
+
 ## Repository Structure 
 
 - `firmware/`: Arduino code for the robot

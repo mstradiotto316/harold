@@ -2,6 +2,11 @@
 
 This repository contains the code for the Harold quadruped robot, a small legged robot platform for reinforcement learning research and experimentation.
 
+## TODO
+
+Make sure the new robot meets this setup
+https://docs.isaacsim.omniverse.nvidia.com/latest/isaac_lab_tutorials/tutorial_instanceable_assets.html#instanceable-assets
+
 ## Isaac Sim & Isaac Lab
 NOTE: This is meant to be used on Linux Ubuntu
 NOTE: YOU MUST INSTALL ISAAC SIM AND ISAAC LAB FIRST

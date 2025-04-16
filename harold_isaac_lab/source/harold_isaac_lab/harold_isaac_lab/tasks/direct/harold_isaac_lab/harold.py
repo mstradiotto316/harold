@@ -1,6 +1,3 @@
-# THIS FILE SHOULD BE PLACED IN:
-# IsaacLab/source/extensions/omni.isaac.lab_assets/omni/isaac/lab_assets/harold.py
-
 
 """
 # WHEN USING RL_GAMES TRAINING LIBRARY
@@ -29,10 +26,10 @@ usdedit Harold_V4_STABLE_V2.usd
 """
 
 # Isaac Lab Imports
-import omni.isaac.lab.sim as sim_utils
-from omni.isaac.lab.actuators import DCMotorCfg, ImplicitActuatorCfg
-from omni.isaac.lab.assets.articulation import ArticulationCfg
-from omni.isaac.lab.sensors import ContactSensorCfg
+import isaaclab.sim as sim_utils
+from isaaclab.actuators import DCMotorCfg, ImplicitActuatorCfg
+from isaaclab.assets.articulation import ArticulationCfg
+from isaaclab.sensors import ContactSensorCfg
 
 
 # robot
@@ -78,7 +75,7 @@ HAROLD_V4_CFG = ArticulationCfg(
     actuators={
         "all_joints": ImplicitActuatorCfg(
             joint_names_expr=[".*"],
-            effort_limit=0.8, #0.92 is the quoted real world value
+            effort_limit_sim=0.8, #0.92 is the quoted real world value
             stiffness=200.0,
             damping=100.0,
         ),

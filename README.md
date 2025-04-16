@@ -4,9 +4,19 @@ This repository contains the code for the Harold quadruped robot, a small legged
 
 ## Isaac Sim & Isaac Lab
 NOTE: This is meant to be used on Linux Ubuntu
-NOTE: YOU MUST INSTALL ISAAC SIM FIRST. ISAAC LAB IS ALREADY CLONED AS PART OF THIS REPO, BUT IT STILL NEEDS TO BE INSTALLED!
-
+NOTE: YOU MUST INSTALL ISAAC SIM AND ISAAC LAB FIRST
 https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/binaries_installation.html#isaaclab-binaries-installation
+
+1. Make sure you install the project:
+python -m pip install -e harold_isaac_lab/source/harold_isaac_lab
+
+2. To see the available tasks use:
+python harold_isaac_lab/scripts/list_envs.py
+
+3. To run the task use:
+python harold_isaac_lab/scripts/rl_games/train.py --task=<Task-Name>
+
+python harold_isaac_lab/scripts/rl_games/train.py --task=Template-Harold-Direct-flat-terrain-v0
 
 ## Repository Structure 
 

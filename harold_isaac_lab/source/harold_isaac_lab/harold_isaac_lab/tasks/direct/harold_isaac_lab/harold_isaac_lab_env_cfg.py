@@ -1,34 +1,33 @@
-# THIS FILE SHOULD BE PLACED IN:
-# IsaacLab/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/harold_v3/harold_env_cfg.py
+from isaaclab.utils import configclass
+from isaaclab.envs import DirectRLEnvCfg
+from isaaclab.scene import InteractiveSceneCfg
+import isaaclab.sim as sim_utils
+from isaaclab.assets import ArticulationCfg
+from isaaclab.sensors import ContactSensor, ContactSensorCfg, RayCaster, RayCasterCfg, patterns
+from isaaclab.sim import SimulationCfg
+from isaaclab.terrains import TerrainImporterCfg
 
-from omni.isaac.lab.utils import configclass
-from omni.isaac.lab.envs import DirectRLEnvCfg
-from omni.isaac.lab.scene import InteractiveSceneCfg
-import omni.isaac.lab.sim as sim_utils
-from omni.isaac.lab.assets import ArticulationCfg
-from omni.isaac.lab.sensors import ContactSensor, ContactSensorCfg, RayCaster, RayCasterCfg, patterns
-from omni.isaac.lab.sim import SimulationCfg
-from omni.isaac.lab.terrains import TerrainImporterCfg
-
-from omni.isaac.lab_assets.harold import HAROLD_V4_CFG
-from omni.isaac.lab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
+from .harold import HAROLD_V4_CFG
+from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
 
 
 @configclass
-class HaroldEnvCfg(DirectRLEnvCfg):
+class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
     episode_length_s = 30.0
     decimation = 18
     action_scale = 1.0
-    num_actions = 12
-    num_observations = 50
-    num_states = 0
+    
+    # Space definitions
+    observation_space = 50
+    action_space = 12
+    state_space = 0
+
 
     # simulation
     sim: SimulationCfg = SimulationCfg(
         dt= 1 / 360,
         render_interval=decimation,
-        disable_contact_processing=True,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
             restitution_combine_mode="multiply",

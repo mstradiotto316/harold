@@ -1,19 +1,17 @@
-# THIS FILE SHOULD BE PLACED IN:
-# IsaacLab/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/harold_v3/harold_env.py
-
 from typing import Sequence
 import torch
-from omni.isaac.lab.assets import Articulation
-from omni.isaac.lab.envs import DirectRLEnv
-from omni.isaac.lab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
-import omni.isaac.lab.sim as sim_utils
-from omni.isaac.lab.sensors import ContactSensor, ContactSensorCfg, RayCaster, RayCasterCfg, patterns
+from isaaclab.assets import Articulation
+from isaaclab.envs import DirectRLEnv
+from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
+import isaaclab.sim as sim_utils
+from isaaclab.sensors import ContactSensor, ContactSensorCfg, RayCaster, RayCasterCfg, patterns
 import math
-from .harold_env_cfg import HaroldEnvCfg
+from .harold_isaac_lab_env_cfg import HaroldIsaacLabEnvCfg
 
 # Ros Imports
-import rclpy
-from rclpy.node import Node
+#import rclpy
+#from rclpy.node import Node
+
 from sensor_msgs.msg import JointState
 import threading
 import numpy as np
@@ -23,18 +21,21 @@ import matplotlib.pyplot as plt
 from collections import deque
 
 
-class HaroldEnv(DirectRLEnv):
+class HaroldIsaacLabEnv(DirectRLEnv):
     """Environment class for Harold robot, integrated with ROS 2 and RL-Games."""
 
-    cfg: HaroldEnvCfg
+    cfg: HaroldIsaacLabEnvCfg
 
-    def __init__(self, cfg: HaroldEnvCfg, render_mode: str | None = None, **kwargs):
+    def __init__(self, cfg: HaroldIsaacLabEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
         # Actions tensor holds the raw position commands outputted by the policy
-        self._actions = torch.zeros(self.num_envs, self.cfg.num_actions, device=self.device)
+        #self._actions = torch.zeros(self.num_envs, self.cfg.num_actions, device=self.device)
+        #self._processed_actions = self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
+        #self._previous_actions = torch.zeros(self.num_envs, self.cfg.num_actions, device=self.device)
+        self._actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
         self._processed_actions = self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
-        self._previous_actions = torch.zeros(self.num_envs, self.cfg.num_actions, device=self.device)
+        self._previous_actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
 
         # Commands tensor has shape [num_envs, 3], the three dimensions are: X lin vel, Y lin vel, Yaw rate
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
@@ -599,3 +600,12 @@ class HaroldEnv(DirectRLEnv):
         self.ros2_node.destroy_node()
         rclpy.shutdown()
         self.ros2_thread.join()
+
+
+
+
+
+
+
+
+

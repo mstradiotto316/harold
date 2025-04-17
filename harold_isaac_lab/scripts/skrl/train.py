@@ -184,6 +184,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # https://skrl.readthedocs.io/en/latest/api/utils/runner.html
     runner = Runner(env, agent_cfg)
 
+    # CUSTOM CODE: Allows us to add reward component tracking to tensorboard
+    if hasattr(env, "envs"):                           # SkrlVecEnvWrapper case
+        for e in env.envs:                             # each single‑env instance
+            e.unwrapped.agent = runner.agent
+    else:                                              # fall‑back (non‑vector)
+        env.unwrapped.agent = runner.agent
+
     # load checkpoint (if specified)
     if resume_path:
         print(f"[INFO] Loading model checkpoint from: {resume_path}")

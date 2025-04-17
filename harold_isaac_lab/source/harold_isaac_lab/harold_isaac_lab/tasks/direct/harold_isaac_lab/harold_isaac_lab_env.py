@@ -561,6 +561,16 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             # Update plots every plot interval
             if self._completed_episodes % self._plot_interval == 0:
                 self._update_plots()
+
+
+
+
+            # CUSTOM CODE: Add reward component tracking to tensorboard
+            if hasattr(self, "agent") and self._completed_episodes % self._print_interval == 0:
+                for key, buf in self.reward_history.items():
+                    if buf:                                    # avoid empty deque
+                        self.agent.track_data(f"Episode/{key}",
+                                            float(np.mean(buf)))
                 
         return info
 

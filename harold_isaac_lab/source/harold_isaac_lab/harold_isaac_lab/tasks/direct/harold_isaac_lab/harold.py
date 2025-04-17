@@ -10,6 +10,8 @@ Train model in headless mode with video recording:
 Start Tensorboard:
 python3 -m tensorboard.main --logdir /home/matteo/IsaacLab/logs/rl_games/harold_direct
 
+python3 -m tensorboard.main --logdir /home/matteo/Desktop/harold/logs/rl_games/harold_direct/
+
 Play back trained model (BUILT IN ISAAC LAB VERSION)
 ./isaaclab.sh -p source/standalone/workflows/rl_games/play.py --task Isaac-Harold-Direct-v3 --num_envs 1 --use_last_checkpoint
 

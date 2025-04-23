@@ -1,0 +1,1 @@
+controller_joint_names: ['', 'front_left_shoulder_joint', 'front_left_thigh_joint', 'front_left_knee_joint', 'front_right_shoulder_joint', 'front_right_thigh_joint', 'front_right_knee_joint', 'back_left_shoulder_joint', 'back_left_thigh_joint', 'back_left_knee_joint', 'back_right_shoulder_joint', 'back_right_thigh_joint', 'back_right_knee_joint', ]

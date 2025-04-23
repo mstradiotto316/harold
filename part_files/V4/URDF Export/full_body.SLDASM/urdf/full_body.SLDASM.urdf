@@ -1,0 +1,743 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="full_body.SLDASM">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.0035972 1.0066 -0.0090293"
+        rpy="0 0 0" />
+      <mass
+        value="0.65516" />
+      <inertia
+        ixx="0.00044925"
+        ixy="-5.9638E-06"
+        ixz="-8.843E-20"
+        iyy="0.0013524"
+        iyz="1.0103E-20"
+        izz="0.00095612" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="fl_shoulder">
+    <inertial>
+      <origin
+        xyz="-0.016723 -0.022627 0.0030898"
+        rpy="0 0 0" />
+      <mass
+        value="0.077697" />
+      <inertia
+        ixx="2.0332E-05"
+        ixy="-3.293E-07"
+        ixz="-7.9887E-07"
+        iyy="2.7953E-05"
+        iyz="-3.3855E-08"
+        izz="2.6008E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/fl_shoulder.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/fl_shoulder.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="fl_shoulder_joint"
+    type="revolute">
+    <origin
+      xyz="-0.18809 -0.038982 1.0175"
+      rpy="1.5708 1.5708 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="fl_shoulder" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="fl_thigh">
+    <inertial>
+      <origin
+        xyz="-0.030287 -0.029375 -0.0015653"
+        rpy="0 0 0" />
+      <mass
+        value="0.091652" />
+      <inertia
+        ixx="2.107E-05"
+        ixy="7.3524E-06"
+        ixz="3.0123E-06"
+        iyy="6.1178E-05"
+        iyz="-4.3644E-07"
+        izz="7.0035E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/fl_thigh.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/fl_thigh.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="fl_upper_thigh_joint"
+    type="revolute">
+    <origin
+      xyz="-0.011125 -0.023 0.0101"
+      rpy="-1.5708 0 -2.8135" />
+    <parent
+      link="fl_shoulder" />
+    <child
+      link="fl_thigh" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="fl_calf">
+    <inertial>
+      <origin
+        xyz="-0.034445 -0.022687 0.0023738"
+        rpy="0 0 0" />
+      <mass
+        value="0.086446" />
+      <inertia
+        ixx="1.4878E-05"
+        ixy="-4.2492E-07"
+        ixz="-3.5948E-06"
+        iyy="0.00011987"
+        iyz="3.3312E-08"
+        izz="0.00012457" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/fl_calf.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/fl_calf.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="fl_lower_thigh_joint"
+    type="revolute">
+    <origin
+      xyz="-0.10288 -0.005 -0.0025"
+      rpy="0 1.1819 0" />
+    <parent
+      link="fl_thigh" />
+    <child
+      link="fl_calf" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="fr_shoulder">
+    <inertial>
+      <origin
+        xyz="-0.0167231448134231 -0.0226528435011913 -0.00308978788806342"
+        rpy="0 0 0" />
+      <mass
+        value="0.0776965557993421" />
+      <inertia
+        ixx="2.03318316394635E-05"
+        ixy="-3.29296835160004E-07"
+        ixz="7.98874235426894E-07"
+        iyy="2.7952676508177E-05"
+        iyz="3.38551705773347E-08"
+        izz="2.60079742805002E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/fr_shoulder.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/fr_shoulder.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="fr_shoulder_joint"
+    type="revolute">
+    <origin
+      xyz="-0.18809 0.057018 1.0175"
+      rpy="1.5708 1.5708 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="fr_shoulder" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="fr_thigh">
+    <inertial>
+      <origin
+        xyz="-0.0302869631953178 -0.0293750339010572 0.00156528908759646"
+        rpy="0 0 0" />
+      <mass
+        value="0.0916515025957821" />
+      <inertia
+        ixx="2.10701031177543E-05"
+        ixy="7.35240616345423E-06"
+        ixz="-3.01230962502584E-06"
+        iyy="6.11778473451461E-05"
+        iyz="4.36435773829826E-07"
+        izz="7.00348282018168E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/fr_thigh.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/fr_thigh.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="fr_upper_thigh_joint"
+    type="revolute">
+    <origin
+      xyz="-0.011125 -0.0232 -0.0101"
+      rpy="1.5708 0 -2.6666" />
+    <parent
+      link="fr_shoulder" />
+    <child
+      link="fr_thigh" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="fr_calf">
+    <inertial>
+      <origin
+        xyz="-0.0344454986113377 -0.0226869436157242 -0.00237381613499421"
+        rpy="0 0 0" />
+      <mass
+        value="0.0864459183615108" />
+      <inertia
+        ixx="1.48777935604042E-05"
+        ixy="-4.24915350086851E-07"
+        ixz="3.59480723019534E-06"
+        iyy="0.000119866124078708"
+        iyz="-3.33117693593303E-08"
+        izz="0.000124573461348699" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/fr_calf.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/fr_calf.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="fr_lower_thigh_joint"
+    type="revolute">
+    <origin
+      xyz="-0.10287 -0.005 0.0025"
+      rpy="0 -1.3489 0" />
+    <parent
+      link="fr_thigh" />
+    <child
+      link="fr_calf" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="bl_shoulder">
+    <inertial>
+      <origin
+        xyz="-0.0167231448134231 0.0229731195760771 0.0030897878880634"
+        rpy="0 0 0" />
+      <mass
+        value="0.0776965557993421" />
+      <inertia
+        ixx="2.03318316394636E-05"
+        ixy="-3.29296835160003E-07"
+        ixz="-7.98874235426899E-07"
+        iyy="2.7952676508177E-05"
+        iyz="-3.38551705773356E-08"
+        izz="2.60079742805002E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/bl_shoulder.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/bl_shoulder.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="bl_shoulder_joint"
+    type="revolute">
+    <origin
+      xyz="0.18231 -0.038932 1.0175"
+      rpy="1.5708 1.5708 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="bl_shoulder" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="bl_thigh">
+    <inertial>
+      <origin
+        xyz="-0.0302869631953189 -0.0293750339010568 -0.00156528908759967"
+        rpy="0 0 0" />
+      <mass
+        value="0.0916515025957822" />
+      <inertia
+        ixx="2.10701031177544E-05"
+        ixy="7.35240616345429E-06"
+        ixz="3.01230962502562E-06"
+        iyy="6.11778473451463E-05"
+        iyz="-4.364357738298E-07"
+        izz="7.0034828201817E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/bl_thigh.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/bl_thigh.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="bl_upper_thigh_joint"
+    type="revolute">
+    <origin
+      xyz="-0.011125 0.0226 0.0101"
+      rpy="-1.5708 0 -2.7858" />
+    <parent
+      link="bl_shoulder" />
+    <child
+      link="bl_thigh" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="bl_calf">
+    <inertial>
+      <origin
+        xyz="-0.0344454986113197 -0.0226869436173797 0.00237381613502496"
+        rpy="0 0 0" />
+      <mass
+        value="0.0864459183614932" />
+      <inertia
+        ixx="1.48777935604568E-05"
+        ixy="-4.24915358065006E-07"
+        ixz="-3.59480723015865E-06"
+        iyy="0.000119866124078621"
+        iyz="3.33117687506484E-08"
+        izz="0.000124573461348588" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/bl_calf.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/bl_calf.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="bl_lower_thigh_joint"
+    type="revolute">
+    <origin
+      xyz="-0.10288 -0.005 -0.0025"
+      rpy="0 1.2202 0" />
+    <parent
+      link="bl_thigh" />
+    <child
+      link="bl_calf" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="br_shoulder">
+    <inertial>
+      <origin
+        xyz="-0.0167231448134226 0.0229471564988094 -0.00308978788806335"
+        rpy="0 0 0" />
+      <mass
+        value="0.0776965557993419" />
+      <inertia
+        ixx="2.03318316394634E-05"
+        ixy="-3.29296835160005E-07"
+        ixz="7.98874235426894E-07"
+        iyy="2.79526765081769E-05"
+        iyz="3.3855170577341E-08"
+        izz="2.60079742805001E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/br_shoulder.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/br_shoulder.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="br_shoulder_joint"
+    type="revolute">
+    <origin
+      xyz="0.18231 0.057068 1.0175"
+      rpy="1.5708 1.5708 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="br_shoulder" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="br_thigh">
+    <inertial>
+      <origin
+        xyz="-0.0302869631953187 -0.029375033901057 0.00156528908759812"
+        rpy="0 0 0" />
+      <mass
+        value="0.0916515025957822" />
+      <inertia
+        ixx="2.10701031177544E-05"
+        ixy="7.35240616345448E-06"
+        ixz="-3.01230962502545E-06"
+        iyy="6.11778473451461E-05"
+        iyz="4.36435773829785E-07"
+        izz="7.00348282018168E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/br_thigh.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/br_thigh.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="br_upper_thigh_joint"
+    type="revolute">
+    <origin
+      xyz="-0.011125 0.0224 -0.0101"
+      rpy="1.5708 0 -2.7093" />
+    <parent
+      link="br_shoulder" />
+    <child
+      link="br_thigh" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="br_calf">
+    <inertial>
+      <origin
+        xyz="-0.0344454986112914 -0.0226869436157236 -0.00237381613508669"
+        rpy="0 0 0" />
+      <mass
+        value="0.0864459183614647" />
+      <inertia
+        ixx="1.48777935605244E-05"
+        ixy="-4.24915350084916E-07"
+        ixz="3.59480723007676E-06"
+        iyy="0.000119866124078475"
+        iyz="-3.33117693615464E-08"
+        izz="0.000124573461348339" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/br_calf.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://full_body.SLDASM/meshes/br_calf.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="br_lower_thigh_joint"
+    type="revolute">
+    <origin
+      xyz="-0.10288 -0.005 0.0025"
+      rpy="0 -1.2782 0" />
+    <parent
+      link="br_thigh" />
+    <child
+      link="br_calf" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+</robot>

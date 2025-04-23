@@ -1,0 +1,2 @@
+Solidworks to URDF:
+https://wiki.ros.org/sw_urdf_exporter

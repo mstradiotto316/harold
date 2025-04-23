@@ -4,8 +4,11 @@ This repository contains the code for the Harold quadruped robot, a small legged
 
 ## TODO
 
-Make sure the new robot meets this setup
+1. Make sure the new robot meets this setup
 https://docs.isaacsim.omniverse.nvidia.com/latest/isaac_lab_tutorials/tutorial_instanceable_assets.html#instanceable-assets
+
+2. Fix component mounts on the next iteration of the chassis
+
 
 ## Isaac Sim & Isaac Lab
 NOTE: This is meant to be used on Linux Ubuntu

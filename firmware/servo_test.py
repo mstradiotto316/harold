@@ -192,7 +192,7 @@ def sweep_servos(start_angles, end_angles, servo_ids=[1, 2, 3], steps=10, delay=
 
 if __name__ == "__main__":
     print("INITIATING SEQUENCE...")
-    time.sleep(3)
+    #time.sleep(3)
     
     # Example usage showing position monitoring
     set_servos_angles([45, 45, 45])

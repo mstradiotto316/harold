@@ -3,22 +3,22 @@
      Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
      For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
 <robot
-  name="Harold_URDF_Export">
+  name="Harold_URDF_Export_2">
   <link
     name="Body">
     <inertial>
       <origin
-        xyz="-0.00050571 0.0065559 3.9206E-05"
+        xyz="-0.000505711047275829 -3.92059868626698E-05 0.00655594728550839"
         rpy="0 0 0" />
       <mass
-        value="0.65516" />
+        value="0.655160642240757" />
       <inertia
-        ixx="0.00044925"
-        ixy="-5.9638E-06"
-        ixz="-5.2353E-20"
-        iyy="0.0013524"
-        iyz="1.993E-20"
-        izz="0.00095612" />
+        ixx="0.000449253338198346"
+        ixy="5.00745245411663E-20"
+        ixz="-5.96384763775092E-06"
+        iyy="0.000956121106102527"
+        iyz="1.68220612488198E-21"
+        izz="0.00135243908262136" />
     </inertial>
     <visual>
       <origin
@@ -26,12 +26,12 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/Body.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/Body.STL" />
       </geometry>
       <material
         name="">
         <color
-          rgba="0.75294 0.75294 0.75294 1" />
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
       </material>
     </visual>
     <collision>
@@ -40,7 +40,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/Body.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/Body.STL" />
       </geometry>
     </collision>
   </link>
@@ -55,7 +55,7 @@
       <inertia
         ixx="2.79526765081768E-05"
         ixy="3.29296835160004E-07"
-        ixz="-3.38551705773393E-08"
+        ixz="-3.38551705773394E-08"
         iyy="2.03318316394635E-05"
         iyz="7.98874235426904E-07"
         izz="2.60079742804999E-05" />
@@ -66,7 +66,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/fl_shoulder.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/fl_shoulder.STL" />
       </geometry>
       <material
         name="">
@@ -80,7 +80,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/fl_shoulder.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/fl_shoulder.STL" />
       </geometry>
     </collision>
   </link>
@@ -111,11 +111,11 @@
       <mass
         value="0.0916515025957821" />
       <inertia
-        ixx="7.00348282018167E-05"
+        ixx="7.00348282018166E-05"
         ixy="-3.01230962502561E-06"
         ixz="-4.36435773829808E-07"
         iyy="2.10701031177544E-05"
-        iyz="-7.35240616345447E-06"
+        iyz="-7.35240616345448E-06"
         izz="6.11778473451459E-05" />
     </inertial>
     <visual>
@@ -124,7 +124,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/fl_thigh.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/fl_thigh.STL" />
       </geometry>
       <material
         name="">
@@ -138,7 +138,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/fl_thigh.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/fl_thigh.STL" />
       </geometry>
     </collision>
   </link>
@@ -164,7 +164,7 @@
     name="fl_calf">
     <inertial>
       <origin
-        xyz="-0.00237381613529591 -0.034445498616468 0.0226869436173489"
+        xyz="-0.00237381613529589 -0.034445498616468 0.0226869436173489"
         rpy="0 0 0" />
       <mass
         value="0.0864459183664809" />
@@ -173,7 +173,7 @@
         ixy="3.59480722131375E-06"
         ixz="3.33117687660539E-08"
         iyy="1.48777935696698E-05"
-        iyz="4.24915357894343E-07"
+        iyz="4.24915357894344E-07"
         izz="0.000119866124097028" />
     </inertial>
     <visual>
@@ -182,7 +182,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/fl_calf.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/fl_calf.STL" />
       </geometry>
       <material
         name="">
@@ -196,7 +196,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/fl_calf.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/fl_calf.STL" />
       </geometry>
     </collision>
   </link>
@@ -204,7 +204,7 @@
     name="fl_calf_joint"
     type="revolute">
     <origin
-      xyz="0.0025 -0.10288 0.005"
+      xyz="0.00249999999999997 -0.102875 0.00500000000000111"
       rpy="0 0 0" />
     <parent
       link="fl_thigh" />
@@ -225,11 +225,11 @@
         xyz="-0.022652843501191 0.016723144813423 -0.00308978788806342"
         rpy="0 0 0" />
       <mass
-        value="0.0776965557993419" />
+        value="0.0776965557993418" />
       <inertia
         ixx="2.79526765081768E-05"
-        ixy="3.29296835160001E-07"
-        ixz="3.38551705773376E-08"
+        ixy="3.2929683516E-07"
+        ixz="3.38551705773375E-08"
         iyy="2.03318316394635E-05"
         iyz="-7.9887423542691E-07"
         izz="2.60079742804999E-05" />
@@ -240,7 +240,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/fr_shoulder.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/fr_shoulder.STL" />
       </geometry>
       <material
         name="">
@@ -254,7 +254,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/fr_shoulder.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/fr_shoulder.STL" />
       </geometry>
     </collision>
   </link>
@@ -280,7 +280,7 @@
     name="fr_thigh">
     <inertial>
       <origin
-        xyz="0.00156528908759818 -0.0302869631953187 -0.0293750339010572"
+        xyz="0.00156528908759818 -0.0302869631953186 -0.0293750339010572"
         rpy="0 0 0" />
       <mass
         value="0.0916515025957821" />
@@ -298,7 +298,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/fr_thigh.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/fr_thigh.STL" />
       </geometry>
       <material
         name="">
@@ -312,7 +312,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/fr_thigh.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/fr_thigh.STL" />
       </geometry>
     </collision>
   </link>
@@ -320,7 +320,7 @@
     name="fr_thigh_joint"
     type="revolute">
     <origin
-      xyz="-0.0232 0.011125 -0.0101"
+      xyz="-0.0232000000000001 0.011125 -0.0100999999999999"
       rpy="0 0 0" />
     <parent
       link="fr_shoulder" />
@@ -338,17 +338,17 @@
     name="fr_calf">
     <inertial>
       <origin
-        xyz="-0.00237381613529569 -0.0344454986164687 -0.0226869436158008"
+        xyz="-0.00237381613529575 -0.0344454986164687 -0.0226869436158008"
         rpy="0 0 0" />
       <mass
         value="0.0864459183664809" />
       <inertia
         ixx="0.000124573461358558"
-        ixy="3.59480722131374E-06"
+        ixy="3.59480722131375E-06"
         ixz="-3.33117693448154E-08"
         iyy="1.48777935696553E-05"
-        iyz="-4.24915350292374E-07"
-        izz="0.000119866124097027" />
+        iyz="-4.24915350292373E-07"
+        izz="0.000119866124097028" />
     </inertial>
     <visual>
       <origin
@@ -356,7 +356,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/fr_calf.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/fr_calf.STL" />
       </geometry>
       <material
         name="">
@@ -370,7 +370,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/fr_calf.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/fr_calf.STL" />
       </geometry>
     </collision>
   </link>
@@ -378,7 +378,7 @@
     name="fr_calf_joint"
     type="revolute">
     <origin
-      xyz="0.0025 -0.10288 -0.005"
+      xyz="0.0025 -0.102875 -0.00500000000000027"
       rpy="0 0 0" />
     <parent
       link="fr_thigh" />
@@ -414,7 +414,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/bl_shoulder.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/bl_shoulder.STL" />
       </geometry>
       <material
         name="">
@@ -428,7 +428,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/bl_shoulder.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/bl_shoulder.STL" />
       </geometry>
     </collision>
   </link>
@@ -454,14 +454,14 @@
     name="bl_thigh">
     <inertial>
       <origin
-        xyz="0.00156528908759818 -0.0302869631953187 0.0293750339010572"
+        xyz="0.00156528908759815 -0.0302869631953187 0.0293750339010572"
         rpy="0 0 0" />
       <mass
         value="0.0916515025957821" />
       <inertia
         ixx="7.00348282018166E-05"
         ixy="-3.01230962502561E-06"
-        ixz="-4.36435773829807E-07"
+        ixz="-4.36435773829808E-07"
         iyy="2.10701031177544E-05"
         iyz="-7.35240616345447E-06"
         izz="6.11778473451459E-05" />
@@ -472,7 +472,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/bl_thigh.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/bl_thigh.STL" />
       </geometry>
       <material
         name="">
@@ -486,7 +486,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/bl_thigh.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/bl_thigh.STL" />
       </geometry>
     </collision>
   </link>
@@ -521,7 +521,7 @@
         ixy="3.59480722131374E-06"
         ixz="3.33117687660544E-08"
         iyy="1.48777935696698E-05"
-        iyz="4.24915357894346E-07"
+        iyz="4.24915357894347E-07"
         izz="0.000119866124097028" />
     </inertial>
     <visual>
@@ -530,7 +530,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/bl_calf.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/bl_calf.STL" />
       </geometry>
       <material
         name="">
@@ -544,7 +544,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/bl_calf.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/bl_calf.STL" />
       </geometry>
     </collision>
   </link>
@@ -552,7 +552,7 @@
     name="bl_calf_joint"
     type="revolute">
     <origin
-      xyz="0.0025 -0.10288 0.005"
+      xyz="0.00249999999999997 -0.102875 0.00500000000000127"
       rpy="0 0 0" />
     <parent
       link="bl_thigh" />
@@ -570,14 +570,14 @@
     name="br_shoulder">
     <inertial>
       <origin
-        xyz="0.022947156498809 0.016723144813423 -0.00308978788806341"
+        xyz="0.0229471564988091 0.016723144813423 -0.00308978788806342"
         rpy="0 0 0" />
       <mass
-        value="0.0776965557993419" />
+        value="0.0776965557993418" />
       <inertia
         ixx="2.79526765081768E-05"
         ixy="3.2929683516E-07"
-        ixz="3.38551705773375E-08"
+        ixz="3.38551705773374E-08"
         iyy="2.03318316394635E-05"
         iyz="-7.98874235426905E-07"
         izz="2.60079742804999E-05" />
@@ -588,7 +588,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/br_shoulder.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/br_shoulder.STL" />
       </geometry>
       <material
         name="">
@@ -602,7 +602,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/br_shoulder.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/br_shoulder.STL" />
       </geometry>
     </collision>
   </link>
@@ -610,8 +610,8 @@
     name="br_shoulder_joint"
     type="revolute">
     <origin
-      xyz="0.1854 0.048 0.0175"
-      rpy="1.5708 0 0" />
+      xyz="0.185399999999999 0.048 0.0175"
+      rpy="1.5707963267949 0 0" />
     <parent
       link="Body" />
     <child
@@ -646,7 +646,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/br_thigh.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/br_thigh.STL" />
       </geometry>
       <material
         name="">
@@ -660,7 +660,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/br_thigh.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/br_thigh.STL" />
       </geometry>
     </collision>
   </link>
@@ -686,16 +686,16 @@
     name="br_calf">
     <inertial>
       <origin
-        xyz="-0.00237381613529572 -0.0344454986164681 -0.0226869436158008"
+        xyz="-0.00237381613529569 -0.034445498616468 -0.0226869436158008"
         rpy="0 0 0" />
       <mass
         value="0.0864459183664809" />
       <inertia
         ixx="0.000124573461358558"
         ixy="3.59480722131374E-06"
-        ixz="-3.33117693448152E-08"
+        ixz="-3.33117693448153E-08"
         iyy="1.48777935696553E-05"
-        iyz="-4.24915350292372E-07"
+        iyz="-4.24915350292373E-07"
         izz="0.000119866124097028" />
     </inertial>
     <visual>
@@ -704,7 +704,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/br_calf.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/br_calf.STL" />
       </geometry>
       <material
         name="">
@@ -718,7 +718,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="package://Harold_URDF_Export/meshes/br_calf.STL" />
+          filename="package://Harold_URDF_Export_2/meshes/br_calf.STL" />
       </geometry>
     </collision>
   </link>
@@ -726,7 +726,7 @@
     name="br_calf_joint"
     type="revolute">
     <origin
-      xyz="0.0025 -0.10288 -0.005"
+      xyz="0.0025 -0.102875 -0.00500000000000039"
       rpy="0 0 0" />
     <parent
       link="br_thigh" />

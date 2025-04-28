@@ -105,10 +105,10 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
         "bl_thigh_joint", 
         "br_thigh_joint",
         
-        "fl_knee_joint", 
-        "fr_knee_joint", 
-        "bl_knee_joint", 
-        "br_knee_joint"
+        "fl_calf_joint", 
+        "fr_calf_joint", 
+        "bl_calf_joint", 
+        "br_calf_joint"
     ]
 
     contact_sensor: ContactSensorCfg = ContactSensorCfg(

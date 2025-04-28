@@ -61,7 +61,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._body_contact_id, body_names = self._contact_sensor.find_bodies(".*body", preserve_order=True)
         self._shoulder_contact_ids, shoulder_names = self._contact_sensor.find_bodies(".*shoulder", preserve_order=True)
         self._thigh_contact_ids, thigh_names = self._contact_sensor.find_bodies(".*thigh", preserve_order=True)
-        self._knee_contact_ids, knee_names = self._contact_sensor.find_bodies(".*knee", preserve_order=True)
+        self._calf_contact_ids, calf_names = self._contact_sensor.find_bodies(".*calf", preserve_order=True)
         self._undesired_contact_body_ids, undesired_names = self._contact_sensor.find_bodies(".*thigh", preserve_order=True)
 
         # Print contact sensor IDs and names (NOTE: For some reason these are added in a depth first manner by regex)
@@ -70,7 +70,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         print("BODY CONTACT ID: ", self._body_contact_id, "\nBODY NAMES: ", body_names)
         print("SHOULDER CONTACT IDS: ", self._shoulder_contact_ids, "\nSHOULDER NAMES: ", shoulder_names)
         print("THIGH CONTACT IDS: ", self._thigh_contact_ids, "\nTHIGH NAMES: ", thigh_names)
-        print("KNEE CONTACT IDS: ", self._knee_contact_ids, "\nKNEE NAMES: ", knee_names)
+        print("calf CONTACT IDS: ", self._calf_contact_ids, "\ncalf NAMES: ", calf_names)
         print("UNDESIRED CONTACT BODY IDS: ", self._undesired_contact_body_ids, "\nALL UNDESIRED CONTACT NAMES: ", undesired_names)
         print()
 
@@ -323,14 +323,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         """
         # Get feet air time ============================================================================================
-        # (Note that the "knee" body parts are actually the feet due to my bad naming convention)
         """
 
         # Track how long each foot has been in the air for
-        foot_1_air_time = self._contact_sensor.data.current_air_time[:, self._knee_contact_ids[0]]
-        foot_2_air_time = self._contact_sensor.data.current_air_time[:, self._knee_contact_ids[1]]
-        foot_3_air_time = self._contact_sensor.data.current_air_time[:, self._knee_contact_ids[2]]
-        foot_4_air_time = self._contact_sensor.data.current_air_time[:, self._knee_contact_ids[3]]
+        foot_1_air_time = self._contact_sensor.data.current_air_time[:, self._calf_contact_ids[0]]
+        foot_2_air_time = self._contact_sensor.data.current_air_time[:, self._calf_contact_ids[1]]
+        foot_3_air_time = self._contact_sensor.data.current_air_time[:, self._calf_contact_ids[2]]
+        foot_4_air_time = self._contact_sensor.data.current_air_time[:, self._calf_contact_ids[3]]
 
         #print("Feet air times: ", foot_1_air_time[0], foot_2_air_time[0], foot_3_air_time[0], foot_4_air_time[0])
         

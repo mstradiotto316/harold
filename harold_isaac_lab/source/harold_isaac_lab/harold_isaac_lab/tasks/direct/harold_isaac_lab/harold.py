@@ -37,7 +37,7 @@ from isaaclab.sensors import ContactSensorCfg
 # robot
 HAROLD_V4_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=f"/home/matteo/Desktop/Harold_V5/harold_v5_11.usd",
+        usd_path=f"/home/matteo/Desktop/harold/part_files/V4/harold.usd",
         activate_contact_sensors=True,
         scale=(1, 1, 1),
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
@@ -67,10 +67,10 @@ HAROLD_V4_CFG = ArticulationCfg(
             'bl_thigh_joint': 0.3,
             'br_thigh_joint': 0.3,
 
-            'fl_knee_joint': -0.75,
-            'fr_knee_joint': -0.75,
-            'bl_knee_joint': -0.75,
-            'br_knee_joint': -0.75,
+            'fl_calf_joint': -0.75,
+            'fr_calf_joint': -0.75,
+            'bl_calf_joint': -0.75,
+            'br_calf_joint': -0.75,
         }
     ),
 

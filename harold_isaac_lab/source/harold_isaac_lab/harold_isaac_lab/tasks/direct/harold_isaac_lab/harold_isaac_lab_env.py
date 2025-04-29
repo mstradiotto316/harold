@@ -8,12 +8,6 @@ from isaaclab.sensors import ContactSensor, ContactSensorCfg, RayCaster, RayCast
 import math
 from .harold_isaac_lab_env_cfg import HaroldIsaacLabEnvCfg
 
-# Ros Imports
-#import rclpy
-#from rclpy.node import Node
-
-from sensor_msgs.msg import JointState
-import threading
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')

@@ -37,7 +37,7 @@ from isaaclab.sensors import ContactSensorCfg
 # robot
 HAROLD_V4_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=f"/home/matteo/Desktop/harold/part_files/V4/harold.usd",
+        usd_path=f"/home/matteo/Desktop/harold/part_files/V4/harold_7.usd",
         activate_contact_sensors=True,
         scale=(1, 1, 1),
         rigid_props=sim_utils.RigidBodyPropertiesCfg(

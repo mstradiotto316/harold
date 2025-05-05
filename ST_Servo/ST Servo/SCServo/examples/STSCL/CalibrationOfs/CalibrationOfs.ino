@@ -10,7 +10,7 @@ SMS_STS st;
 // GPIO 18 - S_RXD, GPIO 19 - S_TXD, as default.
 #define S_RXD 18
 #define S_TXD 19
-#define SERVO_ID 1               // change to 2,3,… as you go
+#define SERVO_ID 12               // change to 2,3,… as you go
 
 
 void setup() {

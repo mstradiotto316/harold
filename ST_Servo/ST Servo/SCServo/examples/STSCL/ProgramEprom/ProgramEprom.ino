@@ -10,8 +10,8 @@ SMS_STS sms_sts;
 #define S_RXD 18
 #define S_TXD 19
 
-int ID_ChangeFrom = 1;
-int ID_Changeto   = 2;
+int ID_ChangeFrom = 2;
+int ID_Changeto   = 1;
 
 void setup()
 {

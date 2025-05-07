@@ -35,6 +35,7 @@ ID12 = Back Right Leg Calf Joint
 
 --> Open SCServo/examples/STSCL/ProgramEprom/ProgramEprom.ino
 --> Update int ID_ChangeFrom = 1; and int ID_Changeto   = 2; so they match the current ID and the intended new ID
+--> NOTE: If you notice that the ID did not stick after cycling the power, then use ProgramEpromPERMANENT
 
 # STEP 5: REPEAT STEP 3 WITH THE UPDATED TEST_ID
 --> Verify that step 4 updated the ID successfully by changing int TEST_ID = 1; to the new ID value and seeing if the pin succeeds.
@@ -52,3 +53,10 @@ ID12 = Back Right Leg Calf Joint
 --> Close all open Arduino Serial Monitors
 --> Remove the barrel jack
 --> Unplug the servo
+
+# STEP 10: 
+--> Repeat steps 2 through 9 for each servo
+
+# STEP 11:
+--> Connect the servos together
+--> Open SCServo/examples/STSCL/ChainMovementTest/ChainMovementTest.ino

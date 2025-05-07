@@ -10,7 +10,7 @@ SMS_STS sms_sts;
 #define S_RXD 18
 #define S_TXD 19
 
-int TEST_ID = 1;
+int TEST_ID = 9;
 
 void setup()
 {

@@ -20,17 +20,17 @@ SMS_STS st;
 // ----------------------------------------------------
 
 // ---------- chain definition ----------
-const uint8_t SERVO_IDS[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};   // edit if you add more
+const uint8_t SERVO_IDS[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
 const uint8_t NUM_SERVOS  = sizeof(SERVO_IDS);
 // --------------------------------------
 
 // ---------- motion parameters ----------
 const float  DEG_PER_UNIT = 360.0 / 4096.0;   // ST‑series resolution
 const int    MID_POS      = 2047;             // electrical centre
-const int    SPEED        = 800;              // ≈ 20 rpm; dial up/down
+const int    SPEED        = 1600; //800;      // ≈ 20 rpm; dial up/down
 const int    ACC          = 100;              // smooth accel
-const uint16_t PAUSE_MS   = 800;              // pause between moves
-const uint16_t BETWEEN_MS = 1200;             // pause between servos
+const uint16_t PAUSE_MS   = 400;       // pause between moves
+const uint16_t BETWEEN_MS = 600; //1200;      // pause between servos
 // ---------------------------------------
 
 static inline int degToPos(float deg)

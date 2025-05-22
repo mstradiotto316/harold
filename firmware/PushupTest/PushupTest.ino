@@ -1,11 +1,22 @@
 /* Push‑up with incremental steps so calves (80°) and thighs (40°)
  * finish simultaneously.  Five reps, then hold straight.            */
 #include <SCServo.h>
+#include <cmath>  // for std::lerp
 SMS_STS st;
 
 #define S_RXD 18
 #define S_TXD 19
 const uint32_t BUS_BAUD = 1000000;
+
+// Safety limits for robot movements
+const float MAX_SHOULDER_ANGLE = 30.0f;  // Maximum shoulder angle from center
+const float MAX_LEG_ANGLE = 90.0f;       // Maximum thigh/calf angle from center
+
+// Pushup movement angles
+const float THIGH_START = 0.0f;    // Starting angle for thighs
+const float THIGH_END = -45.0f;    // End angle for thighs
+const float CALF_START = 0.0f;     // Starting angle for calves
+const float CALF_END = 90.0f;     // End angle for calves
 
 const int DIR[13] = { 0,
   /*Front‑Left*/   +1,  /*ID 1*/   /*ID 2*/ +1 ,  /*ID 3*/ +1 ,
@@ -22,11 +33,25 @@ inline int degToPos(uint8_t id, float deg, int mid=2047) {
 /* shoulder, thigh, calf IDs per leg */
 const uint8_t LEG[4][3] = {{1,2,3},{4,5,6},{7,8,9},{10,11,12}};
 
-const int SPEED = 1200, ACC = 100;        // enough speed for 25 ms steps
-const int STEP_MS = 25;                   // 25 ms per increment
-const int STEPS   = 40;                   // 40 × 1 ° = 40 °
+const int SPEED = 1200, ACC = 100;        // enough speed for 25 ms steps
+const int STEP_MS = 50;                   // 25 ms per increment
+const int STEPS   = 40;                   // Number of interpolation steps
+
+// Function to clamp a value between min and max
+float clamp(float value, float min_val, float max_val) {
+  if (value < min_val) return min_val;
+  if (value > max_val) return max_val;
+  return value;
+}
 
 void writeAll(float thigh_angle, float calf_angle) {
+  // Clamp the angles to safety limits
+  thigh_angle = clamp(thigh_angle, -MAX_LEG_ANGLE, MAX_LEG_ANGLE);
+  calf_angle = clamp(calf_angle, -MAX_LEG_ANGLE, MAX_LEG_ANGLE);
+  
+  // Debug output for angles
+  Serial.printf("Thigh: %.1f°, Calf: %.1f°\n", thigh_angle, calf_angle);
+  
   // For each leg
   for (int l=0; l<4; ++l) {
     // Set the new thigh target position
@@ -37,7 +62,7 @@ void writeAll(float thigh_angle, float calf_angle) {
 }
 
 void straightLegs() {
-  writeAll(0, 0);
+  writeAll(THIGH_START, CALF_START);
 }
 
 void setup() {
@@ -51,17 +76,26 @@ void setup() {
 
   // For each pushup repetition
   for (int rep = 1; rep <= 5; ++rep) {
-    Serial.printf("Rep %d DOWN…\n", rep);
-    /* down phase: thighs -40  =>  -1 °/step ; calves +80  =>  +2 °/step */
+    Serial.printf("\nRep %d DOWN…\n", rep);
+    // Down phase: interpolate from start to end positions
     for (int s=1; s<=STEPS; ++s) {
-      writeAll(-1.25f * s, 2.5f * s);
+      float t = float(s) / STEPS;  // interpolation factor 0.0 to 1.0
+      writeAll(
+        std::lerp(THIGH_START, THIGH_END, t),
+        std::lerp(CALF_START, CALF_END, t)
+      );
       delay(STEP_MS);
     }
     delay(300);                                 // bottom pause
 
     Serial.println("…UP");
-    for (int s=STEPS; s>=0; --s) {              // reverse
-      writeAll(-1.25f * s, 2.5f * s);
+    // Up phase: interpolate from end to start positions
+    for (int s=STEPS; s>=0; --s) {
+      float t = float(s) / STEPS;  // interpolation factor 1.0 to 0.0
+      writeAll(
+        std::lerp(THIGH_START, THIGH_END, t),
+        std::lerp(CALF_START, CALF_END, t)
+      );
       delay(STEP_MS);
     }
     delay(300);                                 // top pause

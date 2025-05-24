@@ -2,18 +2,16 @@
 """
 # WHEN USING RL_GAMES TRAINING LIBRARY
 Train model:
-./isaaclab.sh -p source/standalone/workflows/rl_games/train.py --task Isaac-Harold-Direct-v3 --num_envs 1024
+./isaaclab.sh -p source/standalone/workflows/skrl/train.py --task Isaac-Harold-Direct-v3 --num_envs 1024
 
 Train model in headless mode with video recording:
-./isaaclab.sh -p source/standalone/workflows/rl_games/train.py --task Isaac-Harold-Direct-v3 --num_envs 1024 --headless --video --video_length 500 --video_interval 3000
+./isaaclab.sh -p source/standalone/workflows/skrl/train.py --task Isaac-Harold-Direct-v3 --num_envs 1024 --headless --video --video_length 500 --video_interval 3000
 
 Start Tensorboard:
-python3 -m tensorboard.main --logdir /home/matteo/IsaacLab/logs/rl_games/harold_direct
-
-python3 -m tensorboard.main --logdir /home/matteo/Desktop/harold/logs/rl_games/harold_direct/
+python3 -m tensorboard.main --logdir /home/matteo/Desktop/harold/logs/skrl/harold_direct/
 
 Play back trained model (BUILT IN ISAAC LAB VERSION)
-./isaaclab.sh -p source/standalone/workflows/rl_games/play.py --task Isaac-Harold-Direct-v3 --num_envs 1 --use_last_checkpoint
+./isaaclab.sh -p source/standalone/workflows/skrl/play.py --task Isaac-Harold-Direct-v3 --num_envs 1 --use_last_checkpoint
 
 Play back trained model (MY CUSTOM VERSION)
 ./isaaclab.sh -p source/standalone/environments/run_harold_v3.py --task Isaac-Harold-Direct-v3 --num_envs 1 --use_last_checkpoint

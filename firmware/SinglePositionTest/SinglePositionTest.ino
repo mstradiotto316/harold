@@ -193,7 +193,7 @@ void setup() {
 
     Serial.println("\nRobot ready for commands.");
     Serial.println("Send 12 servo positions in radians, comma-separated, enclosed in brackets.");
-    Serial.println("Example: [-0.349, 0.349, 0.349, -0.349, 0.785, 0.785, 0.785, 0.785, 0.785, 0.785, 0.785, 0.785]");
+    Serial.println("Example: [0,-0.3,0.6,0,-0.3,0.6,0,-0.3,0.6,0,-0.3,0.6]");
 }
 
 void loop() {

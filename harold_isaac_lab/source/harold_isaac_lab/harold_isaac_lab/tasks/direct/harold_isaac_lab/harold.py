@@ -1,6 +1,6 @@
 
 """
-# WHEN USING RL_GAMES TRAINING LIBRARY
+# WHEN USING SKRL TRAINING LIBRARY
 Train model:
 ./isaaclab.sh -p source/standalone/workflows/skrl/train.py --task Isaac-Harold-Direct-v3 --num_envs 1024
 

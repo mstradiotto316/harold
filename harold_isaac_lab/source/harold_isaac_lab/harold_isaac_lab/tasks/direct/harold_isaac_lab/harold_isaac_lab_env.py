@@ -56,7 +56,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._shoulder_contact_ids, shoulder_names = self._contact_sensor.find_bodies(".*shoulder", preserve_order=True)
         self._thigh_contact_ids, thigh_names = self._contact_sensor.find_bodies(".*thigh", preserve_order=True)
         self._calf_contact_ids, calf_names = self._contact_sensor.find_bodies(".*calf", preserve_order=True)
-        self._undesired_contact_body_ids, undesired_names = self._contact_sensor.find_bodies(".*thigh", preserve_order=True)
+        self._undesired_contact_body_ids, undesired_names = self._contact_sensor.find_bodies(".*(body|thigh|shoulder).*", preserve_order=True)
 
         # Print contact sensor IDs and names (NOTE: For some reason these are added in a depth first manner by regex)
         print("--------------------------------")
@@ -111,6 +111,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 "undesired_contacts",
                 "height_reward",
                 "xy_acceleration_l2",
+                "orientation_l2",
             ]
         }
 
@@ -339,9 +340,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # If cycle is <0 then the foot should be on the ground so target air time is 0.0
         # If cycle is >0 then the foot should be in the air so target air time is the cycle value
         foot_1_target_air_time = torch.where(foot_cycle_1 < 0.0, torch.zeros_like(foot_cycle_1), foot_cycle_1) # Front left 1st
-        foot_2_target_air_time = torch.where(foot_cycle_2 < 0.0, torch.zeros_like(foot_cycle_3), foot_cycle_3) # Front right 3rd
-        foot_3_target_air_time = torch.where(foot_cycle_3 < 0.0, torch.zeros_like(foot_cycle_4), foot_cycle_4) # Back left 4th
-        foot_4_target_air_time = torch.where(foot_cycle_4 < 0.0, torch.zeros_like(foot_cycle_2), foot_cycle_2) # Back right 2th
+        foot_2_target_air_time = torch.where(foot_cycle_2 < 0.0, torch.zeros_like(foot_cycle_2), foot_cycle_2) # Front right 2nd
+        foot_3_target_air_time = torch.where(foot_cycle_3 < 0.0, torch.zeros_like(foot_cycle_3), foot_cycle_3) # Back left 3rd
+        foot_4_target_air_time = torch.where(foot_cycle_4 < 0.0, torch.zeros_like(foot_cycle_4), foot_cycle_4) # Back right 4th
 
         #print("Feet air time targets: ", foot_1_target_air_time[0], foot_2_target_air_time[0], foot_3_target_air_time[0], foot_4_target_air_time[0])
 
@@ -366,7 +367,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         """
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
         is_contact = (
-            torch.max(torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1)[0] > 1.0
+            torch.max(torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1)[0] > 0.1
         )
         contacts = torch.sum(is_contact, dim=1)
 
@@ -405,20 +406,25 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         #print("xy_acceleration: ", xy_acceleration[0].tolist())
         #print("xy_acceleration_error: ", xy_acceleration_error[0])
 
+        """
+        # Body orientation (roll and pitch) ============================================================================
+        """
+        orientation_error = torch.sum(torch.square(self._robot.data.projected_gravity_b[:, :2]), dim=1)
 
         rewards = {
-            "track_xy_lin_commands": lin_vel_error_abs * self.step_dt * -5.5, #-2.0, #(CONFIRMED -4.0)
+            "track_xy_lin_commands": lin_vel_error_abs * self.step_dt * -3.5, #-5.5, #-2.0, #(CONFIRMED -4.0)
             "track_yaw_commands": yaw_error_tracking_abs * self.step_dt * -2.0, #(CONFIRMED -4.0)
             "lin_vel_z_l2": z_vel_error * self.step_dt * 0.0, #-10.0,
             "ang_vel_xy_l2": ang_vel_error * self.step_dt * 0.0, #-5, #-0.05,
             "dof_torques_l2": joint_torques * self.step_dt * -0.01, #(CONFIRMED -0.01)
             "dof_acc_l2": joint_accel * self.step_dt * 0.0, #-0.5e-6, #-1.0e-6, #-2.5e-7,
-            "action_rate_l2": action_rate * self.step_dt * -0.02, #-0.01, #(CONFIRMED -0.01)
+            "action_rate_l2": action_rate * self.step_dt * -0.01, #(CONFIRMED -0.01)
             #"feet_air_time": air_time_reward * self.step_dt * 0.3, #(CONFIRMED 0.3)
-            "feet_air_time": foot_error * self.step_dt * -2.0, #-2.0,#-1.0, #(CONFIRMED 0.3)
-            "undesired_contacts": contacts * self.step_dt * 0.0, #-1.0,
-            "height_reward": height_reward * self.step_dt * 5.0, #4.5, #(CONFIRMED 1.5)
+            "feet_air_time": foot_error * self.step_dt * -1.0,
+            "undesired_contacts": contacts * self.step_dt * -5.0,
+            "height_reward": height_reward * self.step_dt * 10.0,
             "xy_acceleration_l2": xy_acceleration_error * self.step_dt * 0.0, #-0.5 #-0.15,
+            "orientation_l2": orientation_error * self.step_dt * -3.0,
         }
 
         #print("Commands: ", self._commands[0].tolist())

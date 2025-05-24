@@ -6,6 +6,7 @@ from isaaclab.assets import ArticulationCfg
 from isaaclab.sensors import ContactSensor, ContactSensorCfg, RayCaster, RayCasterCfg, patterns
 from isaaclab.sim import SimulationCfg
 from isaaclab.terrains import TerrainImporterCfg
+from isaaclab.envs.common import ViewerCfg
 
 from .harold import HAROLD_V4_CFG
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
@@ -23,6 +24,11 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     action_space = 12
     state_space = 0
 
+    # viewer configuration
+    viewer = ViewerCfg(
+        eye     = (1.0, 1.0, 0.5),   # camera XYZ in metres
+        lookat = (0.0, 10.0, 0.20),  # aim at robot base
+    )
 
     # simulation
     sim: SimulationCfg = SimulationCfg(

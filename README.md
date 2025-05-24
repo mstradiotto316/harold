@@ -6,8 +6,8 @@ This repository contains the code for the Harold quadruped robot, a small legged
 
 1. Make sure the new robot meets this setup
 https://docs.isaacsim.omniverse.nvidia.com/latest/isaac_lab_tutorials/tutorial_instanceable_assets.html#instanceable-assets
-
 2. Fix component mounts on the next iteration of the chassis
+3. Set the base servo ID to 0 instead of 1 (it's too difficult to dissasemble it all again to fix this)
 
 
 ## Isaac Sim & Isaac Lab
@@ -22,9 +22,11 @@ python -m pip install -e harold_isaac_lab/source/harold_isaac_lab
 python harold_isaac_lab/scripts/list_envs.py
 
 3. To run the task use:
-python harold_isaac_lab/scripts/rl_games/train.py --task=<Task-Name>
+python harold_isaac_lab/scripts/skrl/train.py --task=<Task-Name>
+python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0
 
-python harold_isaac_lab/scripts/rl_games/train.py --task=Template-Harold-Direct-flat-terrain-v0
+4. Launch Tensorboard to view training progress:
+
 
 ## Repository Structure 
 

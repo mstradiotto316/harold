@@ -58,7 +58,7 @@ agent:
   experiment:
     directory: "harold_direct"
     experiment_name: ""
-    write_interval: auto
+    write_interval: 10
     checkpoint_interval: auto
 
 trainer:

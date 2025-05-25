@@ -22,8 +22,14 @@ python -m pip install -e harold_isaac_lab/source/harold_isaac_lab
 python harold_isaac_lab/scripts/list_envs.py
 
 3. To run the task use:
+generic template
 python harold_isaac_lab/scripts/skrl/train.py --task=<Task-Name>
+
+run baisc harold
 python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0
+
+run headless with video recording
+python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1024 --headless --video --video_length 250 --video_interval 3200
 
 4. Launch Tensorboard to view training progress:
 

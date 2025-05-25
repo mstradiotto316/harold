@@ -20,7 +20,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     action_scale = 1.0
     
     # Space definitions
-    observation_space = 50
+    observation_space = 52
     action_space = 12
     state_space = 0
 

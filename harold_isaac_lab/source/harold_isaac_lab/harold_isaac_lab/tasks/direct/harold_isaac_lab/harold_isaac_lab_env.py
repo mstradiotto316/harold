@@ -376,7 +376,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         current_height = torch.mean(height_data, dim=1)
 
         # Define target height and calculate error
-        target_height = 0.16  # Lowered from 0.18 to encourage more dynamic walking
+        target_height = 0.20  # Lowered from 0.18 to encourage more dynamic walking
         height_error = torch.abs(current_height - target_height)
 
         # Convert to reward using exponential form that saturates
@@ -407,19 +407,19 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         rewards = {
             "track_xy_lin_commands": lin_vel_reward * self.step_dt * 8.0,  # Reduced from 10.0
-            "track_yaw_commands": yaw_error_tracking_abs * self.step_dt * -1.0,
-            "forward_progress": forward_progress_reward * self.step_dt * 10.0,  # Reduced from 15.0
-            "lin_vel_z_l2": z_vel_error * self.step_dt * -2.0,  # Increased from -1.0
-            "ang_vel_xy_l2": ang_vel_error * self.step_dt * -0.1,  # Increased from -0.05
-            "dof_torques_l2": joint_torques * self.step_dt * -0.001,
+            "track_yaw_commands": yaw_error_tracking_abs * self.step_dt * 0.0, #-1.0,
+            "forward_progress": forward_progress_reward * self.step_dt * 0.0, #10.0,  # Reduced from 15.0
+            "lin_vel_z_l2": z_vel_error * self.step_dt * 0.0, #-2.0,  # Increased from -1.0
+            "ang_vel_xy_l2": ang_vel_error * self.step_dt * 0.0, #-0.1,  # Increased from -0.05
+            "dof_torques_l2": joint_torques * self.step_dt * 0.0, #-0.001,
             "dof_acc_l2": joint_accel * self.step_dt * 0.0,
-            "action_rate_l2": action_rate * self.step_dt * -0.001,
-            "feet_air_time": foot_error * self.step_dt * -0.5,
-            "undesired_contacts": contacts * self.step_dt * -1.0,
-            "height_reward": height_reward * self.step_dt * 2.0,  # Increased from 1.0
+            "action_rate_l2": action_rate * self.step_dt * 0.0, #-0.001,
+            "feet_air_time": foot_error * self.step_dt * 0.0, #-0.5,
+            "undesired_contacts": contacts * self.step_dt * 0.0, #-1.0,
+            "height_reward": height_reward * self.step_dt * 4.0, #2.0,  # Increased from 1.0
             "xy_acceleration_l2": xy_acceleration_error * self.step_dt * 0.0,
-            "orientation_l2": orientation_error * self.step_dt * -2.0,  # Increased from -0.5
-            "alive_bonus": torch.ones_like(forward_vel) * self.step_dt * 1.0,  # Reduced from 2.0
+            "orientation_l2": orientation_error * self.step_dt * -4.0, #-2.0,  # Increased from -0.5
+            "alive_bonus": torch.ones_like(forward_vel) * self.step_dt * 0.0, #1.0,  # Reduced from 2.0
         }
 
         #print("Commands: ", self._commands[0].tolist())
@@ -480,14 +480,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         
         self._actions[env_ids] = 0.0
         self._previous_actions[env_ids] = 0.0
-
-        # Sample new commands with simple curriculum
-        # Start with small velocities and increase over time
-        progress = min(1.0, self._decimation_counter / 50000.0)  # Full speed after ~50k steps
-        max_vel = 0.25 * progress
-        min_vel = 0.05 * progress if progress > 0.2 else 0.0  # Add minimum velocity after 20% progress
         
-        self._commands[env_ids, 0] = torch.zeros_like(self._commands[env_ids, 0]).uniform_(min_vel, max(max_vel, 0.05))
+        self._commands[env_ids, 0] = 0.5  # X velocity
         self._commands[env_ids, 1] = 0.0  # Y velocity
         self._commands[env_ids, 2] = 0.0  # Yaw rate
 

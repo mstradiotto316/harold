@@ -51,7 +51,7 @@ HAROLD_V4_CFG = ArticulationCfg(
         )
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 0.18),
+        pos=(0.0, 0.0, 0.20),
         rot=(1.0, 0.0, 0.0, 0.0), 
         joint_pos={
             'fl_shoulder_joint': 0.0,
@@ -59,24 +59,24 @@ HAROLD_V4_CFG = ArticulationCfg(
             'bl_shoulder_joint': 0.0,
             'br_shoulder_joint': 0.0,
             
-            'fl_thigh_joint': 0.4,
-            'fr_thigh_joint': 0.4,
-            'bl_thigh_joint': 0.4,
-            'br_thigh_joint': 0.4,
+            'fl_thigh_joint': 0.3,
+            'fr_thigh_joint': 0.3,
+            'bl_thigh_joint': 0.3,
+            'br_thigh_joint': 0.3,
 
-            'fl_calf_joint': -0.8,
-            'fr_calf_joint': -0.8,
-            'bl_calf_joint': -0.8,
-            'br_calf_joint': -0.8,
+            'fl_calf_joint': -0.75,
+            'fr_calf_joint': -0.75,
+            'bl_calf_joint': -0.75,
+            'br_calf_joint': -0.75,
         }
     ),
 
     actuators={
         "all_joints": ImplicitActuatorCfg(
             joint_names_expr=[".*"],
-            effort_limit_sim=1.5,
+            effort_limit_sim=1.0,
             stiffness=200.0,
-            damping=100.0,
+            damping=75.0, #100.0,
         ),
     },
 )

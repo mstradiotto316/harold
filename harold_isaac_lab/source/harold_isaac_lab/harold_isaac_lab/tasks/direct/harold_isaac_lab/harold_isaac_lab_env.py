@@ -18,13 +18,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         super().__init__(cfg, render_mode, **kwargs)
 
         # Actions tensor holds the raw position commands outputted by the policy
-        #self._actions = torch.zeros(self.num_envs, self.cfg.num_actions, device=self.device)
-        #self._processed_actions = self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
-        #self._previous_actions = torch.zeros(self.num_envs, self.cfg.num_actions, device=self.device)
         self._actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
-        self._processed_actions = self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
         self._previous_actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
-
+        self._processed_actions = ( self.cfg.action_scale * self._actions ) + self._robot.data.default_joint_pos
+        
         # Commands tensor has shape [num_envs, 3], the three dimensions are: X lin vel, Y lin vel, Yaw rate
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
 
@@ -174,16 +171,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
     def publish_ROS2_joint_states(self):
         """Publishes the current joint states to a ROS 2 topic."""
 
-        # Get joint positions and velocities
-        joint_positions = self._robot.data.joint_pos[0].tolist()
-        joint_velocities = self._robot.data.joint_vel[0].tolist()
-        joint_names = self._robot.data.joint_names
-
         # Create JointState message
         msg = JointState()
         msg.header.stamp = self.ros2_node.get_clock().now().to_msg()
-        msg.name = joint_names
-        msg.position = joint_positions
+        msg.name = self._robot.data.joint_names
+        msg.position = self._robot.data.joint_pos[0].tolist()
 
         # Publish the message
         self.joint_state_publisher.publish(msg)
@@ -212,14 +204,14 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                     self._robot.data.root_lin_vel_b,
                     self._robot.data.root_ang_vel_b,
                     self._robot.data.projected_gravity_b,
-                    self._robot.data.joint_pos,
+                    self._robot.data.joint_pos - self._robot.data.default_joint_pos,
                     self._robot.data.joint_vel,
                     self._commands,
-                    self._actions,
-                    foot_cycle_1.unsqueeze(-1),
-                    foot_cycle_2.unsqueeze(-1),
-                    foot_cycle_3.unsqueeze(-1),
-                    foot_cycle_4.unsqueeze(-1),
+                    self._actions - self._robot.data.default_joint_pos
+                    #foot_cycle_1.unsqueeze(-1),
+                    #foot_cycle_2.unsqueeze(-1),
+                    #foot_cycle_3.unsqueeze(-1),
+                    #foot_cycle_4.unsqueeze(-1),
                 )
                 if tensor is not None
             ],
@@ -229,7 +221,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         observations = {"policy": obs}
 
         # Update previous actions
-        self._previous_actions = self._processed_actions.clone()
+        self._previous_actions = self._actions.clone()
 
         # ============================== ROS2 JOINT STATE STREAMING ================================
         #self.publish_ROS2_joint_states()
@@ -368,9 +360,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Height Reward ================================================================================================
         """
         # Get height data from scanner
-        height_data = (
-            self._height_scanner.data.pos_w[:, 2].unsqueeze(1) - self._height_scanner.data.ray_hits_w[..., 2]
-        ).clip(-1.0, 1.0)
+        height_data = self._height_scanner.data.pos_w[:, 2].unsqueeze(1) - self._height_scanner.data.ray_hits_w[..., 2]
 
         # Calculate mean height for each environment
         current_height = torch.mean(height_data, dim=1)
@@ -406,7 +396,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         orientation_error = torch.sum(torch.square(self._robot.data.projected_gravity_b[:, :2]), dim=1)
 
         rewards = {
-            "track_xy_lin_commands": lin_vel_reward * self.step_dt * 8.0,  # Reduced from 10.0
+            "track_xy_lin_commands": lin_vel_reward * self.step_dt * 20.0,  # Reduced from 10.0
             "track_yaw_commands": yaw_error_tracking_abs * self.step_dt * 0.0, #-1.0,
             "forward_progress": forward_progress_reward * self.step_dt * 0.0, #10.0,  # Reduced from 15.0
             "lin_vel_z_l2": z_vel_error * self.step_dt * 0.0, #-2.0,  # Increased from -1.0
@@ -418,7 +408,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "undesired_contacts": contacts * self.step_dt * 0.0, #-1.0,
             "height_reward": height_reward * self.step_dt * 4.0, #2.0,  # Increased from 1.0
             "xy_acceleration_l2": xy_acceleration_error * self.step_dt * 0.0,
-            "orientation_l2": orientation_error * self.step_dt * -4.0, #-2.0,  # Increased from -0.5
+            "orientation_l2": orientation_error * self.step_dt * -8.0, #-2.0,  # Increased from -0.5
             "alive_bonus": torch.ones_like(forward_vel) * self.step_dt * 0.0, #1.0,  # Reduced from 2.0
         }
 
@@ -452,14 +442,16 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         # Terminate if undesired contacts are detected
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
-        body_contact = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._body_contact_id], dim=-1), dim=1)[0] > 0.2, dim=1)
-        shoulder_contact = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._shoulder_contact_ids], dim=-1), dim=1)[0] > 0.2, dim=1)
-        thigh_contact = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._thigh_contact_ids], dim=-1), dim=1)[0] > 0.2, dim=1)
+        body_contact = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._body_contact_id], dim=-1), dim=1)[0] > 0.1, dim=1)
+        shoulder_contact = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._shoulder_contact_ids], dim=-1), dim=1)[0] > 0.1, dim=1)
+        thigh_contact = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._thigh_contact_ids], dim=-1), dim=1)[0] > 0.1, dim=1)
         contact_terminated = body_contact | shoulder_contact | thigh_contact
 
         # Terminate if robot has fallen (orientation too far from upright)
         # projected_gravity_b[:, 2] is the z component in body frame, should be close to -1 when upright
         orientation_terminated = self._robot.data.projected_gravity_b[:, 2] > -0.5  # Robot tilted more than 60 degrees
+
+        
 
         # Combine all termination conditions
         terminated = contact_terminated | orientation_terminated

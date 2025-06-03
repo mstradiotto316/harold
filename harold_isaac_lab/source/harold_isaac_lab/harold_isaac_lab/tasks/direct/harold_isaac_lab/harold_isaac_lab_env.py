@@ -10,7 +10,7 @@ from .harold_isaac_lab_env_cfg import HaroldIsaacLabEnvCfg
 
 
 class HaroldIsaacLabEnv(DirectRLEnv):
-    """Environment class for Harold robot, integrated with ROS 2 and RL-Games."""
+    """Environment class for Harold robot, integrated with RL training frameworks."""
 
     cfg: HaroldIsaacLabEnvCfg
 
@@ -29,6 +29,12 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._JOINT_ANGLE_MAX = torch.tensor([0.3491, 0.3491, 0.3491, 0.3491, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853], device=self.device)
         self._JOINT_ANGLE_MIN = torch.tensor([-0.3491, -0.3491, -0.3491, -0.3491, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853], device=self.device)
 
+        # Progressive episode length tracking
+        self._total_env_steps = 0
+        self._current_episode_length_s = self.cfg.episode_length_cfg.initial_episode_length_s
+        self._current_max_episode_length = int(self._current_episode_length_s / self.step_dt)
+        self._update_episode_length()
+
         # Print body names and masses
         print("--------------------------------")
         print("Body Names: ", self._robot.data.body_names)
@@ -41,6 +47,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         print("Joint Positions: ", torch.round(self._robot.data.joint_pos[0] * 100) / 100)
         print()
 
+        # Print episode length configuration
+        if self.cfg.episode_length_cfg.use_progressive_length:
+            print("--------------------------------")
+            print(f"Progressive Episode Length: {self.cfg.episode_length_cfg.initial_episode_length_s}s -> {self.cfg.episode_length_cfg.max_episode_length_s}s")
+            print(f"Ramp up over {self.cfg.episode_length_cfg.ramp_up_steps:,} steps")
+            print()
+
         # Contact sensor IDs (for debugging or specialized foot contact checks)
         self._contact_ids, contact_names = self._contact_sensor.find_bodies(".*", preserve_order=True)
         self._body_contact_id, body_names = self._contact_sensor.find_bodies(".*body", preserve_order=True)
@@ -49,7 +62,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._calf_contact_ids, calf_names = self._contact_sensor.find_bodies(".*calf", preserve_order=True)
         self._undesired_contact_body_ids, undesired_names = self._contact_sensor.find_bodies(".*(body|thigh|shoulder).*", preserve_order=True)
 
-        # Print contact sensor IDs and names (NOTE: For some reason these are added in a depth first manner by regex)
+        # Print contact sensor IDs and names
         print("--------------------------------")
         print("CONTACT IDS: ", self._contact_ids, "\nALL CONTACT NAMES: ", contact_names)
         print("BODY CONTACT ID: ", self._body_contact_id, "\nBODY NAMES: ", body_names)
@@ -62,28 +75,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Add time tracking for temporal (sinusoidal) observations
         self._time = torch.zeros(self.num_envs, device=self.device)
 
-        """
-        # Randomize robot friction 
-        # TODO: IS THIS ACTUALLY DOING ANYTHING? WE HAVE SEVERAL MATERIALS DEFINED IN THE USD FILE, ARE WE MODIFYING ALL OF THEM?
-        env_ids = self._robot._ALL_INDICES
-        mat_props = self._robot.root_physx_view.get_material_properties()
-        mat_props[:, :, :2].uniform_(1.0, 2.0)
-        self._robot.root_physx_view.set_material_properties(mat_props, env_ids.cpu())
-        """
-
-        """
-        # Initialize ROS 2
-        rclpy.init()
-        self.ros2_node = rclpy.create_node('joint_state_publisher')
-        self.joint_state_publisher = self.ros2_node.create_publisher(JointState, 'joint_states', 10)
-
-        # Start ROS 2 spinning in a separate thread
-        self.ros2_thread = threading.Thread(target=rclpy.spin, args=(self.ros2_node,), daemon=True)
-        self.ros2_thread.start()
-        self.ros2_counter = 0
-        """
-
-        # Decimation counter (For action and observation logging)
+        # Decimation counter (for potential future use)
         self._decimation_counter = 0
         
         # Logging - episode sums only
@@ -106,6 +98,54 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 "alive_bonus",
             ]
         }
+
+    @property
+    def max_episode_length(self) -> int:
+        """Override max_episode_length to return the current progressive value."""
+        if hasattr(self, '_current_max_episode_length'):
+            return self._current_max_episode_length
+        else:
+            # Fallback to parent class default during initialization
+            return super().max_episode_length
+
+    @property 
+    def max_episode_length_s(self) -> float:
+        """Override max_episode_length_s to return the current progressive value."""
+        if hasattr(self, '_current_episode_length_s'):
+            return self._current_episode_length_s
+        else:
+            # Fallback to parent class default during initialization
+            return super().max_episode_length_s
+
+    def _update_episode_length(self) -> None:
+        """Update the current episode length based on training progress."""
+        if not self.cfg.episode_length_cfg.use_progressive_length:
+            self._current_episode_length_s = self.cfg.episode_length_cfg.max_episode_length_s
+            self._current_max_episode_length = int(self._current_episode_length_s / self.step_dt)
+            return
+        
+        # Calculate progress (0 to 1)
+        progress = min(1.0, self._total_env_steps / self.cfg.episode_length_cfg.ramp_up_steps)
+        
+        # Use cubic progression: keeps episodes short much much longer
+        # This makes episodes stay short for ~87% of training, then increase rapidly
+        progress_curved = progress ** 3
+        
+        # Linear interpolation between initial and max episode length using curved progress
+        length_range = self.cfg.episode_length_cfg.max_episode_length_s - self.cfg.episode_length_cfg.initial_episode_length_s
+        self._current_episode_length_s = self.cfg.episode_length_cfg.initial_episode_length_s + progress_curved * length_range
+        
+        # Update max episode length in steps
+        self._current_max_episode_length = int(self._current_episode_length_s / self.step_dt)
+        
+        # Log progress every 10% milestone
+        progress_pct = int(progress * 10) * 10
+        if hasattr(self, '_last_progress_pct'):
+            if progress_pct > self._last_progress_pct and progress_pct <= 100:
+                print(f"[Episode Length Update] Progress: {progress_pct}%, Episode Length: {self._current_episode_length_s:.1f}s (Steps: {self._current_max_episode_length})")
+                self._last_progress_pct = progress_pct
+        else:
+            self._last_progress_pct = 0
 
     def _setup_scene(self) -> None:
         """Creates and configures the robot, sensors, and terrain."""
@@ -167,19 +207,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         
         self._robot.set_joint_position_target(self._processed_actions)
         self._decimation_counter += 1 # Increment counter
-
-    def publish_ROS2_joint_states(self):
-        """Publishes the current joint states to a ROS 2 topic."""
-
-        # Create JointState message
-        msg = JointState()
-        msg.header.stamp = self.ros2_node.get_clock().now().to_msg()
-        msg.name = self._robot.data.joint_names
-        msg.position = self._robot.data.joint_pos[0].tolist()
-
-        # Publish the message
-        self.joint_state_publisher.publish(msg)
-        print('Publishing joint states!', msg)
+        
+        # Track total environment steps for progressive episode length
+        self._total_env_steps += self.num_envs
+        
+        # Update episode length every 1,000 environment steps (more frequent)
+        if self._total_env_steps % 1000 == 0:
+            self._update_episode_length()
 
     def _get_observations(self) -> dict:
         """Gather all the relevant states for the policy's observation."""
@@ -188,7 +222,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._time += self.step_dt
 
         # Create foot cycle signals with amplitude based on commanded velocity
-        gait_freq = 1.5  # Reduced from 2.0 Hz for easier learning
+        gait_freq = self.cfg.gait.frequency  # Use config value
         gait_amplitude = torch.clip(torch.abs(self._commands[:, 0]) * 4.0, 0.0, 1.0)
         
         # Trotting gait - diagonal pairs
@@ -223,8 +257,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Update previous actions
         self._previous_actions = self._actions.clone()
 
-        # ============================== ROS2 JOINT STATE STREAMING ================================
-        #self.publish_ROS2_joint_states()
 
         # ============================ LOGGING FOR SIMULATION PLAYBACK =============================
         # Log observations to a file
@@ -259,34 +291,20 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         """
         yaw_error_tracking_abs = torch.abs(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
 
-        #print("Env 0 Yaw Commands: ", self._commands[:, 2][0].tolist())
-        #print("Env 0 Yaw Actual: ", self._robot.data.root_ang_vel_b[:, 2][0].tolist())
-        #print("yaw_error_tracking_abs: ", yaw_error_tracking_abs[0])
-        #print()
-
         """
         # z velocity tracking ==========================================================================================
         """
         z_vel_error = torch.square(self._robot.data.root_lin_vel_b[:, 2])
-
-        #print("z_vel_error: ", z_vel_error[0])
-        #print()
 
         """
         # angular velocity x/y =========================================================================================
         """
         ang_vel_error = torch.sum(torch.square(self._robot.data.root_ang_vel_b[:, :2]), dim=1)
 
-        #print("ang_vel_error: ", ang_vel_error[0])
-        #print()
-        
         """
         # Get joint torques ============================================================================================
         """
         joint_torques = torch.sum(torch.square(self._robot.data.applied_torque), dim=1)
-
-        #print("joint_torques: ", joint_torques[0])
-        #print()
 
         """
         # joint acceleration ===========================================================================================
@@ -308,10 +326,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         foot_3_air_time = self._contact_sensor.data.current_air_time[:, self._calf_contact_ids[2]]
         foot_4_air_time = self._contact_sensor.data.current_air_time[:, self._calf_contact_ids[3]]
 
-        #print("Feet air times: ", foot_1_air_time[0], foot_2_air_time[0], foot_3_air_time[0], foot_4_air_time[0])
-        
         # Create foot cycle signals with amplitude based on commanded velocity
-        gait_freq = 1.5  # Reduced from 2.0 Hz for easier learning
+        gait_freq = self.cfg.gait.frequency  # Use config value
         gait_amplitude = torch.clip(torch.abs(self._commands[:, 0]) * 4.0, 0.0, 1.0)
         
         # Trotting gait - diagonal pairs
@@ -320,8 +336,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         foot_cycle_3 = gait_amplitude * torch.sin(2 * math.pi * gait_freq * self._time + math.pi)  # Back Left  
         foot_cycle_4 = gait_amplitude * torch.sin(2 * math.pi * gait_freq * self._time + 0)  # Back Right
 
-        #print("Feet cycles: ", foot_cycle_1[0], foot_cycle_2[0], foot_cycle_3[0], foot_cycle_4[0])
-
         # If cycle is <0 then the foot should be on the ground so target air time is 0.0
         # If cycle is >0 then the foot should be in the air so target air time is the cycle value
         foot_1_target_air_time = torch.where(foot_cycle_1 < 0.0, torch.zeros_like(foot_cycle_1), foot_cycle_1) # Front left 1st
@@ -329,22 +343,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         foot_3_target_air_time = torch.where(foot_cycle_3 < 0.0, torch.zeros_like(foot_cycle_3), foot_cycle_3) # Back left 3rd
         foot_4_target_air_time = torch.where(foot_cycle_4 < 0.0, torch.zeros_like(foot_cycle_4), foot_cycle_4) # Back right 4th
 
-        #print("Feet air time targets: ", foot_1_target_air_time[0], foot_2_target_air_time[0], foot_3_target_air_time[0], foot_4_target_air_time[0])
-
         foot_1_error = torch.abs(foot_1_target_air_time - foot_1_air_time)
         foot_2_error = torch.abs(foot_2_target_air_time - foot_2_air_time)
         foot_3_error = torch.abs(foot_3_target_air_time - foot_3_air_time)
         foot_4_error = torch.abs(foot_4_target_air_time - foot_4_air_time)
 
-        #print("Foot 1 error: ", foot_1_error[0])
-        #print("Foot 2 error: ", foot_2_error[0])
-        #print("Foot 3 error: ", foot_3_error[0])
-        #print("Foot 4 error: ", foot_4_error[0])
-
         # Sum of absolute errors
         foot_error = foot_1_error + foot_2_error + foot_3_error + foot_4_error
-
-        #print("Foot error: ", foot_error[0])
 
         
         """
@@ -352,7 +357,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         """
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
         is_contact = (
-            torch.max(torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1)[0] > 0.1
+            torch.max(torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1)[0] > self.cfg.termination.contact_force_threshold
         )
         contacts = torch.sum(is_contact, dim=1)
 
@@ -366,16 +371,12 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         current_height = torch.mean(height_data, dim=1)
 
         # Define target height and calculate error
-        target_height = 0.20  # Lowered from 0.18 to encourage more dynamic walking
+        target_height = self.cfg.gait.target_height  # Use config value
         height_error = torch.abs(current_height - target_height)
 
         # Convert to reward using exponential form that saturates
         # Use tanh to cap the reward so standing isn't over-rewarded
         height_reward = torch.tanh(3.0 * torch.exp(-5.0 * height_error))
-
-        #print("Current height from scanner: ", current_height[0], " Height reward: ", height_reward[0])
-        #print("Target height: ", target_height)
-        #print('Height reward: ', height_reward)
 
         
 
@@ -387,47 +388,29 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         xy_acceleration = self._robot.data.body_acc_w[:, 0, :2]  # Shape: [num_envs, 2]
         xy_acceleration_error = torch.sum(torch.square(xy_acceleration), dim=1)
 
-        #print("xy_acceleration: ", xy_acceleration[0].tolist())
-        #print("xy_acceleration_error: ", xy_acceleration_error[0])
-
         """
         # Body orientation (roll and pitch) ============================================================================
         """
         orientation_error = torch.sum(torch.square(self._robot.data.projected_gravity_b[:, :2]), dim=1)
 
+        # Use configuration values for reward weights
         rewards = {
-            "track_xy_lin_commands": lin_vel_reward * self.step_dt * 20.0,  # Reduced from 10.0
-            "track_yaw_commands": yaw_error_tracking_abs * self.step_dt * 0.0, #-1.0,
-            "forward_progress": forward_progress_reward * self.step_dt * 0.0, #10.0,  # Reduced from 15.0
-            "lin_vel_z_l2": z_vel_error * self.step_dt * 0.0, #-2.0,  # Increased from -1.0
-            "ang_vel_xy_l2": ang_vel_error * self.step_dt * 0.0, #-0.1,  # Increased from -0.05
-            "dof_torques_l2": joint_torques * self.step_dt * 0.0, #-0.001,
-            "dof_acc_l2": joint_accel * self.step_dt * 0.0,
-            "action_rate_l2": action_rate * self.step_dt * 0.0, #-0.001,
-            "feet_air_time": foot_error * self.step_dt * 0.0, #-0.5,
-            "undesired_contacts": contacts * self.step_dt * 0.0, #-1.0,
-            "height_reward": height_reward * self.step_dt * 4.0, #2.0,  # Increased from 1.0
-            "xy_acceleration_l2": xy_acceleration_error * self.step_dt * 0.0,
-            "orientation_l2": orientation_error * self.step_dt * -8.0, #-2.0,  # Increased from -0.5
-            "alive_bonus": torch.ones_like(forward_vel) * self.step_dt * 0.0, #1.0,  # Reduced from 2.0
+            "track_xy_lin_commands": lin_vel_reward * self.step_dt * self.cfg.rewards.track_xy_lin_commands,
+            "track_yaw_commands": yaw_error_tracking_abs * self.step_dt * self.cfg.rewards.track_yaw_commands,
+            "forward_progress": forward_progress_reward * self.step_dt * self.cfg.rewards.forward_progress,
+            "lin_vel_z_l2": z_vel_error * self.step_dt * self.cfg.rewards.lin_vel_z_l2,
+            "ang_vel_xy_l2": ang_vel_error * self.step_dt * self.cfg.rewards.ang_vel_xy_l2,
+            "dof_torques_l2": joint_torques * self.step_dt * self.cfg.rewards.dof_torques_l2,
+            "dof_acc_l2": joint_accel * self.step_dt * self.cfg.rewards.dof_acc_l2,
+            "action_rate_l2": action_rate * self.step_dt * self.cfg.rewards.action_rate_l2,
+            "feet_air_time": foot_error * self.step_dt * self.cfg.rewards.feet_air_time,
+            "undesired_contacts": contacts * self.step_dt * self.cfg.rewards.undesired_contacts,
+            "height_reward": height_reward * self.step_dt * self.cfg.rewards.height_reward,
+            "xy_acceleration_l2": xy_acceleration_error * self.step_dt * self.cfg.rewards.xy_acceleration_l2,
+            "orientation_l2": orientation_error * self.step_dt * self.cfg.rewards.orientation_l2,
+            "alive_bonus": torch.ones_like(forward_vel) * self.step_dt * self.cfg.rewards.alive_bonus,
         }
 
-        #print("Commands: ", self._commands[0].tolist())
-        #print()
-        #print("Avg lin vel: ", avg_lin_vel[0].tolist())
-        #print("track_xy_lin_commands: ", rewards["track_xy_lin_commands"][0])
-        #print()
-        #print("Avg yaw vel: ", avg_yaw_vel[0].tolist())
-        #print("track_yaw_commands: ", rewards["track_yaw_commands"][0])
-        #print()
-        #print("lin_vel_z_l2: ", rewards["lin_vel_z_l2"][0])
-        #print("ang_vel_xy_l2: ", rewards["ang_vel_xy_l2"][0])
-        #print("dof_torques_l2: ", rewards["dof_torques_l2"][0])
-        #print("feet_air_time: ", rewards["feet_air_time"][0])
-        #print("height_reward: ", rewards["height_reward"][0])
-        #print("------------------------------------------------------------------")
-        #print()
-        
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
 
         # Logging
@@ -438,23 +421,23 @@ class HaroldIsaacLabEnv(DirectRLEnv):
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
 
         # Terminate if episode length exceeds max episode length
-        time_out = self.episode_length_buf >= self.max_episode_length - 1
+        time_out = self.episode_length_buf >= self._current_max_episode_length - 1
 
         # Terminate if undesired contacts are detected
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
-        body_contact = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._body_contact_id], dim=-1), dim=1)[0] > 0.1, dim=1)
-        shoulder_contact = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._shoulder_contact_ids], dim=-1), dim=1)[0] > 0.1, dim=1)
-        thigh_contact = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._thigh_contact_ids], dim=-1), dim=1)[0] > 0.1, dim=1)
+        body_contact = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._body_contact_id], dim=-1), dim=1)[0] > self.cfg.termination.contact_force_threshold, dim=1)
+        shoulder_contact = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._shoulder_contact_ids], dim=-1), dim=1)[0] > self.cfg.termination.contact_force_threshold, dim=1)
+        thigh_contact = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._thigh_contact_ids], dim=-1), dim=1)[0] > self.cfg.termination.contact_force_threshold, dim=1)
         contact_terminated = body_contact | shoulder_contact | thigh_contact
 
         # Terminate if robot has fallen (orientation too far from upright)
         # projected_gravity_b[:, 2] is the z component in body frame, should be close to -1 when upright
-        orientation_terminated = self._robot.data.projected_gravity_b[:, 2] > -0.5  # Robot tilted more than 60 degrees
+        orientation_terminated = self._robot.data.projected_gravity_b[:, 2] > self.cfg.termination.orientation_threshold
 
         
 
-        # Combine all termination conditions
-        terminated = contact_terminated | orientation_terminated
+        # Combine all termination conditions including timeouts
+        terminated = contact_terminated | orientation_terminated | time_out
 
         return terminated, time_out
 
@@ -468,7 +451,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         
         if len(env_ids) == self.num_envs:
             # Spread out the resets to avoid spikes in training when many environments reset at a similar time
-            self.episode_length_buf[:] = torch.randint_like(self.episode_length_buf, high=int(self.max_episode_length))
+            self.episode_length_buf[:] = torch.randint_like(self.episode_length_buf, high=int(self._current_max_episode_length))
         
         self._actions[env_ids] = 0.0
         self._previous_actions[env_ids] = 0.0
@@ -493,10 +476,14 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         extras = dict()
         for key in self._episode_sums.keys():
             episodic_sum_avg = torch.mean(self._episode_sums[key][env_ids])
-            extras["Episode_Reward/" + key] = episodic_sum_avg / self.max_episode_length_s
+            extras["Episode_Reward/" + key] = episodic_sum_avg / self._current_episode_length_s
             self._episode_sums[key][env_ids] = 0.0
         self.extras["log"] = dict()
         self.extras["log"].update(extras)
+        
+        # Log current episode length
+        extras["Episode_Info/episode_length_s"] = self._current_episode_length_s
+        extras["Episode_Info/training_progress"] = min(1.0, self._total_env_steps / self.cfg.episode_length_cfg.ramp_up_steps)
         
         # Log termination reasons
         extras = dict()
@@ -520,11 +507,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self.extras["log"].update(extras)
 
     def __del__(self):
-        # Shutdown ROS 2 when environment is destroyed
-        #print("SHUTTING DOWN ROS 2!!!!!!!!!!!!!!!!!")
-        #self.ros2_node.destroy_node()
-        #rclpy.shutdown()
-        #self.ros2_thread.join()
         pass
 
 

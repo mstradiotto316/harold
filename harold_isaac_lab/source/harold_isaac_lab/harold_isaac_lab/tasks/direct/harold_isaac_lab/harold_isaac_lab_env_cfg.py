@@ -13,9 +13,59 @@ from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
 
 
 @configclass
+class RewardsCfg:
+    """Reward function weights and parameters."""
+    # Reward weights
+    track_xy_lin_commands: float = 70.0
+    track_yaw_commands: float = 0.0  # -1.0
+    forward_progress: float = 0.0  # 10.0
+    lin_vel_z_l2: float = 0.0  # -2.0
+    ang_vel_xy_l2: float = 0.0  # -0.1
+    dof_torques_l2: float = 0.0  # -0.001
+    dof_acc_l2: float = 0.0
+    action_rate_l2: float = 0.0  # -0.001
+    feet_air_time: float = 0.0  # -0.5
+    undesired_contacts: float = 0.0  # -1.0
+    height_reward: float = 25.0 #16.0
+    xy_acceleration_l2: float = 0.0
+    orientation_l2: float = -80.0
+    alive_bonus: float = 0.0  # 1.0
+
+
+@configclass
+class GaitCfg:
+    """Gait parameters."""
+    frequency: float = 1.5  # Hz
+    target_height: float = 0.20 #0.20  # meters
+
+
+@configclass
+class TerminationCfg:
+    """Termination conditions."""
+    # Contact thresholds
+    contact_force_threshold: float = 0.1
+    # Orientation threshold (robot tilted more than 60 degrees)
+    orientation_threshold: float = -0.5
+
+
+@configclass
+class EpisodeLengthCfg:
+    """Progressive episode length configuration."""
+    # Starting episode length (seconds)
+    initial_episode_length_s: float = 0.25
+
+    # Maximum episode length (seconds)
+    max_episode_length_s: float = 30.0
+    ramp_up_steps: int = 100_000_000
+
+    # Whether to use progressive episode length
+    use_progressive_length: bool = True
+
+
+@configclass
 class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
-    episode_length_s = 30.0
+    episode_length_s = 30.0  # This is the max episode length
     decimation = 18
     action_scale = 1.0
     
@@ -23,6 +73,18 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     observation_space = 48
     action_space = 12
     state_space = 0
+
+    # Reward configuration
+    rewards = RewardsCfg()
+    
+    # Gait configuration
+    gait = GaitCfg()
+    
+    # Termination configuration
+    termination = TerminationCfg()
+    
+    # Episode length configuration
+    episode_length_cfg = EpisodeLengthCfg()
 
     # viewer configuration
     viewer = ViewerCfg(

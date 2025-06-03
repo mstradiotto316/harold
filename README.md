@@ -7,7 +7,7 @@ This repository contains the code for the Harold quadruped robot, a small legged
 1. Make sure the new robot meets this setup
 https://docs.isaacsim.omniverse.nvidia.com/latest/isaac_lab_tutorials/tutorial_instanceable_assets.html#instanceable-assets
 2. Fix component mounts on the next iteration of the chassis
-3. Set the base servo ID to 0 instead of 1 (it's too difficult to dissasemble it all again to fix this)
+3. Set the base servo ID to 0 instead of 1 (it's too difficult to disassemble it all again to fix this)
 
 
 ## Isaac Sim & Isaac Lab
@@ -16,23 +16,26 @@ NOTE: YOU MUST INSTALL ISAAC SIM AND ISAAC LAB FIRST
 https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/binaries_installation.html#isaaclab-binaries-installation
 
 1. Make sure you install the project:
-python -m pip install -e harold_isaac_lab/source/harold_isaac_lab
+    python -m pip install -e harold_isaac_lab/source/harold_isaac_lab
 
 2. To see the available tasks use:
-python harold_isaac_lab/scripts/list_envs.py
+    python harold_isaac_lab/scripts/list_envs.py
 
 3. To run the task use:
-generic template
-python harold_isaac_lab/scripts/skrl/train.py --task=<Task-Name>
+    activate the virtual environment:
+    source ~/Desktop/env_isaaclab/bin/activate
 
-run baisc harold
-python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0
+    generic template:
+    python harold_isaac_lab/scripts/skrl/train.py --task=<Task-Name>
 
-run headless with video recording
-python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1024 --headless --video --video_length 250 --video_interval 3200
+    run baisc harold:
+    python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0
+
+    run headless with video recording:
+    python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1024 --headless --video --video_length 250 --video_interval 3200
 
 4. Launch Tensorboard to view training progress:
-
+python3 -m tensorboard.main --logdir logs/
 
 ## Repository Structure 
 
@@ -77,19 +80,13 @@ python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat
   - Connected to I2C bus 1 on Jetson Nano
 
 ### Actuators
-- **Arduino**: Motor controller board
+- **ESP32 Servo Controller**: Motor controller board
   - Serial communication at 115200 baud rate
   - Runs control loop at 200Hz (5ms intervals)
 
-- **Adafruit PCA9685**: PWM Servo Driver
-  - I2C address: 0x40
-  - Oscillator frequency: 27MHz
-  - PWM frequency: 50Hz for standard servos
-
-- **12 Servo Motors**: For quadruped locomotion
-  - 3 servos per leg (shoulder, thigh, knee)
-  - Custom calibration values for each servo
-  - Safety features include command timeout (250ms) and position limits
+- **FeeTech STS3215 Servo Motors**: For quadruped locomotion
+  - 3 servos per leg (shoulder, thigh, calf)
+  - Safety features include emergency shutdown and position limits
 
 ## Joint Configuration
 

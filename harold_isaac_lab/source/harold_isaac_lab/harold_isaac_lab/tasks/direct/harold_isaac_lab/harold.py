@@ -1,15 +1,14 @@
 """
 # WHEN USING SKRL TRAINING LIBRARY
 Train model:
-./isaaclab.sh -p source/standalone/workflows/skrl/train.py --task Isaac-Harold-Direct-v3 --num_envs 1024
-
+python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1024
 Train model in headless mode with video recording:
-./isaaclab.sh -p source/standalone/workflows/skrl/train.py --task Isaac-Harold-Direct-v3 --num_envs 1024 --headless --video --video_length 500 --video_interval 3000
-
+python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1024 --headless --video --video_length 250 --video_interval 3200
 Start Tensorboard:
-python3 -m tensorboard.main --logdir /home/matteo/Desktop/harold/logs/skrl/harold_direct/
+source ~/Desktop/env_isaaclab/bin/activate
+python3 -m tensorboard.main --logdir logs/skrl/harold_direct/ --bind_all
 
-Play back trained model (BUILT IN ISAAC LAB VERSION)
+Play back trained model (BUILT IN ISAAC LAB VERSION) (NOT TESTED SINCE ISAAC SIM/LAB UPDATES)
 ./isaaclab.sh -p source/standalone/workflows/skrl/play.py --task Isaac-Harold-Direct-v3 --num_envs 1 --use_last_checkpoint
 
 Play back trained model (MY CUSTOM VERSION)
@@ -29,12 +28,36 @@ import isaaclab.sim as sim_utils
 from isaaclab.actuators import DCMotorCfg, ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
 from isaaclab.sensors import ContactSensorCfg
+import os
+from pathlib import Path
 
+# Determine the project root directory
+# Method 1: Try to find the harold_isaac_lab package directory
+try:
+    import harold_isaac_lab
+    # Go up 5 levels from the package __init__.py to reach project root
+    HAROLD_ROOT = Path(harold_isaac_lab.__file__).parent.parent.parent.parent.parent
+except:
+    # Method 2: Print error and exit since harold_isaac_lab package not found
+    print("ERROR: Could not find harold_isaac_lab package environment variable.")
+    print("Please ensure harold_isaac_lab is installed.")
+    exit(1)
+
+# Construct the USD file path
+USD_FILE_PATH = HAROLD_ROOT / "part_files" / "V4" / "harold_7.usd"
+
+# Validate that the file exists
+if not USD_FILE_PATH.exists():
+    raise FileNotFoundError(
+        f"USD file not found at: {USD_FILE_PATH}\n"
+        f"Please ensure the part_files directory is at the project root.\n"
+        f"You can also set HAROLD_PROJECT_ROOT environment variable to the project root directory."
+    )
 
 # robot
 HAROLD_V4_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=f"/home/matteo/Desktop/harold/part_files/V4/harold_7.usd",
+        usd_path=str(USD_FILE_PATH),
         activate_contact_sensors=True,
         scale=(1, 1, 1),
         rigid_props=sim_utils.RigidBodyPropertiesCfg(

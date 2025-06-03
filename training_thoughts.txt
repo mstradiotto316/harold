@@ -1,0 +1,15 @@
+    # Reward weights
+    track_xy_lin_commands: float = 70.0 		# Good gains moving from 40 to 60, but 70 makes it fall forward
+    track_yaw_commands: float = 0.0  # -1.0
+    forward_progress: float = 0.0  # 10.0
+    lin_vel_z_l2: float = 0.0  # -2.0
+    ang_vel_xy_l2: float = 0.0  # -0.1
+    dof_torques_l2: float = 0.0  # -0.001
+    dof_acc_l2: float = 0.0
+    action_rate_l2: float = 0.0  # -0.001
+    feet_air_time: float = 0.0  # -0.5
+    undesired_contacts: float = 0.0  # -1.0
+    height_reward: float = 16.0  # 2.0			
+    xy_acceleration_l2: float = 0.0
+    orientation_l2: float = -80.0
+    alive_bonus: float = 0.0  # 1.0

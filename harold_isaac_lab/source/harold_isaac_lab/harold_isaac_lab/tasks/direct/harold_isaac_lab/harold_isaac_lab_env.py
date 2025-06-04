@@ -29,12 +29,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._JOINT_ANGLE_MAX = torch.tensor([0.3491, 0.3491, 0.3491, 0.3491, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853], device=self.device)
         self._JOINT_ANGLE_MIN = torch.tensor([-0.3491, -0.3491, -0.3491, -0.3491, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853], device=self.device)
 
-        # Progressive episode length tracking
-        self._total_env_steps = 0
-        self._current_episode_length_s = self.cfg.episode_length_cfg.initial_episode_length_s
-        self._current_max_episode_length = int(self._current_episode_length_s / self.step_dt)
-        self._update_episode_length()
-
         # Print body names and masses
         print("--------------------------------")
         print("Body Names: ", self._robot.data.body_names)
@@ -46,13 +40,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         print("Joint Names: ", self._robot.data.joint_names)
         print("Joint Positions: ", torch.round(self._robot.data.joint_pos[0] * 100) / 100)
         print()
-
-        # Print episode length configuration
-        if self.cfg.episode_length_cfg.use_progressive_length:
-            print("--------------------------------")
-            print(f"Progressive Episode Length: {self.cfg.episode_length_cfg.initial_episode_length_s}s -> {self.cfg.episode_length_cfg.max_episode_length_s}s")
-            print(f"Ramp up over {self.cfg.episode_length_cfg.ramp_up_steps:,} steps")
-            print()
 
         # Contact sensor IDs (for debugging or specialized foot contact checks)
         self._contact_ids, contact_names = self._contact_sensor.find_bodies(".*", preserve_order=True)
@@ -98,54 +85,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 "alive_bonus",
             ]
         }
-
-    @property
-    def max_episode_length(self) -> int:
-        """Override max_episode_length to return the current progressive value."""
-        if hasattr(self, '_current_max_episode_length'):
-            return self._current_max_episode_length
-        else:
-            # Fallback to parent class default during initialization
-            return super().max_episode_length
-
-    @property 
-    def max_episode_length_s(self) -> float:
-        """Override max_episode_length_s to return the current progressive value."""
-        if hasattr(self, '_current_episode_length_s'):
-            return self._current_episode_length_s
-        else:
-            # Fallback to parent class default during initialization
-            return super().max_episode_length_s
-
-    def _update_episode_length(self) -> None:
-        """Update the current episode length based on training progress."""
-        if not self.cfg.episode_length_cfg.use_progressive_length:
-            self._current_episode_length_s = self.cfg.episode_length_cfg.max_episode_length_s
-            self._current_max_episode_length = int(self._current_episode_length_s / self.step_dt)
-            return
-        
-        # Calculate progress (0 to 1)
-        progress = min(1.0, self._total_env_steps / self.cfg.episode_length_cfg.ramp_up_steps)
-        
-        # Use cubic progression: keeps episodes short much much longer
-        # This makes episodes stay short for ~87% of training, then increase rapidly
-        progress_curved = progress ** 3
-        
-        # Linear interpolation between initial and max episode length using curved progress
-        length_range = self.cfg.episode_length_cfg.max_episode_length_s - self.cfg.episode_length_cfg.initial_episode_length_s
-        self._current_episode_length_s = self.cfg.episode_length_cfg.initial_episode_length_s + progress_curved * length_range
-        
-        # Update max episode length in steps
-        self._current_max_episode_length = int(self._current_episode_length_s / self.step_dt)
-        
-        # Log progress every 10% milestone
-        progress_pct = int(progress * 10) * 10
-        if hasattr(self, '_last_progress_pct'):
-            if progress_pct > self._last_progress_pct and progress_pct <= 100:
-                print(f"[Episode Length Update] Progress: {progress_pct}%, Episode Length: {self._current_episode_length_s:.1f}s (Steps: {self._current_max_episode_length})")
-                self._last_progress_pct = progress_pct
-        else:
-            self._last_progress_pct = 0
 
     def _setup_scene(self) -> None:
         """Creates and configures the robot, sensors, and terrain."""
@@ -207,13 +146,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         
         self._robot.set_joint_position_target(self._processed_actions)
         self._decimation_counter += 1 # Increment counter
-        
-        # Track total environment steps for progressive episode length
-        self._total_env_steps += self.num_envs
-        
-        # Update episode length every 1,000 environment steps (more frequent)
-        if self._total_env_steps % 1000 == 0:
-            self._update_episode_length()
 
     def _get_observations(self) -> dict:
         """Gather all the relevant states for the policy's observation."""
@@ -279,7 +211,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         lin_vel_error = self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]
         lin_vel_error_abs = torch.sum(torch.abs(lin_vel_error), dim=1)
         # Use exponential reward for smoother learning, but with a more forgiving decay
-        lin_vel_reward = torch.exp(-1.0 * lin_vel_error_abs)  # Changed from -2.0 to -1.0
+        lin_vel_reward = torch.exp(-2.0 * lin_vel_error_abs)  # Changed from -2.0 to -1.0
 
         # Add small reward for any forward movement (exploration bonus)
         forward_vel = self._robot.data.root_lin_vel_b[:, 0]
@@ -421,7 +353,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
 
         # Terminate if episode length exceeds max episode length
-        time_out = self.episode_length_buf >= self._current_max_episode_length - 1
+        time_out = self.episode_length_buf >= self.max_episode_length - 1
 
         # Terminate if undesired contacts are detected
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
@@ -436,8 +368,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         
 
-        # Combine all termination conditions including timeouts
-        terminated = contact_terminated | orientation_terminated | time_out
+        # Combine all termination conditions (fell-over only); keep timeout separate
+        terminated = contact_terminated | orientation_terminated
 
         return terminated, time_out
 
@@ -451,14 +383,18 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         
         if len(env_ids) == self.num_envs:
             # Spread out the resets to avoid spikes in training when many environments reset at a similar time
-            self.episode_length_buf[:] = torch.randint_like(self.episode_length_buf, high=int(self._current_max_episode_length))
+            self.episode_length_buf[:] = torch.randint_like(self.episode_length_buf, high=self.max_episode_length)
         
+        # Reset action buffers
         self._actions[env_ids] = 0.0
         self._previous_actions[env_ids] = 0.0
-        
-        self._commands[env_ids, 0] = 0.5  # X velocity
-        self._commands[env_ids, 1] = 0.0  # Y velocity
-        self._commands[env_ids, 2] = 0.0  # Yaw rate
+
+        #self._commands[env_ids, 0] = 0.5  # X velocity
+        #self._commands[env_ids, 1] = 0.0  # Y velocity
+        #self._commands[env_ids, 2] = 0.0  # Yaw rate
+
+        # Randomize initial command for exploration (X lin vel, Y lin vel, yaw rate)
+        self._commands[env_ids] = torch.zeros_like(self._commands[env_ids]).uniform_(-1.0, 1.0)
 
         # Reset robot state
         joint_pos = self._robot.data.default_joint_pos[env_ids]
@@ -476,14 +412,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         extras = dict()
         for key in self._episode_sums.keys():
             episodic_sum_avg = torch.mean(self._episode_sums[key][env_ids])
-            extras["Episode_Reward/" + key] = episodic_sum_avg / self._current_episode_length_s
+            # Normalize by max episode length (seconds)
+            extras["Episode_Reward/" + key] = episodic_sum_avg / self.max_episode_length_s
             self._episode_sums[key][env_ids] = 0.0
         self.extras["log"] = dict()
         self.extras["log"].update(extras)
-        
-        # Log current episode length
-        extras["Episode_Info/episode_length_s"] = self._current_episode_length_s
-        extras["Episode_Info/training_progress"] = min(1.0, self._total_env_steps / self.cfg.episode_length_cfg.ramp_up_steps)
         
         # Log termination reasons
         extras = dict()

@@ -49,20 +49,6 @@ class TerminationCfg:
 
 
 @configclass
-class EpisodeLengthCfg:
-    """Progressive episode length configuration."""
-    # Starting episode length (seconds)
-    initial_episode_length_s: float = 0.25
-
-    # Maximum episode length (seconds)
-    max_episode_length_s: float = 30.0
-    ramp_up_steps: int = 100_000_000
-
-    # Whether to use progressive episode length
-    use_progressive_length: bool = True
-
-
-@configclass
 class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
     episode_length_s = 30.0  # This is the max episode length
@@ -82,9 +68,6 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     
     # Termination configuration
     termination = TerminationCfg()
-    
-    # Episode length configuration
-    episode_length_cfg = EpisodeLengthCfg()
 
     # viewer configuration
     viewer = ViewerCfg(

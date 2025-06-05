@@ -68,8 +68,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Decimation counter (for potential future use)
         self._decimation_counter = 0
         
-        # Global training step counter for curriculum scheduling (never resets)
-        self._global_step = 0
+        # Policy action step counter for curriculum scheduling (never resets)
+        self._policy_step = 0
         
         # Logging - episode sums only
         self._episode_sums = {
@@ -124,36 +124,34 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         # ----- COMMAND DIRECTION VISUALIZATION MARKERS -----
         # Configure an arrow marker prototype
-        arrow_cfg = VisualizationMarkersCfg(
+        command_arrow_cfg = VisualizationMarkersCfg(
             prim_path="/Visuals/command_arrows",
             markers={
                 "arrow": sim_utils.UsdFileCfg(
                     usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/arrow_x.usd",
-                    scale=(0.25, 0.25, 0.1),
+                    scale=(0.1, 0.1, 0.25),
+                    visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0))
                 )
             }
         )
-        self._cmd_marker = VisualizationMarkers(arrow_cfg)
+        
         # Configure a smaller arrow prototype for actual velocity
-        act_arrow_cfg = VisualizationMarkersCfg(
+        actual_arrow_cfg = VisualizationMarkersCfg(
             prim_path="/Visuals/actual_arrows",
             markers={
                 "arrow": sim_utils.UsdFileCfg(
                     usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/arrow_x.usd",
-                    scale=(0.25, 0.25, 0.1),
+                    scale=(0.1, 0.1, 0.25),
+                    visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0))
                 )
             }
         )
-        self._act_marker = VisualizationMarkers(act_arrow_cfg)
+
+        self._cmd_marker = VisualizationMarkers(command_arrow_cfg)
+        self._act_marker = VisualizationMarkers(actual_arrow_cfg)
 
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         """Called before physics steps. Used to process and scale actions."""
-        # Increment global training step counter for curriculum progression
-        self._global_step += 1
-        # Compute curriculum alpha for logging
-        alpha = min(self._global_step / self.cfg.curriculum.phase_transition_steps, 1.0)
-        if self._global_step % 10000 == 0:
-            print(f"[Curriculum] Step {self._global_step}, alpha = {alpha:.4f}")
         self._actions = actions.clone()
         self._processed_actions = torch.clamp(
             (self.cfg.action_scale * self._actions),
@@ -188,14 +186,21 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         cmd_vel = self._commands[:, :2]
         cmd_angle = torch.atan2(cmd_vel[:, 1], cmd_vel[:, 0])
         marker_ori_cmd = quat_from_angle_axis(cmd_angle, torch.tensor((0.0, 0.0, 1.0), device=self.device))
-        marker_pos_cmd = base_pos + torch.tensor((0.0, 0.0, 0.5), device=self.device)
+        marker_pos_cmd = base_pos + torch.tensor((0.0, 0.0, 0.25), device=self.device)
         self._cmd_marker.visualize(marker_pos_cmd, marker_ori_cmd, marker_indices=marker_idx)
         # Actual arrow: orientation from actual X/Y root velocity
         act_vel = self._robot.data.root_lin_vel_b[:, :2]
         act_angle = torch.atan2(act_vel[:, 1], act_vel[:, 0])
         marker_ori_act = quat_from_angle_axis(act_angle, torch.tensor((0.0, 0.0, 1.0), device=self.device))
-        marker_pos_act = base_pos + torch.tensor((0.0, 0.0, 0.75), device=self.device)
+        marker_pos_act = base_pos + torch.tensor((0.0, 0.0, 0.40), device=self.device)
         self._act_marker.visualize(marker_pos_act, marker_ori_act, marker_indices=marker_idx)
+
+        # Increment policy step counter for curriculum progression
+        self._policy_step += 1
+        # Log curriculum progress occasionally in policy steps
+        if self._policy_step % 10000 == 0:
+            alpha = min(self._policy_step / self.cfg.curriculum.phase_transition_steps, 1.0)
+            print(f"[Curriculum] Policy Step {self._policy_step}, alpha = {alpha:.4f}")
 
     def _get_observations(self) -> dict:
         """Gather all the relevant states for the policy's observation."""
@@ -444,7 +449,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         #self._commands[env_ids, 2] = 0.0  # Yaw rate
 
         # Curriculum-scheduled commands: sample and scale by curriculum factor
-        alpha = min(self._global_step / self.cfg.curriculum.phase_transition_steps, 1.0)
+        alpha = min(self._policy_step / self.cfg.curriculum.phase_transition_steps, 1.0)
         sampled_commands = torch.zeros_like(self._commands[env_ids]).uniform_(-1.0, 1.0)
         self._commands[env_ids] = sampled_commands * alpha
 

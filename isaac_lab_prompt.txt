@@ -47,6 +47,3 @@ Do not go off on tangents or attempt to fix things you were not instructed to do
 
 HERE ARE YOUR INSTRUCTIONS FOR THIS PROJECT:
 
-We will be iteratively optimizing this project, you may notice many things that are wrong or need fixing, but we will implement and test fixes/improvements one at a time.
-
-Begin your analysis of the codebase, then rank the top 3 improvements to make.

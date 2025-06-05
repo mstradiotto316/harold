@@ -49,6 +49,13 @@ class TerminationCfg:
 
 
 @configclass
+class CurriculumCfg:
+    """Curriculum learning parameters for transitioning from standing to walking."""
+    # Number of global training steps over which to ramp from standing to full exploration
+    phase_transition_steps: int = 128000
+
+
+@configclass
 class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
     episode_length_s = 30.0  # This is the max episode length
@@ -68,6 +75,9 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     
     # Termination configuration
     termination = TerminationCfg()
+
+    # Curriculum configuration
+    curriculum: CurriculumCfg = CurriculumCfg()
 
     # viewer configuration
     viewer = ViewerCfg(

@@ -7,6 +7,9 @@ import isaaclab.sim as sim_utils
 from isaaclab.sensors import ContactSensor, ContactSensorCfg, RayCaster, RayCasterCfg, patterns
 import math
 from .harold_isaac_lab_env_cfg import HaroldIsaacLabEnvCfg
+from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
+from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+from isaaclab.utils.math import quat_from_angle_axis
 
 
 class HaroldIsaacLabEnv(DirectRLEnv):
@@ -65,6 +68,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Decimation counter (for potential future use)
         self._decimation_counter = 0
         
+        # Global training step counter for curriculum scheduling (never resets)
+        self._global_step = 0
+        
         # Logging - episode sums only
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
@@ -116,9 +122,38 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
 
+        # ----- COMMAND DIRECTION VISUALIZATION MARKERS -----
+        # Configure an arrow marker prototype
+        arrow_cfg = VisualizationMarkersCfg(
+            prim_path="/Visuals/command_arrows",
+            markers={
+                "arrow": sim_utils.UsdFileCfg(
+                    usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/arrow_x.usd",
+                    scale=(0.25, 0.25, 0.1),
+                )
+            }
+        )
+        self._cmd_marker = VisualizationMarkers(arrow_cfg)
+        # Configure a smaller arrow prototype for actual velocity
+        act_arrow_cfg = VisualizationMarkersCfg(
+            prim_path="/Visuals/actual_arrows",
+            markers={
+                "arrow": sim_utils.UsdFileCfg(
+                    usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/arrow_x.usd",
+                    scale=(0.25, 0.25, 0.1),
+                )
+            }
+        )
+        self._act_marker = VisualizationMarkers(act_arrow_cfg)
 
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         """Called before physics steps. Used to process and scale actions."""
+        # Increment global training step counter for curriculum progression
+        self._global_step += 1
+        # Compute curriculum alpha for logging
+        alpha = min(self._global_step / self.cfg.curriculum.phase_transition_steps, 1.0)
+        if self._global_step % 10000 == 0:
+            print(f"[Curriculum] Step {self._global_step}, alpha = {alpha:.4f}")
         self._actions = actions.clone()
         self._processed_actions = torch.clamp(
             (self.cfg.action_scale * self._actions),
@@ -146,6 +181,21 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         
         self._robot.set_joint_position_target(self._processed_actions)
         self._decimation_counter += 1 # Increment counter
+        # ----- UPDATE ARROW MARKERS -----
+        base_pos = self._height_scanner.data.pos_w  # [num_envs, 3]
+        marker_idx = torch.zeros(self.num_envs, dtype=torch.int32, device=self.device)
+        # Commanded arrow: orientation from commanded X/Y velocity
+        cmd_vel = self._commands[:, :2]
+        cmd_angle = torch.atan2(cmd_vel[:, 1], cmd_vel[:, 0])
+        marker_ori_cmd = quat_from_angle_axis(cmd_angle, torch.tensor((0.0, 0.0, 1.0), device=self.device))
+        marker_pos_cmd = base_pos + torch.tensor((0.0, 0.0, 0.5), device=self.device)
+        self._cmd_marker.visualize(marker_pos_cmd, marker_ori_cmd, marker_indices=marker_idx)
+        # Actual arrow: orientation from actual X/Y root velocity
+        act_vel = self._robot.data.root_lin_vel_b[:, :2]
+        act_angle = torch.atan2(act_vel[:, 1], act_vel[:, 0])
+        marker_ori_act = quat_from_angle_axis(act_angle, torch.tensor((0.0, 0.0, 1.0), device=self.device))
+        marker_pos_act = base_pos + torch.tensor((0.0, 0.0, 0.75), device=self.device)
+        self._act_marker.visualize(marker_pos_act, marker_ori_act, marker_indices=marker_idx)
 
     def _get_observations(self) -> dict:
         """Gather all the relevant states for the policy's observation."""
@@ -232,7 +282,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # angular velocity x/y =========================================================================================
         """
         ang_vel_error = torch.sum(torch.square(self._robot.data.root_ang_vel_b[:, :2]), dim=1)
-
+        
         """
         # Get joint torques ============================================================================================
         """
@@ -257,7 +307,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         foot_2_air_time = self._contact_sensor.data.current_air_time[:, self._calf_contact_ids[1]]
         foot_3_air_time = self._contact_sensor.data.current_air_time[:, self._calf_contact_ids[2]]
         foot_4_air_time = self._contact_sensor.data.current_air_time[:, self._calf_contact_ids[3]]
-
+        
         # Create foot cycle signals with amplitude based on commanded velocity
         gait_freq = self.cfg.gait.frequency  # Use config value
         gait_amplitude = torch.clip(torch.abs(self._commands[:, 0]) * 4.0, 0.0, 1.0)
@@ -342,7 +392,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "orientation_l2": orientation_error * self.step_dt * self.cfg.rewards.orientation_l2,
             "alive_bonus": torch.ones_like(forward_vel) * self.step_dt * self.cfg.rewards.alive_bonus,
         }
-
+        
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
 
         # Logging
@@ -388,13 +438,15 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Reset action buffers
         self._actions[env_ids] = 0.0
         self._previous_actions[env_ids] = 0.0
-
+        
         #self._commands[env_ids, 0] = 0.5  # X velocity
         #self._commands[env_ids, 1] = 0.0  # Y velocity
         #self._commands[env_ids, 2] = 0.0  # Yaw rate
 
-        # Randomize initial command for exploration (X lin vel, Y lin vel, yaw rate)
-        self._commands[env_ids] = torch.zeros_like(self._commands[env_ids]).uniform_(-1.0, 1.0)
+        # Curriculum-scheduled commands: sample and scale by curriculum factor
+        alpha = min(self._global_step / self.cfg.curriculum.phase_transition_steps, 1.0)
+        sampled_commands = torch.zeros_like(self._commands[env_ids]).uniform_(-1.0, 1.0)
+        self._commands[env_ids] = sampled_commands * alpha
 
         # Reset robot state
         joint_pos = self._robot.data.default_joint_pos[env_ids]

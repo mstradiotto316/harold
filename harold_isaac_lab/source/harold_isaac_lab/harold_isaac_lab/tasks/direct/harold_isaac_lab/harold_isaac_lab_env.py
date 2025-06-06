@@ -64,6 +64,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         # Add time tracking for temporal (sinusoidal) observations
         self._time = torch.zeros(self.num_envs, device=self.device)
+        # Store previous root linear velocity (xy) for jitter penalty
+        self._prev_lin_vel = torch.zeros(self.num_envs, 2, device=self.device)
 
         # Decimation counter (for potential future use)
         self._decimation_counter = 0
@@ -76,19 +78,20 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
             for key in [
                 "track_xy_lin_commands",
-                "track_yaw_commands",
-                "forward_progress",
-                "lin_vel_z_l2",
-                "ang_vel_xy_l2",
-                "dof_torques_l2",
-                "dof_acc_l2",
-                "action_rate_l2",
-                "feet_air_time",
-                "undesired_contacts",
+                #"track_yaw_commands",
+                #"forward_progress",
+                #"lin_vel_z_l2",
+                #"ang_vel_xy_l2",
+                #"dof_torques_l2",
+                #"dof_acc_l2",
+                #"action_rate_l2",
+                #"feet_air_time",
+                #"undesired_contacts",
                 "height_reward",
-                "xy_acceleration_l2",
-                "orientation_l2",
-                "alive_bonus",
+                "velocity_jitter",
+                #"xy_acceleration_l2",
+                #"orientation_l2",
+                #"alive_bonus",
             ]
         }
 
@@ -195,15 +198,15 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         marker_pos_act = base_pos + torch.tensor((0.0, 0.0, 0.40), device=self.device)
         self._act_marker.visualize(marker_pos_act, marker_ori_act, marker_indices=marker_idx)
 
-        # Increment policy step counter for curriculum progression
+    def _get_observations(self) -> dict:
+        """Gather all the relevant states for the policy's observation."""
+
+        # Increment policy life-step counter (one per RL step)
         self._policy_step += 1
-        # Log curriculum progress occasionally in policy steps
+        # Occasionally log curriculum alpha
         if self._policy_step % 10000 == 0:
             alpha = min(self._policy_step / self.cfg.curriculum.phase_transition_steps, 1.0)
             print(f"[Curriculum] Policy Step {self._policy_step}, alpha = {alpha:.4f}")
-
-    def _get_observations(self) -> dict:
-        """Gather all the relevant states for the policy's observation."""
 
         # Calculate sinusoidal values
         self._time += self.step_dt
@@ -380,22 +383,41 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         """
         orientation_error = torch.sum(torch.square(self._robot.data.projected_gravity_b[:, :2]), dim=1)
 
+        """
+        # Velocity Jitter ==============================================================================================
+        """
+        # Compute velocity jitter penalty: angle between last and current root_xy velocity (skip if too small)
+        curr_vel = self._robot.data.root_lin_vel_b[:, :2]
+        prev_vel = self._prev_lin_vel
+        dot = torch.sum(prev_vel * curr_vel, dim=1)
+        norm_prev = torch.norm(prev_vel, dim=1)
+        norm_curr = torch.norm(curr_vel, dim=1)
+        # Minimum speed threshold for applying jitter penalty (m/s)
+        eps = 1e-3
+        valid = (norm_prev > eps) & (norm_curr > eps)
+        cos_raw = torch.where(valid, dot / (norm_prev * norm_curr + 1e-8), torch.zeros_like(dot))
+        cos_val = torch.clamp(cos_raw, -1.0, 1.0)
+        jitter_angle = torch.where(valid, torch.acos(cos_val), torch.zeros_like(dot))
+        # Update previous velocity for next step
+        self._prev_lin_vel = curr_vel.clone()
+
         # Use configuration values for reward weights
         rewards = {
             "track_xy_lin_commands": lin_vel_reward * self.step_dt * self.cfg.rewards.track_xy_lin_commands,
-            "track_yaw_commands": yaw_error_tracking_abs * self.step_dt * self.cfg.rewards.track_yaw_commands,
-            "forward_progress": forward_progress_reward * self.step_dt * self.cfg.rewards.forward_progress,
-            "lin_vel_z_l2": z_vel_error * self.step_dt * self.cfg.rewards.lin_vel_z_l2,
-            "ang_vel_xy_l2": ang_vel_error * self.step_dt * self.cfg.rewards.ang_vel_xy_l2,
-            "dof_torques_l2": joint_torques * self.step_dt * self.cfg.rewards.dof_torques_l2,
-            "dof_acc_l2": joint_accel * self.step_dt * self.cfg.rewards.dof_acc_l2,
-            "action_rate_l2": action_rate * self.step_dt * self.cfg.rewards.action_rate_l2,
-            "feet_air_time": foot_error * self.step_dt * self.cfg.rewards.feet_air_time,
-            "undesired_contacts": contacts * self.step_dt * self.cfg.rewards.undesired_contacts,
+            #"track_yaw_commands": yaw_error_tracking_abs * self.step_dt * self.cfg.rewards.track_yaw_commands,
+            #"forward_progress": forward_progress_reward * self.step_dt * self.cfg.rewards.forward_progress,
+            #"lin_vel_z_l2": z_vel_error * self.step_dt * self.cfg.rewards.lin_vel_z_l2,
+            #"ang_vel_xy_l2": ang_vel_error * self.step_dt * self.cfg.rewards.ang_vel_xy_l2,
+            #"dof_torques_l2": joint_torques * self.step_dt * self.cfg.rewards.dof_torques_l2,
+            #"dof_acc_l2": joint_accel * self.step_dt * self.cfg.rewards.dof_acc_l2,
+            #"action_rate_l2": action_rate * self.step_dt * self.cfg.rewards.action_rate_l2,
+            #"feet_air_time": foot_error * self.step_dt * self.cfg.rewards.feet_air_time,
+            #"undesired_contacts": contacts * self.step_dt * self.cfg.rewards.undesired_contacts,
             "height_reward": height_reward * self.step_dt * self.cfg.rewards.height_reward,
-            "xy_acceleration_l2": xy_acceleration_error * self.step_dt * self.cfg.rewards.xy_acceleration_l2,
-            "orientation_l2": orientation_error * self.step_dt * self.cfg.rewards.orientation_l2,
-            "alive_bonus": torch.ones_like(forward_vel) * self.step_dt * self.cfg.rewards.alive_bonus,
+            #"xy_acceleration_l2": xy_acceleration_error * self.step_dt * self.cfg.rewards.xy_acceleration_l2,
+            #"orientation_l2": orientation_error * self.step_dt * self.cfg.rewards.orientation_l2,
+            "velocity_jitter": jitter_angle * self.step_dt * self.cfg.rewards.velocity_jitter,
+            #"alive_bonus": torch.ones_like(forward_vel) * self.step_dt * self.cfg.rewards.alive_bonus,
         }
         
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
@@ -461,6 +483,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)
         self._robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
+
+        # Reset previous velocity for jitter penalty
+        self._prev_lin_vel[env_ids] = self._robot.data.root_lin_vel_b[env_ids, :2].clone()
 
         # Reset time for sinusoidal observation
         self._time[env_ids] = 0

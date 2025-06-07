@@ -20,31 +20,30 @@ class HaroldIsaacLabEnv(DirectRLEnv):
     def __init__(self, cfg: HaroldIsaacLabEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
-        # Actions tensor holds the raw position commands outputted by the policy
+        # --- Action Buffers & Initial Joint Targets ---
         self._actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
         self._previous_actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
         self._processed_actions = ( self.cfg.action_scale * self._actions ) + self._robot.data.default_joint_pos
         
-        # Commands tensor has shape [num_envs, 3], the three dimensions are: X lin vel, Y lin vel, Yaw rate
+        # --- Command Tensor for Velocity Tracking (X, Y, Yaw) ---
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
 
-        # Angle limits for each joint
+        # --- Joint Angle Limits Configuration ---
         self._JOINT_ANGLE_MAX = torch.tensor([0.3491, 0.3491, 0.3491, 0.3491, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853], device=self.device)
         self._JOINT_ANGLE_MIN = torch.tensor([-0.3491, -0.3491, -0.3491, -0.3491, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853], device=self.device)
 
-        # Print body names and masses
+        # --- Debug: Print Robot Body & Joint Info ---
         print("--------------------------------")
         print("Body Names: ", self._robot.data.body_names)
         print("Body Masses: ", self._robot.data.default_mass[0])
         print()
 
-        # Print joint names and positions
         print("--------------------------------")
         print("Joint Names: ", self._robot.data.joint_names)
         print("Joint Positions: ", torch.round(self._robot.data.joint_pos[0] * 100) / 100)
         print()
 
-        # Contact sensor IDs (for debugging or specialized foot contact checks)
+        # --- Contact Sensor Body ID Extraction ---
         self._contact_ids, contact_names = self._contact_sensor.find_bodies(".*", preserve_order=True)
         self._body_contact_id, body_names = self._contact_sensor.find_bodies(".*body", preserve_order=True)
         self._shoulder_contact_ids, shoulder_names = self._contact_sensor.find_bodies(".*shoulder", preserve_order=True)
@@ -52,81 +51,59 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._calf_contact_ids, calf_names = self._contact_sensor.find_bodies(".*calf", preserve_order=True)
         self._undesired_contact_body_ids, undesired_names = self._contact_sensor.find_bodies(".*(body|thigh|shoulder).*", preserve_order=True)
 
-        # Print contact sensor IDs and names
-        print("--------------------------------")
-        print("CONTACT IDS: ", self._contact_ids, "\nALL CONTACT NAMES: ", contact_names)
-        print("BODY CONTACT ID: ", self._body_contact_id, "\nBODY NAMES: ", body_names)
-        print("SHOULDER CONTACT IDS: ", self._shoulder_contact_ids, "\nSHOULDER NAMES: ", shoulder_names)
-        print("THIGH CONTACT IDS: ", self._thigh_contact_ids, "\nTHIGH NAMES: ", thigh_names)
-        print("calf CONTACT IDS: ", self._calf_contact_ids, "\ncalf NAMES: ", calf_names)
-        print("UNDESIRED CONTACT BODY IDS: ", self._undesired_contact_body_ids, "\nALL UNDESIRED CONTACT NAMES: ", undesired_names)
-        print()
-
-        # Add time tracking for temporal (sinusoidal) observations
+        # --- Observation & Curriculum State Trackers ---
         self._time = torch.zeros(self.num_envs, device=self.device)
-        # Store previous root linear velocity (xy) for jitter penalty
         self._prev_lin_vel = torch.zeros(self.num_envs, 2, device=self.device)
-
-        # Decimation counter (for potential future use)
         self._decimation_counter = 0
-        
-        # Policy action step counter for curriculum scheduling (never resets)
         self._policy_step = 0
         
-        # Logging - episode sums only
+        # --- Episode Reward Logging Buffers ---
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
             for key in [
                 "track_xy_lin_commands",
-                #"track_yaw_commands",
-                #"forward_progress",
-                #"lin_vel_z_l2",
-                #"ang_vel_xy_l2",
-                #"dof_torques_l2",
-                #"dof_acc_l2",
-                #"action_rate_l2",
-                #"feet_air_time",
-                #"undesired_contacts",
+                "track_yaw_commands",
                 "height_reward",
                 "velocity_jitter",
-                #"xy_acceleration_l2",
-                #"orientation_l2",
-                #"alive_bonus",
             ]
         }
 
     def _setup_scene(self) -> None:
         """Creates and configures the robot, sensors, and terrain."""
 
-        # Create robot articulation
+        # --- Robot Articulation Setup ---
+        # Instantiate robot articulation from config and add to scene
         self._robot = Articulation(self.cfg.robot)
-
-        # Add robot articulation to scene
         self.scene.articulations["robot"] = self._robot
 
-        # Create body contact sensor
+        # --- Contact Sensor Setup ---
+        # Create and register a contact sensor for all robot bodies
         self._contact_sensor = ContactSensor(self.cfg.contact_sensor)
         self.scene.sensors["contact_sensor"] = self._contact_sensor
 
-        # Create terrain
-        self.cfg.terrain.num_envs = self.scene.cfg.num_envs
+        # --- Terrain Setup ---
+        # Synchronize terrain config with number of envs and spacing, then spawn terrain
+        self.cfg.terrain.num_envs = self.scene.cfg.num_envs  # TODO: fix inefficiency: repeated assignment per scene init
         self.cfg.terrain.env_spacing = self.scene.cfg.env_spacing
         self._terrain = self.cfg.terrain.class_type(self.cfg.terrain)
 
-        # Create height scanner (add this after terrain setup)
+        # --- Height Scanner Setup ---
+        # Spawn a ray-caster sensor for terrain height measurements
         self._height_scanner = RayCaster(self.cfg.height_scanner)
         self.scene.sensors["height_scanner"] = self._height_scanner
 
-        # Clone, filter, and replicate
+        # --- Environment Cloning & Collision Filtering ---
+        # Duplicate envs, optionally without copying prim data, and disable collisions with the ground
         self.scene.clone_environments(copy_from_source=False)
         self.scene.filter_collisions(global_prim_paths=[self.cfg.terrain.prim_path])
 
-        # Add lights
+        # --- Lighting Setup ---
+        # Add a dome light to illuminate the scene
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
 
-        # ----- COMMAND DIRECTION VISUALIZATION MARKERS -----
-        # Configure an arrow marker prototype
+        # --- Visualization Markers Setup ---
+        # Instantiate and configure arrow markers for command vs actual velocity
         command_arrow_cfg = VisualizationMarkersCfg(
             prim_path="/Visuals/command_arrows",
             markers={
@@ -154,18 +131,21 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._act_marker = VisualizationMarkers(actual_arrow_cfg)
 
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
-        """Called before physics steps. Used to process and scale actions."""
+        """Prepare, scale, and clamp raw policy actions before each physics step."""
+        # --- Action cloning ---
         self._actions = actions.clone()
+
+        # --- Action scaling & clamping to joint limits ---
         self._processed_actions = torch.clamp(
-            (self.cfg.action_scale * self._actions),
+            self.cfg.action_scale * self._actions,
             self._JOINT_ANGLE_MIN,
             self._JOINT_ANGLE_MAX,
         )
 
     def _apply_action(self) -> None:
-        """Actually apply the actions to the joints."""
+        """Apply processed actions to joints, handle optional logging, and update visual markers."""
         
-        # Log raw actions to a file
+        # --- Logging (commented for later use) ---
         """
         log_dir = "/home/matteo/Desktop/Harold_V5/policy_playback_test/"
         if self._decimation_counter % 18 == 0: # Log every 18 steps
@@ -179,9 +159,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 f.write(f"{self._processed_actions.tolist()}\n") # Write tensor data only
         """
         
-        
+        # --- Send joint targets to robot ---
         self._robot.set_joint_position_target(self._processed_actions)
-        self._decimation_counter += 1 # Increment counter
+
+        # --- Decimation counter for logging/diagnostics ---
+        self._decimation_counter += 1  # Increment counter
         # ----- UPDATE ARROW MARKERS -----
         base_pos = self._height_scanner.data.pos_w  # [num_envs, 3]
         marker_idx = torch.zeros(self.num_envs, dtype=torch.int32, device=self.device)

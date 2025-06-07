@@ -62,7 +62,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
             for key in [
                 "track_xy_lin_commands",
-                "track_yaw_commands",
+                #"track_yaw_commands",
                 "height_reward",
                 "velocity_jitter",
             ]
@@ -193,16 +193,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Calculate sinusoidal values
         self._time += self.step_dt
 
-        # Create foot cycle signals with amplitude based on commanded velocity
-        gait_freq = self.cfg.gait.frequency  # Use config value
-        gait_amplitude = torch.clip(torch.abs(self._commands[:, 0]) * 4.0, 0.0, 1.0)
-        
-        # Trotting gait - diagonal pairs
-        foot_cycle_1 = gait_amplitude * torch.sin(2 * math.pi * gait_freq * self._time + 0)  # Front Left
-        foot_cycle_2 = gait_amplitude * torch.sin(2 * math.pi * gait_freq * self._time + math.pi)  # Front Right
-        foot_cycle_3 = gait_amplitude * torch.sin(2 * math.pi * gait_freq * self._time + math.pi)  # Back Left  
-        foot_cycle_4 = gait_amplitude * torch.sin(2 * math.pi * gait_freq * self._time + 0)  # Back Right
-
         obs = torch.cat(
             [
                 tensor
@@ -214,10 +204,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                     self._robot.data.joint_vel,
                     self._commands,
                     self._actions - self._robot.data.default_joint_pos
-                    #foot_cycle_1.unsqueeze(-1),
-                    #foot_cycle_2.unsqueeze(-1),
-                    #foot_cycle_3.unsqueeze(-1),
-                    #foot_cycle_4.unsqueeze(-1),
                 )
                 if tensor is not None
             ],
@@ -245,168 +231,65 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
     def _get_rewards(self) -> torch.Tensor:
 
-        """
-        # Linear velocity tracking =====================================================================================
-        """
+        
+        # ==================== LINEAR VELOCITY TRACKING ====================
+        # Calculate error between commanded and actual XY velocity
         lin_vel_error = self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]
         lin_vel_error_abs = torch.sum(torch.abs(lin_vel_error), dim=1)
-        # Use exponential reward for smoother learning, but with a more forgiving decay
-        lin_vel_reward = torch.exp(-2.0 * lin_vel_error_abs)  # Changed from -2.0 to -1.0
+        # Exponential reward for smoother learning
+        lin_vel_reward = torch.exp(-2.0 * lin_vel_error_abs)
 
-        # Add small reward for any forward movement (exploration bonus)
-        forward_vel = self._robot.data.root_lin_vel_b[:, 0]
-        # Give bigger reward for forward movement, even if not at commanded speed
-        forward_progress_reward = torch.clip(forward_vel, -0.5, 1.0)  # Increased upper limit from 0.5 to 1.0
-
-        """
-        # Yaw Rate Tracking ============================================================================================
-        """
-        yaw_error_tracking_abs = torch.abs(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
-
-        """
-        # z velocity tracking ==========================================================================================
-        """
-        z_vel_error = torch.square(self._robot.data.root_lin_vel_b[:, 2])
-
-        """
-        # angular velocity x/y =========================================================================================
-        """
-        ang_vel_error = torch.sum(torch.square(self._robot.data.root_ang_vel_b[:, :2]), dim=1)
-        
-        """
-        # Get joint torques ============================================================================================
-        """
-        joint_torques = torch.sum(torch.square(self._robot.data.applied_torque), dim=1)
-
-        """
-        # joint acceleration ===========================================================================================
-        """
-        joint_accel = torch.sum(torch.square(self._robot.data.joint_acc), dim=1)
-
-        """
-        # Get action rate ==============================================================================================
-        """
-        action_rate = torch.sum(torch.square(self._actions - self._previous_actions), dim=1)
-
-        """
-        # Get feet air time ============================================================================================
-        """
-
-        # Track how long each foot has been in the air for
-        foot_1_air_time = self._contact_sensor.data.current_air_time[:, self._calf_contact_ids[0]]
-        foot_2_air_time = self._contact_sensor.data.current_air_time[:, self._calf_contact_ids[1]]
-        foot_3_air_time = self._contact_sensor.data.current_air_time[:, self._calf_contact_ids[2]]
-        foot_4_air_time = self._contact_sensor.data.current_air_time[:, self._calf_contact_ids[3]]
-        
-        # Create foot cycle signals with amplitude based on commanded velocity
-        gait_freq = self.cfg.gait.frequency  # Use config value
-        gait_amplitude = torch.clip(torch.abs(self._commands[:, 0]) * 4.0, 0.0, 1.0)
-        
-        # Trotting gait - diagonal pairs
-        foot_cycle_1 = gait_amplitude * torch.sin(2 * math.pi * gait_freq * self._time + 0)  # Front Left
-        foot_cycle_2 = gait_amplitude * torch.sin(2 * math.pi * gait_freq * self._time + math.pi)  # Front Right
-        foot_cycle_3 = gait_amplitude * torch.sin(2 * math.pi * gait_freq * self._time + math.pi)  # Back Left  
-        foot_cycle_4 = gait_amplitude * torch.sin(2 * math.pi * gait_freq * self._time + 0)  # Back Right
-
-        # If cycle is <0 then the foot should be on the ground so target air time is 0.0
-        # If cycle is >0 then the foot should be in the air so target air time is the cycle value
-        foot_1_target_air_time = torch.where(foot_cycle_1 < 0.0, torch.zeros_like(foot_cycle_1), foot_cycle_1) # Front left 1st
-        foot_2_target_air_time = torch.where(foot_cycle_2 < 0.0, torch.zeros_like(foot_cycle_2), foot_cycle_2) # Front right 2nd
-        foot_3_target_air_time = torch.where(foot_cycle_3 < 0.0, torch.zeros_like(foot_cycle_3), foot_cycle_3) # Back left 3rd
-        foot_4_target_air_time = torch.where(foot_cycle_4 < 0.0, torch.zeros_like(foot_cycle_4), foot_cycle_4) # Back right 4th
-
-        foot_1_error = torch.abs(foot_1_target_air_time - foot_1_air_time)
-        foot_2_error = torch.abs(foot_2_target_air_time - foot_2_air_time)
-        foot_3_error = torch.abs(foot_3_target_air_time - foot_3_air_time)
-        foot_4_error = torch.abs(foot_4_target_air_time - foot_4_air_time)
-
-        # Sum of absolute errors
-        foot_error = foot_1_error + foot_2_error + foot_3_error + foot_4_error
-
-        
-        """
-        # Undersired contacts ==========================================================================================
-        """
-        net_contact_forces = self._contact_sensor.data.net_forces_w_history
-        is_contact = (
-            torch.max(torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1)[0] > self.cfg.termination.contact_force_threshold
-        )
-        contacts = torch.sum(is_contact, dim=1)
-
-        """
-        # Height Reward ================================================================================================
-        """
-        # Get height data from scanner
+        # ==================== HEIGHT MAINTENANCE ====================
+        # Get height data from scanner and compute mean height
         height_data = self._height_scanner.data.pos_w[:, 2].unsqueeze(1) - self._height_scanner.data.ray_hits_w[..., 2]
-
-        # Calculate mean height for each environment
         current_height = torch.mean(height_data, dim=1)
-
-        # Define target height and calculate error
-        target_height = self.cfg.gait.target_height  # Use config value
+        
+        # Calculate height error and convert to reward
+        target_height = self.cfg.gait.target_height
         height_error = torch.abs(current_height - target_height)
-
-        # Convert to reward using exponential form that saturates
-        # Use tanh to cap the reward so standing isn't over-rewarded
         height_reward = torch.tanh(3.0 * torch.exp(-5.0 * height_error))
 
-        
-
-
-        """
-        # XY acceleration penalty ======================================================================================
-        """
-        # Get root body xy acceleration (first 2 components of linear acceleration)
-        xy_acceleration = self._robot.data.body_acc_w[:, 0, :2]  # Shape: [num_envs, 2]
-        xy_acceleration_error = torch.sum(torch.square(xy_acceleration), dim=1)
-
-        """
-        # Body orientation (roll and pitch) ============================================================================
-        """
-        orientation_error = torch.sum(torch.square(self._robot.data.projected_gravity_b[:, :2]), dim=1)
-
-        """
-        # Velocity Jitter ==============================================================================================
-        """
-        # Compute velocity jitter penalty: angle between last and current root_xy velocity (skip if too small)
+        # ==================== VELOCITY JITTER ====================
+        # Get current and previous horizontal velocities
         curr_vel = self._robot.data.root_lin_vel_b[:, :2]
         prev_vel = self._prev_lin_vel
+
+        # Compute angle between velocity vectors
         dot = torch.sum(prev_vel * curr_vel, dim=1)
         norm_prev = torch.norm(prev_vel, dim=1)
         norm_curr = torch.norm(curr_vel, dim=1)
-        # Minimum speed threshold for applying jitter penalty (m/s)
+
+        # Filter out low-speed noise
         eps = 1e-3
         valid = (norm_prev > eps) & (norm_curr > eps)
+
+        # Compute angle between vectors (in radians)
         cos_raw = torch.where(valid, dot / (norm_prev * norm_curr + 1e-8), torch.zeros_like(dot))
         cos_val = torch.clamp(cos_raw, -1.0, 1.0)
         jitter_angle = torch.where(valid, torch.acos(cos_val), torch.zeros_like(dot))
-        # Update previous velocity for next step
+
+        # Scale jitter penalty by commanded speed
+        cmd_speed = torch.norm(self._commands[:, :2], dim=1)
+        jitter_metric = jitter_angle * cmd_speed
+
+        # Store current velocity for next iteration
         self._prev_lin_vel = curr_vel.clone()
 
-        # Use configuration values for reward weights
+        # ==================== REWARD ASSEMBLY ====================
+        # Combine all active reward components
         rewards = {
             "track_xy_lin_commands": lin_vel_reward * self.step_dt * self.cfg.rewards.track_xy_lin_commands,
-            #"track_yaw_commands": yaw_error_tracking_abs * self.step_dt * self.cfg.rewards.track_yaw_commands,
-            #"forward_progress": forward_progress_reward * self.step_dt * self.cfg.rewards.forward_progress,
-            #"lin_vel_z_l2": z_vel_error * self.step_dt * self.cfg.rewards.lin_vel_z_l2,
-            #"ang_vel_xy_l2": ang_vel_error * self.step_dt * self.cfg.rewards.ang_vel_xy_l2,
-            #"dof_torques_l2": joint_torques * self.step_dt * self.cfg.rewards.dof_torques_l2,
-            #"dof_acc_l2": joint_accel * self.step_dt * self.cfg.rewards.dof_acc_l2,
-            #"action_rate_l2": action_rate * self.step_dt * self.cfg.rewards.action_rate_l2,
-            #"feet_air_time": foot_error * self.step_dt * self.cfg.rewards.feet_air_time,
-            #"undesired_contacts": contacts * self.step_dt * self.cfg.rewards.undesired_contacts,
             "height_reward": height_reward * self.step_dt * self.cfg.rewards.height_reward,
-            #"xy_acceleration_l2": xy_acceleration_error * self.step_dt * self.cfg.rewards.xy_acceleration_l2,
-            #"orientation_l2": orientation_error * self.step_dt * self.cfg.rewards.orientation_l2,
-            "velocity_jitter": jitter_angle * self.step_dt * self.cfg.rewards.velocity_jitter,
-            #"alive_bonus": torch.ones_like(forward_vel) * self.step_dt * self.cfg.rewards.alive_bonus,
+            "velocity_jitter": jitter_metric * self.step_dt * self.cfg.rewards.velocity_jitter,
         }
         
+        # Sum all rewards
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
 
-        # Logging
+        # Update episode sums for logging
         for key, value in rewards.items():
             self._episode_sums[key] += value
+
         return reward
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
@@ -414,20 +297,33 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Terminate if episode length exceeds max episode length
         time_out = self.episode_length_buf >= self.max_episode_length - 1
 
-        # Terminate if undesired contacts are detected
+        # ==================== CONTACT CHECK ====================
+        # Get contact forces for all bodies
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
-        body_contact = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._body_contact_id], dim=-1), dim=1)[0] > self.cfg.termination.contact_force_threshold, dim=1)
-        shoulder_contact = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._shoulder_contact_ids], dim=-1), dim=1)[0] > self.cfg.termination.contact_force_threshold, dim=1)
-        thigh_contact = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._thigh_contact_ids], dim=-1), dim=1)[0] > self.cfg.termination.contact_force_threshold, dim=1)
+        
+        # Check for undesired contacts on body, shoulders, and thighs
+        body_contact = torch.any(
+            torch.max(torch.norm(net_contact_forces[:, :, self._body_contact_id], dim=-1), dim=1)[0] 
+            > self.cfg.termination.contact_force_threshold, 
+            dim=1
+        )
+        shoulder_contact = torch.any(
+            torch.max(torch.norm(net_contact_forces[:, :, self._shoulder_contact_ids], dim=-1), dim=1)[0] 
+            > self.cfg.termination.contact_force_threshold, 
+            dim=1
+        )
+        thigh_contact = torch.any(
+            torch.max(torch.norm(net_contact_forces[:, :, self._thigh_contact_ids], dim=-1), dim=1)[0] 
+            > self.cfg.termination.contact_force_threshold, 
+            dim=1
+        )
         contact_terminated = body_contact | shoulder_contact | thigh_contact
 
-        # Terminate if robot has fallen (orientation too far from upright)
-        # projected_gravity_b[:, 2] is the z component in body frame, should be close to -1 when upright
+        # ==================== ORIENTATION CHECK ====================
+        # Check if robot has fallen (z component of gravity in body frame should be close to -1 when upright)
         orientation_terminated = self._robot.data.projected_gravity_b[:, 2] > self.cfg.termination.orientation_threshold
 
-        
-
-        # Combine all termination conditions (fell-over only); keep timeout separate
+        # Combine all failure conditions
         terminated = contact_terminated | orientation_terminated
 
         return terminated, time_out

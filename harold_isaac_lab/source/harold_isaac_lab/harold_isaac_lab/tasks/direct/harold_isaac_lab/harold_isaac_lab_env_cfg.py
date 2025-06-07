@@ -16,28 +16,17 @@ from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
 class RewardsCfg:
     """Reward function weights and parameters."""
     # Reward weights
-    track_xy_lin_commands: float = 70.0
+    track_xy_lin_commands: float = 80.0 #70.0
     #track_yaw_commands: float = 0.0  # -1.0
-    velocity_jitter: float = -40.0
-    #forward_progress: float = 0.0  # 10.0
-    #lin_vel_z_l2: float = 0.0  # -2.0
-    #ang_vel_xy_l2: float = 0.0  # -0.1
-    #dof_torques_l2: float = 0.0  # -0.001
-    #dof_acc_l2: float = 0.0
-    #action_rate_l2: float = 0.0  # -0.001
-    #feet_air_time: float = 0.0  # -0.5
-    #undesired_contacts: float = 0.0  # -1.0
-    height_reward: float = 25.0 #16.0
-    #xy_acceleration_l2: float = 0.0
-    #orientation_l2: float = -80.0
-    #alive_bonus: float = 0.0  # 1.0
+    velocity_jitter: float = -80.0
+    height_reward: float = 25.0
 
 
 @configclass
 class GaitCfg:
     """Gait parameters."""
     frequency: float = 1.5  # Hz
-    target_height: float = 0.20 #0.20  # meters
+    target_height: float = 0.40 #0.20  # TODO: I think something is wrong here, the height is offset by some weird amount
 
 
 @configclass
@@ -46,7 +35,7 @@ class TerminationCfg:
     # Contact thresholds
     contact_force_threshold: float = 0.1
     # Orientation threshold (robot tilted more than 60 degrees)
-    orientation_threshold: float = -0.5
+    orientation_threshold: float = -0.5 # TODO: This is not resulting in any terminations maybe it is too forgiving.
 
 
 @configclass
@@ -59,7 +48,7 @@ class CurriculumCfg:
 @configclass
 class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
-    episode_length_s = 30.0  # This is the max episode length
+    episode_length_s = 30.0
     decimation = 18
     action_scale = 1.0
     

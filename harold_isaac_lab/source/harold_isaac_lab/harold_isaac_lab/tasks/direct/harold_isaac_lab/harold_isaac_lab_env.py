@@ -56,6 +56,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._prev_lin_vel = torch.zeros(self.num_envs, 2, device=self.device)
         self._decimation_counter = 0
         self._policy_step = 0
+        self._alpha = 0.0
         
         # --- Episode Reward Logging Buffers ---
         self._episode_sums = {
@@ -167,28 +168,39 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # ----- UPDATE ARROW MARKERS -----
         base_pos = self._height_scanner.data.pos_w  # [num_envs, 3]
         marker_idx = torch.zeros(self.num_envs, dtype=torch.int32, device=self.device)
+        
         # Commanded arrow: orientation from commanded X/Y velocity
         cmd_vel = self._commands[:, :2]
         cmd_angle = torch.atan2(cmd_vel[:, 1], cmd_vel[:, 0])
+        cmd_magnitude = torch.norm(cmd_vel, dim=1)
         marker_ori_cmd = quat_from_angle_axis(cmd_angle, torch.tensor((0.0, 0.0, 1.0), device=self.device))
         marker_pos_cmd = base_pos + torch.tensor((0.0, 0.0, 0.25), device=self.device)
-        self._cmd_marker.visualize(marker_pos_cmd, marker_ori_cmd, marker_indices=marker_idx)
+        # Create width tensor and stack to form scale (width, width, length)
+        cmd_width = torch.full_like(cmd_magnitude, 0.1)
+        cmd_scale = torch.stack([cmd_width, cmd_width, cmd_magnitude * 5.0], dim=1)
+        self._cmd_marker.visualize(marker_pos_cmd, marker_ori_cmd, marker_indices=marker_idx, scales=cmd_scale)
+        
         # Actual arrow: orientation from actual X/Y root velocity
         act_vel = self._robot.data.root_lin_vel_b[:, :2]
         act_angle = torch.atan2(act_vel[:, 1], act_vel[:, 0])
+        act_magnitude = torch.norm(act_vel, dim=1)
         marker_ori_act = quat_from_angle_axis(act_angle, torch.tensor((0.0, 0.0, 1.0), device=self.device))
         marker_pos_act = base_pos + torch.tensor((0.0, 0.0, 0.40), device=self.device)
-        self._act_marker.visualize(marker_pos_act, marker_ori_act, marker_indices=marker_idx)
+        # Create width tensor and stack to form scale (width, width, length)
+        act_width = torch.full_like(act_magnitude, 0.1)
+        act_scale = torch.stack([act_width, act_width, act_magnitude * 5.0], dim=1)
+        self._act_marker.visualize(marker_pos_act, marker_ori_act, marker_indices=marker_idx, scales=act_scale)
 
     def _get_observations(self) -> dict:
         """Gather all the relevant states for the policy's observation."""
 
         # Increment policy life-step counter (one per RL step)
         self._policy_step += 1
+        # Calculate curriculum alpha once per policy step
+        self._alpha = min(self._policy_step / self.cfg.curriculum.phase_transition_steps, 1.0)
         # Occasionally log curriculum alpha
         if self._policy_step % 10000 == 0:
-            alpha = min(self._policy_step / self.cfg.curriculum.phase_transition_steps, 1.0)
-            print(f"[Curriculum] Policy Step {self._policy_step}, alpha = {alpha:.4f}")
+            print(f"[Curriculum] Policy Step {self._policy_step}, alpha = {self._alpha:.4f}")
 
         # Calculate sinusoidal values
         self._time += self.step_dt
@@ -237,7 +249,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         lin_vel_error = self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]
         lin_vel_error_abs = torch.sum(torch.abs(lin_vel_error), dim=1)
         # Exponential reward for smoother learning
-        lin_vel_reward = torch.exp(-2.0 * lin_vel_error_abs)
+        lin_vel_reward = torch.exp(-4.0 * lin_vel_error_abs) # Was -2.0
+        # Curriculum scaling: scale linear velocity reward by alpha
+        lin_vel_reward = lin_vel_reward * self._alpha
 
         # ==================== HEIGHT MAINTENANCE ====================
         # Get height data from scanner and compute mean height
@@ -276,7 +290,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._prev_lin_vel = curr_vel.clone()
 
         # ==================== REWARD ASSEMBLY ====================
-        # Combine all active reward components
         rewards = {
             "track_xy_lin_commands": lin_vel_reward * self.step_dt * self.cfg.rewards.track_xy_lin_commands,
             "height_reward": height_reward * self.step_dt * self.cfg.rewards.height_reward,
@@ -349,9 +362,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         #self._commands[env_ids, 2] = 0.0  # Yaw rate
 
         # Curriculum-scheduled commands: sample and scale by curriculum factor
-        alpha = min(self._policy_step / self.cfg.curriculum.phase_transition_steps, 1.0)
         sampled_commands = torch.zeros_like(self._commands[env_ids]).uniform_(-1.0, 1.0)
-        self._commands[env_ids] = sampled_commands * alpha
+        self._commands[env_ids] = sampled_commands * self._alpha
 
         # Reset robot state
         joint_pos = self._robot.data.default_joint_pos[env_ids]

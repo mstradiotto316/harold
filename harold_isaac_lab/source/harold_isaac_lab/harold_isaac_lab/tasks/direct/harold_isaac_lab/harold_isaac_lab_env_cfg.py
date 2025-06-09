@@ -16,9 +16,9 @@ from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
 class RewardsCfg:
     """Reward function weights and parameters."""
     # Reward weights
-    track_xy_lin_commands: float = 80.0 #70.0
+    track_xy_lin_commands: float = 150.0 #100.0 #80.0
     #track_yaw_commands: float = 0.0  # -1.0
-    velocity_jitter: float = -80.0
+    velocity_jitter: float = -20.0 #-80.0
     height_reward: float = 25.0
 
 
@@ -42,7 +42,7 @@ class TerminationCfg:
 class CurriculumCfg:
     """Curriculum learning parameters for transitioning from standing to walking."""
     # Number of global training steps over which to ramp from standing to full exploration
-    phase_transition_steps: int = 128000
+    phase_transition_steps: int = 64000
 
 
 @configclass
@@ -71,7 +71,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
 
     # viewer configuration
     viewer = ViewerCfg(
-        eye     = (1.0, 1.0, 0.5),   # camera XYZ in metres
+        eye     = (1.0, 1.0, 0.75),   # camera XYZ in metres
         lookat = (0.0, 10.0, 0.20),  # aim at robot base
     )
 

@@ -69,6 +69,15 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             ]
         }
 
+        # ---------------------------------------------------------------------
+        # THIS IS TEMPORARY CODE TO DEBUG MEMORY LEAKS
+        # GPU memory tracking: reset peak stats at the start so that subsequent
+        # calls to ``torch.cuda.max_memory_allocated`` report usage for the
+        # current run only.
+        # ---------------------------------------------------------------------
+        if torch.cuda.is_available() and self.device.startswith("cuda"):
+            torch.cuda.reset_peak_memory_stats(device=self.device)
+
     def _setup_scene(self) -> None:
         """Creates and configures the robot, sensors, and terrain."""
 
@@ -175,9 +184,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         cmd_magnitude = torch.norm(cmd_vel, dim=1)
         marker_ori_cmd = quat_from_angle_axis(cmd_angle, torch.tensor((0.0, 0.0, 1.0), device=self.device))
         marker_pos_cmd = base_pos + torch.tensor((0.0, 0.0, 0.25), device=self.device)
-        # Create width tensor and stack to form scale (width, width, length)
-        cmd_width = torch.full_like(cmd_magnitude, 0.1)
-        cmd_scale = torch.stack([cmd_width, cmd_width, cmd_magnitude * 5.0], dim=1)
+        # Create width tensor and stack to form scale (length, width, width)
+        cmd_width = torch.full_like(cmd_magnitude, 1.0)
+        cmd_scale = torch.stack([cmd_magnitude * 5.0, cmd_width, cmd_width], dim=1)
         self._cmd_marker.visualize(marker_pos_cmd, marker_ori_cmd, marker_indices=marker_idx, scales=cmd_scale)
         
         # Actual arrow: orientation from actual X/Y root velocity
@@ -186,9 +195,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         act_magnitude = torch.norm(act_vel, dim=1)
         marker_ori_act = quat_from_angle_axis(act_angle, torch.tensor((0.0, 0.0, 1.0), device=self.device))
         marker_pos_act = base_pos + torch.tensor((0.0, 0.0, 0.40), device=self.device)
-        # Create width tensor and stack to form scale (width, width, length)
-        act_width = torch.full_like(act_magnitude, 0.1)
-        act_scale = torch.stack([act_width, act_width, act_magnitude * 5.0], dim=1)
+        # Create width tensor and stack to form scale (length, width, width)
+        act_width = torch.full_like(act_magnitude, 1.0)
+        act_scale = torch.stack([act_magnitude * 5.0, act_width, act_width], dim=1)
         self._act_marker.visualize(marker_pos_act, marker_ori_act, marker_indices=marker_idx, scales=act_scale)
 
     def _get_observations(self) -> dict:
@@ -201,6 +210,17 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Occasionally log curriculum alpha
         if self._policy_step % 10000 == 0:
             print(f"[Curriculum] Policy Step {self._policy_step}, alpha = {self._alpha:.4f}")
+
+        # ------------------------------------------------------------------
+        # THIS IS TEMPORARY CODE TO DEBUG MEMORY LEAKS
+        # Periodically print the peak GPU memory used since the last reset.
+        # This helps catch memory leaks during long training runs.
+        # ------------------------------------------------------------------
+        if torch.cuda.is_available() and self.device.startswith("cuda") and self._policy_step % 1000 == 0:
+            peak_mem_bytes = torch.cuda.max_memory_allocated(device=self.device)
+            peak_mem_gb = peak_mem_bytes / (1024 ** 3)
+            print(f"[Memory] Peak GPU memory since last reset: {peak_mem_gb:.2f} GB")
+            torch.cuda.reset_peak_memory_stats(device=self.device)
 
         # Calculate sinusoidal values
         self._time += self.step_dt
@@ -249,7 +269,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         lin_vel_error = self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]
         lin_vel_error_abs = torch.sum(torch.abs(lin_vel_error), dim=1)
         # Exponential reward for smoother learning
-        lin_vel_reward = torch.exp(-4.0 * lin_vel_error_abs) # Was -2.0
+        lin_vel_reward = torch.exp(-5.0 * lin_vel_error_abs) # Was -4.0, -2.0
         # Curriculum scaling: scale linear velocity reward by alpha
         lin_vel_reward = lin_vel_reward * self._alpha
 

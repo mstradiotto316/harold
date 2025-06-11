@@ -16,10 +16,10 @@ from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
 class RewardsCfg:
     """Reward function weights and parameters."""
     # Reward weights
-    track_xy_lin_commands: float = 150.0 #100.0 #80.0
+    track_xy_lin_commands: float = 200 #150.0 #100.0 #80.0
     #track_yaw_commands: float = 0.0  # -1.0
-    velocity_jitter: float = -20.0 #-80.0
-    height_reward: float = 25.0
+    velocity_jitter: float = -25 #-20.0 #-80.0
+    height_reward: float = 25
 
 
 @configclass

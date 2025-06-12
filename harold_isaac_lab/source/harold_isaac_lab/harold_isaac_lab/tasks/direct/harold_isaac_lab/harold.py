@@ -34,7 +34,6 @@ import os
 from pathlib import Path
 
 # Determine the project root directory
-# Method 1: Try to find the harold_isaac_lab package directory
 try:
     import harold_isaac_lab
     # Go up 5 levels from the package __init__.py to reach project root

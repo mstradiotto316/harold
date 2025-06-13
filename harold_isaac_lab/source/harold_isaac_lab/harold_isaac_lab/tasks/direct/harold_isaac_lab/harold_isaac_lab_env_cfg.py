@@ -42,7 +42,7 @@ class TerminationCfg:
 class CurriculumCfg:
     """Curriculum learning parameters for transitioning from standing to walking."""
     # Number of global training steps over which to ramp from standing to full exploration
-    phase_transition_steps: int = 124000
+    phase_transition_steps: int = 64000 #124000
 
 
 @configclass

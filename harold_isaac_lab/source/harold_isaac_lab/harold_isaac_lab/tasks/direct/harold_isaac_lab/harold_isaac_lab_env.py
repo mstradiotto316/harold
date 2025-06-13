@@ -194,7 +194,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         marker_ori_cmd = quat_from_angle_axis(cmd_angle, torch.tensor((0.0, 0.0, 1.0), device=self.device))
         marker_pos_cmd = base_pos + torch.tensor((0.0, 0.0, 0.25), device=self.device)
         # Reuse the constant width tensor to avoid per-step allocations.
-        cmd_scale = torch.stack([cmd_magnitude * 5.0, self._arrow_width, self._arrow_width], dim=1)
+        cmd_scale = torch.stack([cmd_magnitude * 2.0, self._arrow_width, self._arrow_width], dim=1)
         self._cmd_marker.visualize(marker_pos_cmd, marker_ori_cmd, marker_indices=marker_idx, scales=cmd_scale)
         
         # Actual arrow: orientation from actual X/Y root velocity
@@ -408,7 +408,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         #self._commands[env_ids, 2] = 0.0  # Yaw rate
 
         # Curriculum-scheduled commands: sample and scale by curriculum factor
-        sampled_commands = torch.zeros_like(self._commands[env_ids]).uniform_(-1.0, 1.0)
+        sampled_commands = torch.zeros_like(self._commands[env_ids]).uniform_(-0.5, 0.5)
         self._commands[env_ids] = sampled_commands * self._alpha
 
         # Reset robot state

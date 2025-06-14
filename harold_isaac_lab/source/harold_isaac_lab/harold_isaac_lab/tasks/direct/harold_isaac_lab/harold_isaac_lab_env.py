@@ -1,4 +1,5 @@
 from typing import Sequence
+import sys
 import torch
 from isaaclab.assets import Articulation
 from isaaclab.envs import DirectRLEnv
@@ -18,6 +19,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
     cfg: HaroldIsaacLabEnvCfg
 
     def __init__(self, cfg: HaroldIsaacLabEnvCfg, render_mode: str | None = None, **kwargs):
+
         super().__init__(cfg, render_mode, **kwargs)
 
         # --- Action Buffers & Initial Joint Targets ---
@@ -67,6 +69,15 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Constant width of the arrow (y and z scale components).
         self._arrow_width = torch.full((self.num_envs,), 1.0, device=self.device)
 
+        # ------------------------------------------------------------------
+        # Constant vectors used each physics step. Creating them here avoids
+        # implicit CPU → GPU copies that occur when ``torch.tensor`` is
+        # called inside the hot loop.
+        # ------------------------------------------------------------------
+        self._up_vec = torch.tensor((0.0, 0.0, 1.0), device=self.device)
+        self._arrow_offset_cmd = torch.tensor((0.0, 0.0, 0.25), device=self.device)
+        self._arrow_offset_act = torch.tensor((0.0, 0.0, 0.40), device=self.device)
+
         # --- Episode Reward Logging Buffers ---
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
@@ -77,15 +88,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 "velocity_jitter",
             ]
         }
-
-        # ---------------------------------------------------------------------
-        # THIS IS TEMPORARY CODE TO DEBUG MEMORY LEAKS
-        # GPU memory tracking: reset peak stats at the start so that subsequent
-        # calls to ``torch.cuda.max_memory_allocated`` report usage for the
-        # current run only.
-        # ---------------------------------------------------------------------
-        if torch.cuda.is_available() and self.device.startswith("cuda"):
-            torch.cuda.reset_peak_memory_stats(device=self.device)
 
     def _setup_scene(self) -> None:
         """Creates and configures the robot, sensors, and terrain."""
@@ -146,13 +148,15 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             }
         )
 
+        # Create arrow marker instances
         self._cmd_marker = VisualizationMarkers(command_arrow_cfg)
         self._act_marker = VisualizationMarkers(actual_arrow_cfg)
 
+
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         """Prepare, scale, and clamp raw policy actions before each physics step."""
-        # --- Action cloning ---
-        self._actions = actions.clone()
+        # --- Action copy ---
+        self._actions.copy_(actions)
 
         # --- Action scaling & clamping to joint limits ---
         self._processed_actions = torch.clamp(
@@ -183,16 +187,17 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         # --- Decimation counter for logging/diagnostics ---
         self._decimation_counter += 1  # Increment counter
+
         # ----- UPDATE ARROW MARKERS -----
         base_pos = self._height_scanner.data.pos_w  # [num_envs, 3]
         marker_idx = self._marker_idx
-        
+
         # Commanded arrow: orientation from commanded X/Y velocity
         cmd_vel = self._commands[:, :2]
         cmd_angle = torch.atan2(cmd_vel[:, 1], cmd_vel[:, 0])
         cmd_magnitude = torch.norm(cmd_vel, dim=1)
-        marker_ori_cmd = quat_from_angle_axis(cmd_angle, torch.tensor((0.0, 0.0, 1.0), device=self.device))
-        marker_pos_cmd = base_pos + torch.tensor((0.0, 0.0, 0.25), device=self.device)
+        marker_ori_cmd = quat_from_angle_axis(cmd_angle, self._up_vec)
+        marker_pos_cmd = base_pos + self._arrow_offset_cmd
         # Reuse the constant width tensor to avoid per-step allocations.
         cmd_scale = torch.stack([cmd_magnitude * 2.0, self._arrow_width, self._arrow_width], dim=1)
         self._cmd_marker.visualize(marker_pos_cmd, marker_ori_cmd, marker_indices=marker_idx, scales=cmd_scale)
@@ -201,8 +206,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         act_vel = self._robot.data.root_lin_vel_b[:, :2]
         act_angle = torch.atan2(act_vel[:, 1], act_vel[:, 0])
         act_magnitude = torch.norm(act_vel, dim=1)
-        marker_ori_act = quat_from_angle_axis(act_angle, torch.tensor((0.0, 0.0, 1.0), device=self.device))
-        marker_pos_act = base_pos + torch.tensor((0.0, 0.0, 0.40), device=self.device)
+        marker_ori_act = quat_from_angle_axis(act_angle, self._up_vec)
+        marker_pos_act = base_pos + self._arrow_offset_act
         # Reuse the constant width tensor to avoid per-step allocations.
         act_scale = torch.stack([act_magnitude * 5.0, self._arrow_width, self._arrow_width], dim=1)
         self._act_marker.visualize(marker_pos_act, marker_ori_act, marker_indices=marker_idx, scales=act_scale)
@@ -240,20 +245,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         observations = {"policy": obs}
 
-        # ------------------------------------------------------------------
-        # Debug check: verify that observations remain finite. If NaNs/Infs
-        # creep in, print the offending indices so we can trace the source.
-        # ------------------------------------------------------------------
-        if not torch.isfinite(obs).all():
-            bad_mask = ~torch.isfinite(obs)
-            bad_envs = torch.nonzero(torch.any(bad_mask, dim=1)).squeeze(-1)
-            print(
-                f"[NaN-DEBUG] Non-finite values detected in observations at policy step {self._policy_step}. "
-                f"Affecting envs: {bad_envs.tolist()}"
-            )
-
         # Update previous actions
-        self._previous_actions = self._actions.clone()
+        self._previous_actions.copy_(self._actions)
 
 
         # ============================ LOGGING FOR SIMULATION PLAYBACK =============================
@@ -322,7 +315,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         jitter_metric = jitter_angle * cmd_speed
 
         # Store current velocity for next iteration
-        self._prev_lin_vel = curr_vel.clone()
+        self._prev_lin_vel.copy_(curr_vel)
 
         # ==================== REWARD ASSEMBLY ====================
         rewards = {
@@ -333,17 +326,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         
         # Sum all rewards
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
-
-        # ------------------------------------------------------------------
-        # Debug check: verify that rewards are finite. This will help us pin
-        # down which component (or environment) is producing NaNs/Infs.
-        # ------------------------------------------------------------------
-        if not torch.isfinite(reward).all():
-            bad_envs = torch.nonzero(~torch.isfinite(reward)).squeeze(-1)
-            print(
-                f"[NaN-DEBUG] Non-finite reward at policy step {self._policy_step}. "
-                f"Env indices: {bad_envs.tolist()}"
-            )
 
         # Update episode sums for logging
         for key, value in rewards.items():
@@ -421,7 +403,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
 
         # Reset previous velocity for jitter penalty
-        self._prev_lin_vel[env_ids] = self._robot.data.root_lin_vel_b[env_ids, :2].clone()
+        self._prev_lin_vel[env_ids].copy_(self._robot.data.root_lin_vel_b[env_ids, :2])
 
         # Reset time for sinusoidal observation
         self._time[env_ids] = 0

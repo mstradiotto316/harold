@@ -18,7 +18,7 @@ class RewardsCfg:
     # Reward weights
     track_xy_lin_commands: float = 200 #150.0 #100.0 #80.0
     #track_yaw_commands: float = 0.0  # -1.0
-    velocity_jitter: float = -25 #-20.0 #-80.0
+    velocity_jitter: float = -35 #-25 #-20.0 #-80.0
     height_reward: float = 25
 
 
@@ -42,7 +42,7 @@ class TerminationCfg:
 class CurriculumCfg:
     """Curriculum learning parameters for transitioning from standing to walking."""
     # Number of global training steps over which to ramp from standing to full exploration
-    phase_transition_steps: int = 64000 #124000
+    phase_transition_steps: int = 16000 #64000
 
 
 @configclass
@@ -105,7 +105,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # we add a height scanner for perceptive locomotion
     height_scanner = RayCasterCfg(
         prim_path="/World/envs/env_.*/Robot/body",
-        update_period=0.02,
+        update_period=0.05,
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.0)),
         attach_yaw_only=True,
         pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=(0.25, 0.25)),
@@ -163,5 +163,8 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     ]
 
     contact_sensor: ContactSensorCfg = ContactSensorCfg(
-        prim_path="/World/envs/env_.*/Robot/.*", history_length=3, update_period=0.005, track_air_time=True
+        prim_path="/World/envs/env_.*/Robot/.*",
+        history_length=1,
+        update_period=18 * (1 / 360),   # 0.05 s, one update per policy step
+        track_air_time=True
     )

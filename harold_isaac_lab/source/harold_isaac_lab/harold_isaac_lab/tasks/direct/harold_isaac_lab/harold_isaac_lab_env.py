@@ -272,8 +272,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         lin_vel_error_abs = torch.sum(torch.abs(lin_vel_error), dim=1)
         # Exponential reward for smoother learning
         lin_vel_reward = torch.exp(-5.0 * lin_vel_error_abs) # Was -4.0, -2.0
-        # Curriculum scaling: scale linear velocity reward by alpha
-        lin_vel_reward = lin_vel_reward * self._alpha
 
         # ==================== HEIGHT MAINTENANCE ====================
         # Get height data from scanner and compute mean height (NaN-safe)
@@ -324,10 +322,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         # ==================== REWARD ASSEMBLY ====================
         rewards = {
-            "track_xy_lin_commands": lin_vel_reward * self.step_dt * self.cfg.rewards.track_xy_lin_commands,
+            "track_xy_lin_commands": lin_vel_reward * self.step_dt * self.cfg.rewards.track_xy_lin_commands * self._alpha,
             "height_reward": height_reward * self.step_dt * self.cfg.rewards.height_reward,
             "velocity_jitter": jitter_metric * self.step_dt * self.cfg.rewards.velocity_jitter,
-            "torque_penalty": joint_torques * self.step_dt * self.cfg.rewards.torque_penalty,
+            "torque_penalty": joint_torques * self.step_dt * self.cfg.rewards.torque_penalty * self._alpha,
         }
         
         # Sum all rewards

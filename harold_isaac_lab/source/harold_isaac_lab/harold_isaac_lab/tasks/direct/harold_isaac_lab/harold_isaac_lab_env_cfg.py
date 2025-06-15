@@ -20,6 +20,8 @@ class RewardsCfg:
     #track_yaw_commands: float = 0.0  # -1.0
     velocity_jitter: float = -35 #-25 #-20.0 #-80.0
     height_reward: float = 25
+    # Torque penalty (negative value): small penalty on joint effort
+    torque_penalty: float = -0.001
 
 
 @configclass

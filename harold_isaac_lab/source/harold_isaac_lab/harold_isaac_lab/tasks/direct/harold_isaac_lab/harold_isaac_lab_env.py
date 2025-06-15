@@ -86,6 +86,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 #"track_yaw_commands",
                 "height_reward",
                 "velocity_jitter",
+                "torque_penalty",
             ]
         }
 
@@ -317,15 +318,22 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Store current velocity for next iteration
         self._prev_lin_vel.copy_(curr_vel)
 
+        # ==================== TORQUE PENALTY ====================
+        # Penalize large actuator efforts to encourage energy-efficient motions.
+        joint_torques = torch.sum(torch.square(self._robot.data.applied_torque), dim=1)
+
         # ==================== REWARD ASSEMBLY ====================
         rewards = {
             "track_xy_lin_commands": lin_vel_reward * self.step_dt * self.cfg.rewards.track_xy_lin_commands,
             "height_reward": height_reward * self.step_dt * self.cfg.rewards.height_reward,
             "velocity_jitter": jitter_metric * self.step_dt * self.cfg.rewards.velocity_jitter,
+            "torque_penalty": joint_torques * self.step_dt * self.cfg.rewards.torque_penalty,
         }
         
         # Sum all rewards
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
+
+
 
         # Update episode sums for logging
         for key, value in rewards.items():

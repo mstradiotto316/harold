@@ -21,7 +21,7 @@ class RewardsCfg:
     velocity_jitter: float = -35 #-25 #-20.0 #-80.0
     height_reward: float = 25
     # Torque penalty (negative value): small penalty on joint effort
-    torque_penalty: float = -0.001
+    torque_penalty: float = -1.0 #-0.1 (Experiment 2) #-0.001 (Experiment 1)
 
 
 @configclass
@@ -44,7 +44,7 @@ class TerminationCfg:
 class CurriculumCfg:
     """Curriculum learning parameters for transitioning from standing to walking."""
     # Number of global training steps over which to ramp from standing to full exploration
-    phase_transition_steps: int = 16000 #64000
+    phase_transition_steps: int = 16000
 
 
 @configclass

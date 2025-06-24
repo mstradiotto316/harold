@@ -83,7 +83,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
             for key in [
                 "track_xy_lin_commands",
-                #"track_yaw_commands",
+                "track_yaw_commands",
                 "height_reward",
                 "velocity_jitter",
                 "torque_penalty",
@@ -273,6 +273,12 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Exponential reward for smoother learning
         lin_vel_reward = torch.exp(-5.0 * lin_vel_error_abs) # Was -4.0, -2.0
 
+        # ==================== YAW VELOCITY TRACKING ====================
+        # Calculate error between commanded and actual yaw velocity (Z angular velocity)
+        yaw_vel_error = torch.abs(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
+        # Exponential reward for smoother learning
+        yaw_vel_reward = torch.exp(-3.0 * yaw_vel_error)
+
         # ==================== HEIGHT MAINTENANCE ====================
         # Get height data from scanner and compute mean height (NaN-safe)
         pos_z = self._height_scanner.data.pos_w[:, 2].unsqueeze(1)
@@ -323,6 +329,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # ==================== REWARD ASSEMBLY ====================
         rewards = {
             "track_xy_lin_commands": lin_vel_reward * self.step_dt * self.cfg.rewards.track_xy_lin_commands * self._alpha,
+            "track_yaw_commands": yaw_vel_reward * self.step_dt * self.cfg.rewards.track_yaw_commands * self._alpha,
             "height_reward": height_reward * self.step_dt * self.cfg.rewards.height_reward,
             "velocity_jitter": jitter_metric * self.step_dt * self.cfg.rewards.velocity_jitter,
             "torque_penalty": joint_torques * self.step_dt * self.cfg.rewards.torque_penalty * self._alpha,
@@ -390,13 +397,14 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Reset action buffers
         self._actions[env_ids] = 0.0
         self._previous_actions[env_ids] = 0.0
-        
-        #self._commands[env_ids, 0] = 0.5  # X velocity
-        #self._commands[env_ids, 1] = 0.0  # Y velocity
-        #self._commands[env_ids, 2] = 0.0  # Yaw rate
 
         # Curriculum-scheduled commands: sample and scale by curriculum factor
-        sampled_commands = torch.zeros_like(self._commands[env_ids]).uniform_(-0.5, 0.5)
+        # Use different ranges for different command types
+        sampled_commands = torch.zeros_like(self._commands[env_ids])
+        # X and Y velocity commands: -0.5 to 0.5 m/s (reasonable for walking)
+        sampled_commands[:, :2].uniform_(-0.5, 0.5)
+        # Yaw rate commands set to 0 for testing (Yaw Experiment 2)
+        sampled_commands[:, 2] = 0.0
         self._commands[env_ids] = sampled_commands * self._alpha
 
         # Reset robot state

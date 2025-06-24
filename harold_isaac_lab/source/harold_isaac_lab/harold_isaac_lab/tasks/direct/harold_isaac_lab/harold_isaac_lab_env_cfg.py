@@ -17,10 +17,10 @@ class RewardsCfg:
     """Reward function weights and parameters."""
     # Reward weights
     track_xy_lin_commands: float = 200
-    #track_yaw_commands: float = 0.0  # -1.0
+    track_yaw_commands: float = 50.0  # -1.0
     velocity_jitter: float = -35 #-200 (Experiment 3) #-100 (Experiment 2) #-70 (Experiment 1) #-35 (OG)
     height_reward: float = 25
-    torque_penalty: float = -1.5 #-1.0 (Experiment 3) #-0.1 (Experiment 2) #-0.001 (Experiment 1)
+    torque_penalty: float = -2.0 #-1.5 (Experiment 4) #-1.0 (Experiment 3) #-0.1 (Experiment 2) #-0.001 (Experiment 1)
 
 
 @configclass

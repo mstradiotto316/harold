@@ -404,7 +404,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # X and Y velocity commands: -0.5 to 0.5 m/s (reasonable for walking)
         sampled_commands[:, :2].uniform_(-0.5, 0.5)
         # Yaw rate commands set to 0 for testing (Yaw Experiment 2)
-        sampled_commands[:, 2] = 0.0
+        sampled_commands[:, 2].uniform_(-0.1, 0.1)
         self._commands[env_ids] = sampled_commands * self._alpha
 
         # Reset robot state

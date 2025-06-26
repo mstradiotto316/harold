@@ -17,7 +17,7 @@ class RewardsCfg:
     """Reward function weights and parameters."""
     # Reward weights
     track_xy_lin_commands: float = 200
-    track_yaw_commands: float = 50.0  # -1.0
+    track_yaw_commands: float = 10 #50 (Yaw Experiment 1)
     velocity_jitter: float = -35 #-200 (Experiment 3) #-100 (Experiment 2) #-70 (Experiment 1) #-35 (OG)
     height_reward: float = 25
     torque_penalty: float = -2.0 #-1.5 (Experiment 4) #-1.0 (Experiment 3) #-0.1 (Experiment 2) #-0.001 (Experiment 1)
@@ -43,7 +43,7 @@ class TerminationCfg:
 class CurriculumCfg:
     """Curriculum learning parameters for transitioning from standing to walking."""
     # Number of global training steps over which to ramp from standing to full exploration
-    phase_transition_steps: int = 16000
+    phase_transition_steps: int = 64000 #16000
 
 
 @configclass

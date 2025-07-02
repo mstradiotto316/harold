@@ -3,14 +3,17 @@
 Train model:
 python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1024
 
+Resume training from checkpoint (curriculum alpha set to 1.0 for full velocity commands):
+python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 64 --checkpoint=/home/matteo/Desktop/code_projects/harold/logs/skrl/harold_direct/2025-07-02_07-13-49_ppo_torch/checkpoints/best_agent.pt
+
 Train model in headless mode with video recording:
 python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 4096 --headless --video --video_length 250 --video_interval 6400
 Start Tensorboard:
 source ~/Desktop/env_isaaclab/bin/activate
 python3 -m tensorboard.main --logdir logs/skrl/harold_direct/ --bind_all
 
-Play back trained model (BUILT IN ISAAC LAB VERSION) (NOT TESTED SINCE ISAAC SIM/LAB UPDATES)
-./isaaclab.sh -p source/standalone/workflows/skrl/play.py --task Isaac-Harold-Direct-v3 --num_envs 1 --use_last_checkpoint
+Play back trained model (specify checkpoint directly):
+python harold_isaac_lab/scripts/skrl/play.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1 --checkpoint=/home/matteo/Desktop/code_projects/harold/logs/skrl/harold_direct/2025-06-27_07-07-58_ppo_torch/checkpoints/best_agent.pt
 
 Play back trained model (MY CUSTOM VERSION)
 ./isaaclab.sh -p source/standalone/environments/run_harold_v3.py --task Isaac-Harold-Direct-v3 --num_envs 1 --use_last_checkpoint

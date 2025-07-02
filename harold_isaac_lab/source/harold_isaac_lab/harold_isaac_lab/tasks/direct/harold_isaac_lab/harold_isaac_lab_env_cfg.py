@@ -10,6 +10,47 @@ from isaaclab.envs.common import ViewerCfg
 
 from .harold import HAROLD_V4_CFG
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
+from isaaclab.terrains import TerrainGeneratorCfg
+from isaaclab.terrains.height_field import HfRandomUniformTerrainCfg, HfPyramidSlopedTerrainCfg
+from isaaclab.terrains.trimesh import MeshPlaneTerrainCfg, MeshRandomGridTerrainCfg, MeshPyramidStairsTerrainCfg
+
+
+# Custom terrain configuration for Harold - much gentler than ROUGH_TERRAINS_CFG
+HAROLD_GENTLE_TERRAINS_CFG = TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_width=20.0,
+    num_rows=10,
+    num_cols=20,
+    horizontal_scale=0.1,  # 10cm resolution
+    vertical_scale=0.005,  # 5mm height resolution - much finer than default
+    slope_threshold=0.75,
+    use_cache=False,
+    sub_terrains={
+        "flat": MeshPlaneTerrainCfg(proportion=0.4, size=(1.0, 1.0)),
+        "gentle_random": HfRandomUniformTerrainCfg(
+            proportion=0.3, 
+            noise_range=(0.01, 0.0125),  # In meters
+            noise_step=0.005,  # 5mm steps
+            border_width=0.25,
+        ),
+        "tiny_slopes": HfPyramidSlopedTerrainCfg(
+            proportion=0.2,
+            slope_range=(0.1, 0.3),  # % grade
+            platform_width=1.0,
+            border_width=0.25,
+        ),
+        # THIS IS THE PYRAMIDS STEPS
+        "micro_steps": MeshPyramidStairsTerrainCfg(
+            proportion=0.1,
+            step_height_range=(0.01, 0.05),  # In meters
+            step_width=0.3,
+            platform_width=1.0,
+            border_width=0.25,
+        ),
+    },
+    curriculum=True,
+    color_scheme="height",
+)
 
 
 @configclass
@@ -18,9 +59,9 @@ class RewardsCfg:
     # Reward weights
     track_xy_lin_commands: float = 200
     track_yaw_commands: float = 10 #50 (Yaw Experiment 1)
-    velocity_jitter: float = -35 #-200 (Experiment 3) #-100 (Experiment 2) #-70 (Experiment 1) #-35 (OG)
-    height_reward: float = 25
-    torque_penalty: float = -2.0 #-1.5 (Experiment 4) #-1.0 (Experiment 3) #-0.1 (Experiment 2) #-0.001 (Experiment 1)
+    velocity_jitter: float = -15  # Reduced from -35 to be less harsh on rough terrain
+    height_reward: float = 15     # Reduced from 25 to prevent dominance over movement
+    torque_penalty: float = -1.0  # Reduced from -2.0 to allow higher torques needed on rough terrain
 
 
 @configclass
@@ -72,8 +113,8 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
 
     # viewer configuration
     viewer = ViewerCfg(
-        eye     = (1.0, 1.0, 0.75),   # camera XYZ in metres
-        lookat = (0.0, 10.0, 0.20),  # aim at robot base
+        eye     = (-20.0, -20.0, 2.0),   # camera XYZ in metres
+        lookat = (-80.0, 20.0, 0.0),  # aim at robot base
     )
 
     # simulation
@@ -88,10 +129,13 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
             restitution=0.0,
         ),
     )
+
     
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
-        terrain_type="plane",
+        terrain_type="generator",
+        terrain_generator=HAROLD_GENTLE_TERRAINS_CFG,  # Use our custom gentle terrain
+        max_init_terrain_level=0,  # Start with easiest terrain only (level 0), will progress to harder
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
@@ -99,6 +143,10 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
             static_friction=1.0,
             dynamic_friction=1.0,
             restitution=0.0,
+        ),
+        visual_material=sim_utils.MdlFileCfg(
+            mdl_path="{NVIDIA_NUCLEUS_DIR}/Materials/Base/Architecture/Shingles_01.mdl",
+            project_uvw=True,
         ),
         debug_vis=False,
     )
@@ -114,30 +162,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
         mesh_prim_paths=["/World/ground"],
         drift_range=(0.0, 0.0),
     )
-    
-    
 
-    
-    """
-    terrain = TerrainImporterCfg(
-        prim_path="/World/ground",
-        terrain_type="generator",
-        terrain_generator=ROUGH_TERRAINS_CFG,
-        max_init_terrain_level=5, #9,
-        collision_group=-1,
-        physics_material=sim_utils.RigidBodyMaterialCfg(
-            friction_combine_mode="multiply",
-            restitution_combine_mode="multiply",
-            static_friction=1.0,
-            dynamic_friction=1.0,
-        ),
-        visual_material=sim_utils.MdlFileCfg(
-            mdl_path="{NVIDIA_NUCLEUS_DIR}/Materials/Base/Architecture/Shingles_01.mdl",
-            project_uvw=True,
-        ),
-        debug_vis=False,
-    )
-    """
     
 
     # scene

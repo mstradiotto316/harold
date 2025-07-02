@@ -59,6 +59,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._decimation_counter = 0
         self._policy_step = 0
         self._alpha = 0.0
+        self._last_terrain_level = 0  # Track current terrain difficulty level
+        self._resume_training = False  # Flag to detect if we're resuming from checkpoint
         
         # ------------------------------------------------------------------
         # Pre-allocate constant tensors to avoid per-step allocations and
@@ -86,8 +88,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 "track_yaw_commands",
                 "height_reward",
                 "velocity_jitter",
-                "torque_penalty",
-            ]
+                "torque_penalty"            ]
         }
 
     def _setup_scene(self) -> None:
@@ -219,10 +220,16 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Increment policy life-step counter (one per RL step)
         self._policy_step += 1
         # Calculate curriculum alpha once per policy step
-        self._alpha = min(self._policy_step / self.cfg.curriculum.phase_transition_steps, 1.0)
+        if not self._resume_training:
+            self._alpha = min(self._policy_step / self.cfg.curriculum.phase_transition_steps, 1.0)
+        # If resuming training, alpha stays at 1.0 (set in set_resume_training method)
+        
+        # Update terrain difficulty based on curriculum progress
+        self._update_terrain_curriculum()
+        
         # Occasionally log curriculum alpha
         if self._policy_step % 10000 == 0:
-            print(f"[Curriculum] Policy Step {self._policy_step}, alpha = {self._alpha:.4f}")
+            print(f"[Curriculum] Policy Step {self._policy_step}, alpha = {self._alpha:.4f}, terrain_level = {self._last_terrain_level}")
 
         # Calculate sinusoidal values
         self._time += self.step_dt
@@ -263,6 +270,50 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         return observations
 
+    def set_resume_training(self, resume: bool = True):
+        """Set flag to indicate we're resuming training from a checkpoint.
+        This will set curriculum alpha to 1.0 to allow full velocity commands."""
+        self._resume_training = resume
+        if resume:
+            self._alpha = 1.0
+            print(f"[Curriculum] Resume training mode enabled - setting alpha to 1.0")
+
+    def _update_terrain_curriculum(self) -> None:
+        """Update terrain difficulty based on curriculum progress."""
+        # Only update terrain curriculum if we're using generated terrain
+        if self.cfg.terrain.terrain_type != "generator":
+            return
+            
+        # Calculate target terrain level based on alpha (0 to 5, regardless of initial config)
+        max_curriculum_level = 5  # Maximum terrain difficulty we want to reach
+        target_level = int(self._alpha * max_curriculum_level)
+        
+        # Only update if terrain level has changed
+        if target_level != self._last_terrain_level:
+            # With curriculum=True in terrain generator, the curriculum is handled automatically
+            # We just need to update the terrain importer's curriculum level
+            if hasattr(self._terrain, 'cfg') and hasattr(self._terrain.cfg, 'max_init_terrain_level'):
+                # Update the effective terrain level for new environment resets
+                # This affects which terrain levels new environments spawn on
+                self._terrain.cfg.max_init_terrain_level = target_level
+                self._last_terrain_level = target_level
+                
+                print(f"[Terrain Curriculum] Updated max terrain level to {target_level}/{max_curriculum_level} (alpha={self._alpha:.3f})")
+            else:
+                # Fallback: try to use update_env_origins if available
+                if hasattr(self._terrain, 'update_env_origins'):
+                    env_ids = torch.arange(self.num_envs, device=self.device)
+                    move_up = target_level - self._last_terrain_level
+                    move_down = -move_up if move_up < 0 else 0
+                    move_up = move_up if move_up > 0 else 0
+                    
+                    try:
+                        self._terrain.update_env_origins(env_ids, move_up, move_down)
+                        self._last_terrain_level = target_level
+                        print(f"[Terrain Curriculum] Updated to level {target_level}/{max_curriculum_level} (alpha={self._alpha:.3f})")
+                    except Exception as e:
+                        print(f"[Terrain Curriculum] Warning: Could not update terrain origins: {e}")
+
     def _get_rewards(self) -> torch.Tensor:
 
         
@@ -271,7 +322,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         lin_vel_error = self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]
         lin_vel_error_abs = torch.sum(torch.abs(lin_vel_error), dim=1)
         # Exponential reward for smoother learning
-        lin_vel_reward = torch.exp(-5.0 * lin_vel_error_abs) # Was -4.0, -2.0
+        lin_vel_reward = torch.exp(-5.0 * lin_vel_error_abs)
 
         # ==================== YAW VELOCITY TRACKING ====================
         # Calculate error between commanded and actual yaw velocity (Z angular velocity)
@@ -332,7 +383,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "track_yaw_commands": yaw_vel_reward * self.step_dt * self.cfg.rewards.track_yaw_commands * self._alpha,
             "height_reward": height_reward * self.step_dt * self.cfg.rewards.height_reward,
             "velocity_jitter": jitter_metric * self.step_dt * self.cfg.rewards.velocity_jitter,
-            "torque_penalty": joint_torques * self.step_dt * self.cfg.rewards.torque_penalty * self._alpha,
+            "torque_penalty": joint_torques * self.step_dt * self.cfg.rewards.torque_penalty * self._alpha
         }
         
         # Sum all rewards
@@ -378,7 +429,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         orientation_terminated = self._robot.data.projected_gravity_b[:, 2] > self.cfg.termination.orientation_threshold
 
         # Combine all failure conditions
-        terminated = contact_terminated | orientation_terminated
+        terminated = contact_terminated #| orientation_terminated
 
         return terminated, time_out
 
@@ -411,7 +462,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         joint_pos = self._robot.data.default_joint_pos[env_ids]
         joint_vel = self._robot.data.default_joint_vel[env_ids]
         default_root_state = self._robot.data.default_root_state[env_ids]
-        default_root_state[:, :3] += self.scene.env_origins[env_ids]
+        # Use terrain origins if available, otherwise use scene origins
+        if hasattr(self._terrain, 'env_origins'):
+            default_root_state[:, :3] += self._terrain.env_origins[env_ids]
+        else:
+            default_root_state[:, :3] += self.scene.env_origins[env_ids]
         self._robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)
         self._robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)

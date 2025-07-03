@@ -29,20 +29,20 @@ HAROLD_GENTLE_TERRAINS_CFG = TerrainGeneratorCfg(
         "flat": MeshPlaneTerrainCfg(proportion=0.4, size=(1.0, 1.0)),
         "gentle_random": HfRandomUniformTerrainCfg(
             proportion=0.3, 
-            noise_range=(0.01, 0.0125),  # In meters
-            noise_step=0.005,  # 5mm steps
+            noise_range=(0.01, 0.04),  # In meters
+            noise_step=0.01,  # 5mm steps
             border_width=0.25,
         ),
         "tiny_slopes": HfPyramidSlopedTerrainCfg(
             proportion=0.2,
-            slope_range=(0.1, 0.3),  # % grade
+            slope_range=(0.1, 0.4),  # % grade 0.1
             platform_width=1.0,
             border_width=0.25,
         ),
         # THIS IS THE PYRAMIDS STEPS
         "micro_steps": MeshPyramidStairsTerrainCfg(
             proportion=0.1,
-            step_height_range=(0.01, 0.05),  # In meters
+            step_height_range=(0.01, 0.075),  # In meters
             step_width=0.3,
             platform_width=1.0,
             border_width=0.25,
@@ -114,7 +114,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # viewer configuration
     viewer = ViewerCfg(
         eye     = (-20.0, -20.0, 2.0),   # camera XYZ in metres
-        lookat = (-80.0, 20.0, 0.0),  # aim at robot base
+        lookat = (-40.0, 0.0, 0.0),  # aim at robot base
     )
 
     # simulation

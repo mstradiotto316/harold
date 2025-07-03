@@ -227,9 +227,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Update terrain difficulty based on curriculum progress
         self._update_terrain_curriculum()
         
-        # Occasionally log curriculum alpha
+        # Log curriculum progress occasionally
         if self._policy_step % 10000 == 0:
-            print(f"[Curriculum] Policy Step {self._policy_step}, alpha = {self._alpha:.4f}, terrain_level = {self._last_terrain_level}")
+            print(f"[Curriculum] Step {self._policy_step}: α={self._alpha:.3f}, terrain_level={self._last_terrain_level}")
 
         # Calculate sinusoidal values
         self._time += self.step_dt
@@ -271,8 +271,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         return observations
 
     def set_resume_training(self, resume: bool = True):
-        """Set flag to indicate we're resuming training from a checkpoint.
-        This will set curriculum alpha to 1.0 to allow full velocity commands."""
+        """Set flag to indicate we're resuming training from a checkpoint."""
         self._resume_training = resume
         if resume:
             self._alpha = 1.0
@@ -280,39 +279,23 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
     def _update_terrain_curriculum(self) -> None:
         """Update terrain difficulty based on curriculum progress."""
-        # Only update terrain curriculum if we're using generated terrain
         if self.cfg.terrain.terrain_type != "generator":
             return
             
-        # Calculate target terrain level based on alpha (0 to 5, regardless of initial config)
-        max_curriculum_level = 5  # Maximum terrain difficulty we want to reach
+        max_curriculum_level = 5
         target_level = int(self._alpha * max_curriculum_level)
         
-        # Only update if terrain level has changed
         if target_level != self._last_terrain_level:
-            # With curriculum=True in terrain generator, the curriculum is handled automatically
-            # We just need to update the terrain importer's curriculum level
-            if hasattr(self._terrain, 'cfg') and hasattr(self._terrain.cfg, 'max_init_terrain_level'):
-                # Update the effective terrain level for new environment resets
-                # This affects which terrain levels new environments spawn on
-                self._terrain.cfg.max_init_terrain_level = target_level
-                self._last_terrain_level = target_level
-                
-                print(f"[Terrain Curriculum] Updated max terrain level to {target_level}/{max_curriculum_level} (alpha={self._alpha:.3f})")
-            else:
-                # Fallback: try to use update_env_origins if available
-                if hasattr(self._terrain, 'update_env_origins'):
-                    env_ids = torch.arange(self.num_envs, device=self.device)
-                    move_up = target_level - self._last_terrain_level
-                    move_down = -move_up if move_up < 0 else 0
-                    move_up = move_up if move_up > 0 else 0
-                    
-                    try:
-                        self._terrain.update_env_origins(env_ids, move_up, move_down)
-                        self._last_terrain_level = target_level
-                        print(f"[Terrain Curriculum] Updated to level {target_level}/{max_curriculum_level} (alpha={self._alpha:.3f})")
-                    except Exception as e:
-                        print(f"[Terrain Curriculum] Warning: Could not update terrain origins: {e}")
+            # Update terrain configuration
+            self._terrain.cfg.max_init_terrain_level = target_level
+            
+            # Force all environments to reset so they spawn on new terrain levels
+            if target_level > self._last_terrain_level:
+                print(f"[Terrain Curriculum] Advancing to level {target_level}/{max_curriculum_level} - forcing reset")
+                self.reset_terminated[:] = True
+                self.reset_time_outs[:] = False
+            
+            self._last_terrain_level = target_level
 
     def _get_rewards(self) -> torch.Tensor:
 
@@ -462,11 +445,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         joint_pos = self._robot.data.default_joint_pos[env_ids]
         joint_vel = self._robot.data.default_joint_vel[env_ids]
         default_root_state = self._robot.data.default_root_state[env_ids]
+        
         # Use terrain origins if available, otherwise use scene origins
         if hasattr(self._terrain, 'env_origins'):
             default_root_state[:, :3] += self._terrain.env_origins[env_ids]
         else:
             default_root_state[:, :3] += self.scene.env_origins[env_ids]
+            
         self._robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)
         self._robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)

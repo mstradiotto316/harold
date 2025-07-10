@@ -11,11 +11,11 @@ from isaaclab.envs.common import ViewerCfg
 from .harold import HAROLD_V4_CFG
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
 from isaaclab.terrains import TerrainGeneratorCfg
-from isaaclab.terrains.height_field import HfRandomUniformTerrainCfg, HfPyramidSlopedTerrainCfg
-from isaaclab.terrains.trimesh import MeshPlaneTerrainCfg, MeshRandomGridTerrainCfg, MeshPyramidStairsTerrainCfg
+from isaaclab.terrains.height_field import HfRandomUniformTerrainCfg, HfPyramidSlopedTerrainCfg, HfInvertedPyramidSlopedTerrainCfg
+from isaaclab.terrains.trimesh import MeshPlaneTerrainCfg, MeshRandomGridTerrainCfg, MeshPyramidStairsTerrainCfg, MeshInvertedPyramidStairsTerrainCfg
 
 
-# Custom terrain configuration for Harold - much gentler than ROUGH_TERRAINS_CFG
+# Custom terrain configuration for Harold - balanced mix of upward and downward terrain
 HAROLD_GENTLE_TERRAINS_CFG = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
@@ -26,27 +26,56 @@ HAROLD_GENTLE_TERRAINS_CFG = TerrainGeneratorCfg(
     slope_threshold=0.75,
     use_cache=False,
     sub_terrains={
-        "flat": MeshPlaneTerrainCfg(proportion=0.4, size=(1.0, 1.0)),
-        "gentle_random": HfRandomUniformTerrainCfg(
-            proportion=0.3, 
-            noise_range=(0.01, 0.04),  # In meters
-            noise_step=0.01,  # 5mm steps
+        # Flat terrain for basic walking (25%)
+        "flat": MeshPlaneTerrainCfg(proportion=0.25, size=(1.0, 1.0)),
+        
+        # Curriculum-aware random rough terrain (25%) - now properly scales with curriculum
+        "easy_random": HfRandomUniformTerrainCfg(
+            proportion=0.125,  # Split random terrain into two parts
+            noise_range=(0.01, 0.04),  # Easy range: 0.5cm to 3cm noise
+            noise_step=0.01,  
             border_width=0.25,
         ),
+        "hard_random": HfRandomUniformTerrainCfg(
+            proportion=0.125,  # Split random terrain into two parts  
+            noise_range=(0.01, 0.08),  # Hard range: 8cm to 16cm noise
+            noise_step=0.01,
+            border_width=0.25,
+        ),
+        
+        # Regular pyramid slopes - robot spawns on peak, goes downhill (15%)
         "tiny_slopes": HfPyramidSlopedTerrainCfg(
-            proportion=0.2,
+            proportion=0.1,
             slope_range=(0.1, 0.4),  # % grade 0.1
             platform_width=1.0,
             border_width=0.25,
         ),
-        # THIS IS THE PYRAMIDS STEPS
+        
+        # Inverted pyramid slopes - robot spawns in valley, must climb uphill (15%)
+        "tiny_valleys": HfInvertedPyramidSlopedTerrainCfg(
+            proportion=0.1,
+            slope_range=(0.1, 0.4),  # % grade 0.1
+            platform_width=1.0,
+            border_width=0.25,
+        ),
+        
+        # Regular pyramid stairs - robot spawns on top platform, goes down steps (10%)
         "micro_steps": MeshPyramidStairsTerrainCfg(
             proportion=0.1,
-            step_height_range=(0.01, 0.075),  # In meters
+            step_height_range=(0.01, 0.1),  # In meters
             step_width=0.3,
             platform_width=1.0,
             border_width=0.25,
         ),
+        
+        # Inverted pyramid stairs - robot spawns in pit, must climb up steps (10%)
+        "micro_pits": MeshInvertedPyramidStairsTerrainCfg(
+            proportion=0.2,
+            step_height_range=(0.01, 0.1),  # In meters
+            step_width=0.3,
+            platform_width=1.0,
+            border_width=0.25,
+        )
     },
     curriculum=True,
     color_scheme="height",
@@ -114,7 +143,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # viewer configuration
     viewer = ViewerCfg(
         eye     = (-20.0, -20.0, 2.0),   # camera XYZ in metres
-        lookat = (-40.0, 0.0, 0.0),  # aim at robot base
+        lookat = (0.0, 0.0, 0.0),  # aim at robot base
     )
 
     # simulation
@@ -135,7 +164,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
         prim_path="/World/ground",
         terrain_type="generator",
         terrain_generator=HAROLD_GENTLE_TERRAINS_CFG,  # Use our custom gentle terrain
-        max_init_terrain_level=0,  # Start with easiest terrain only (level 0), will progress to harder
+        max_init_terrain_level=9,  # Enable all terrain levels (0-9) from the start for curriculum learning
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",

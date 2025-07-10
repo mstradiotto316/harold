@@ -60,7 +60,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._policy_step = 0
         self._alpha = 0.0
         self._last_terrain_level = 0  # Track current terrain difficulty level
-        self._resume_training = False  # Flag to detect if we're resuming from checkpoint
+        
+        # Track which terrain level each environment is on
+        self._env_terrain_levels = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self._curriculum_max_level = 0  # Maximum terrain level allowed by curriculum
         
         # ------------------------------------------------------------------
         # Pre-allocate constant tensors to avoid per-step allocations and
@@ -219,11 +222,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         # Increment policy life-step counter (one per RL step)
         self._policy_step += 1
-        # Calculate curriculum alpha once per policy step
-        if not self._resume_training:
-            self._alpha = min(self._policy_step / self.cfg.curriculum.phase_transition_steps, 1.0)
-        # If resuming training, alpha stays at 1.0 (set in set_resume_training method)
-        
+        # Calculate curriculum alpha based on training progress
+        self._alpha = min(self._policy_step / self.cfg.curriculum.phase_transition_steps, 1.0)
+
         # Update terrain difficulty based on curriculum progress
         self._update_terrain_curriculum()
         
@@ -270,32 +271,19 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         return observations
 
-    def set_resume_training(self, resume: bool = True):
-        """Set flag to indicate we're resuming training from a checkpoint."""
-        self._resume_training = resume
-        if resume:
-            self._alpha = 1.0
-            print(f"[Curriculum] Resume training mode enabled - setting alpha to 1.0")
-
     def _update_terrain_curriculum(self) -> None:
         """Update terrain difficulty based on curriculum progress."""
         if self.cfg.terrain.terrain_type != "generator":
             return
             
-        max_curriculum_level = 5
-        target_level = int(self._alpha * max_curriculum_level)
+        # Calculate desired maximum terrain level based on curriculum progress
+        max_terrain_level = 9
+        self._curriculum_max_level = int(self._alpha * max_terrain_level)
         
-        if target_level != self._last_terrain_level:
-            # Update terrain configuration
-            self._terrain.cfg.max_init_terrain_level = target_level
-            
-            # Force all environments to reset so they spawn on new terrain levels
-            if target_level > self._last_terrain_level:
-                print(f"[Terrain Curriculum] Advancing to level {target_level}/{max_curriculum_level} - forcing reset")
-                self.reset_terminated[:] = True
-                self.reset_time_outs[:] = False
-            
-            self._last_terrain_level = target_level
+        # Log curriculum progress
+        if self._curriculum_max_level != self._last_terrain_level:
+            print(f"[Terrain Curriculum] Curriculum now allows terrain levels 0-{self._curriculum_max_level}")
+            self._last_terrain_level = self._curriculum_max_level
 
     def _get_rewards(self) -> torch.Tensor:
 
@@ -372,8 +360,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Sum all rewards
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
 
-
-
         # Update episode sums for logging
         for key, value in rewards.items():
             self._episode_sums[key] += value
@@ -432,13 +418,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._actions[env_ids] = 0.0
         self._previous_actions[env_ids] = 0.0
 
-        # Curriculum-scheduled commands: sample and scale by curriculum factor
-        # Use different ranges for different command types
+        # Sample and scale velocity commands based on curriculum progress
         sampled_commands = torch.zeros_like(self._commands[env_ids])
         # X and Y velocity commands: -0.5 to 0.5 m/s (reasonable for walking)
         sampled_commands[:, :2].uniform_(-0.5, 0.5)
-        # Yaw rate commands set to 0 for testing (Yaw Experiment 2)
+        # Yaw rate commands: -0.1 to 0.1 rad/s
         sampled_commands[:, 2].uniform_(-0.1, 0.1)
+        # Scale by curriculum alpha: early training = small commands, later = full commands
         self._commands[env_ids] = sampled_commands * self._alpha
 
         # Reset robot state
@@ -448,7 +434,57 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         
         # Use terrain origins if available, otherwise use scene origins
         if hasattr(self._terrain, 'env_origins'):
+            # Implement curriculum-based terrain selection
+            if self.cfg.terrain.terrain_type == "generator" and hasattr(self._terrain, 'terrain_origins'):
+                # Get the terrain grid dimensions
+                num_rows = self.cfg.terrain.terrain_generator.num_rows  # 10 difficulty levels
+                num_cols = self.cfg.terrain.terrain_generator.num_cols  # 20 variations per level
+                
+                # Debug: Print terrain information once
+                if env_ids[0] == 0:  # Only print for first environment
+                    print(f"[Terrain Debug] terrain_origins shape: {self._terrain.terrain_origins.shape}")
+                    print(f"[Terrain Debug] env_origins shape: {self._terrain.env_origins.shape}")
+                    print(f"[Terrain Debug] Total terrains: {len(self._terrain.terrain_origins)}")
+                
+                # For each resetting environment, assign a terrain level based on curriculum
+                for i, env_id in enumerate(env_ids):
+                    # Convert to integer for indexing
+                    env_idx = int(env_id)
+                    
+                    # Randomly select a terrain level within curriculum limits
+                    terrain_level = torch.randint(0, self._curriculum_max_level + 1, (1,), device=self.device).item()
+                    # Randomly select a column within that terrain level
+                    terrain_col = torch.randint(0, num_cols, (1,), device=self.device).item()
+                    
+                    # Update environment's terrain level tracking
+                    self._env_terrain_levels[env_idx] = terrain_level
+                    
+                    # Set the environment origin to the selected terrain patch
+                    if hasattr(self._terrain, 'terrain_origins'):
+                        # terrain_origins has shape [num_rows, num_cols, 3]
+                        # Index it properly with [row, col] to get the 3D position
+                        self._terrain.env_origins[env_idx, :] = self._terrain.terrain_origins[terrain_level, terrain_col, :]
+            
             default_root_state[:, :3] += self._terrain.env_origins[env_ids]
+            
+            # Debug: Log spawn position changes for curriculum verification
+            if len(env_ids) == self.num_envs and self._last_terrain_level > 0:
+                sample_positions = self._terrain.env_origins[:5]  # First 5 environments
+                print(f"[Terrain Reset] Sample spawn positions (level {self._last_terrain_level}): {sample_positions[:, :2]}")
+                
+            # Additional debug: Check which terrain level each environment is on
+            if hasattr(self._terrain, 'terrain_levels'):
+                terrain_levels = self._terrain.terrain_levels[env_ids]
+                unique_levels, counts = torch.unique(terrain_levels, return_counts=True)
+                print(f"[Terrain Debug] Environment distribution across terrain levels:")
+                for level, count in zip(unique_levels.cpu().numpy(), counts.cpu().numpy()):
+                    print(f"  Level {level}: {count} environments")
+            else:
+                # Use our tracked terrain levels
+                unique_levels, counts = torch.unique(self._env_terrain_levels[env_ids], return_counts=True)
+                print(f"[Terrain Debug] Environment distribution across terrain levels (curriculum max: {self._curriculum_max_level}):")
+                for level, count in zip(unique_levels.cpu().numpy(), counts.cpu().numpy()):
+                    print(f"  Level {level}: {count} environments")
         else:
             default_root_state[:, :3] += self.scene.env_origins[env_ids]
             
@@ -495,11 +531,3 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
     def __del__(self):
         pass
-
-
-
-
-
-
-
-

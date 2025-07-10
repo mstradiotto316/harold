@@ -195,18 +195,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     if resume_path:
         print(f"[INFO] Loading model checkpoint from: {resume_path}")
         runner.agent.load(resume_path)
-        # Set resume training flag to enable full curriculum alpha
-        # Handle both wrapped and unwrapped environments
-        target_env = env
-        if hasattr(env, 'envs') and len(env.envs) > 0:
-            # SkrlVecEnvWrapper case - get the first environment
-            target_env = env.envs[0]
-        
-        if hasattr(target_env, 'unwrapped'):
-            target_env = target_env.unwrapped
-            
-        if hasattr(target_env, 'set_resume_training'):
-            target_env.set_resume_training(True)
 
     # run training
     runner.run()

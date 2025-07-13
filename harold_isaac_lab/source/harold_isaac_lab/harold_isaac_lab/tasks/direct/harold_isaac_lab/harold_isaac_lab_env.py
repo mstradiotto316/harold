@@ -280,10 +280,12 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         max_terrain_level = 9
         self._curriculum_max_level = int(self._alpha * max_terrain_level)
         
+        """
         # Log curriculum progress
         if self._curriculum_max_level != self._last_terrain_level:
             print(f"[Terrain Curriculum] Curriculum now allows terrain levels 0-{self._curriculum_max_level}")
             self._last_terrain_level = self._curriculum_max_level
+        """
 
     def _get_rewards(self) -> torch.Tensor:
 
@@ -467,6 +469,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             
             default_root_state[:, :3] += self._terrain.env_origins[env_ids]
             
+            """
+            
             # Debug: Log spawn position changes for curriculum verification
             if len(env_ids) == self.num_envs and self._last_terrain_level > 0:
                 sample_positions = self._terrain.env_origins[:5]  # First 5 environments
@@ -485,6 +489,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 print(f"[Terrain Debug] Environment distribution across terrain levels (curriculum max: {self._curriculum_max_level}):")
                 for level, count in zip(unique_levels.cpu().numpy(), counts.cpu().numpy()):
                     print(f"  Level {level}: {count} environments")
+            
+            """
         else:
             default_root_state[:, :3] += self.scene.env_origins[env_ids]
             

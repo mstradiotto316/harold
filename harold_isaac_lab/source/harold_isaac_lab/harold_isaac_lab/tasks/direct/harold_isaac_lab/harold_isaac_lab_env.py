@@ -473,6 +473,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._policy_step += 1
         # Calculate curriculum alpha based on training progress
         self._alpha = min(self._policy_step / self.cfg.curriculum.phase_transition_steps, 1.0)
+
+        # WARNING: Alpha scaling has proven to be unstable and is not used in the final version
         self._alpha = 1.0
 
         # Update terrain difficulty based on curriculum progress

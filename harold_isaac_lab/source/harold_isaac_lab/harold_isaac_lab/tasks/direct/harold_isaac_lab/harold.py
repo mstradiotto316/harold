@@ -7,10 +7,10 @@ Train model in headless mode with video recording:
 python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 4096 --headless --video --video_length 250 --video_interval 6400
 
 Resume training from checkpoint:
-python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 4096 --checkpoint=/home/matteo/Desktop/code_projects/harold/logs/skrl/harold_direct/terrain_6/checkpoints/best_agent.pt --headless --video --video_length 250 --video_interval 6400
+python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 4096 --checkpoint=/home/matteo/Desktop/code_projects/harold/logs/skrl/harold_direct/terrain_10/checkpoints/best_agent.pt --headless --video --video_length 250 --video_interval 6400
 
 Play back from checkpoint:
-python harold_isaac_lab/scripts/skrl/play.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 16 --checkpoint=/home/matteo/Desktop/code_projects/harold/logs/skrl/harold_direct/terrain_6_part_2/checkpoints/best_agent.pt 
+python harold_isaac_lab/scripts/skrl/play.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 16 --checkpoint=/home/matteo/Desktop/code_projects/harold/logs/skrl/harold_direct/terrain_10_3/checkpoints/best_agent.pt 
 
 
 Start Tensorboard:
@@ -101,7 +101,7 @@ HAROLD_V4_CFG = ArticulationCfg(
             joint_names_expr=[".*"],
             effort_limit_sim=1.0,
             stiffness=200.0, #100.0, #200.0,
-            damping=100.0,#75.0, #100.0,
+            damping=75.0,
         ),
     },
 )

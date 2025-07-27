@@ -31,9 +31,9 @@ memory:
 
 agent:
   class: PPO
-  rollouts: 32               # keep 32-step horizon for GAE; 32×4096≈131k samples/update
+  rollouts: 24               # (recently changed from 32) keep 32-step horizon for GAE; 32×4096≈131k samples/update
   learning_epochs: 5         # increased for more passes per rollout
-  mini_batches: 16           # keeps ~8k samples/mini-batch (same as original)
+  mini_batches: 4            # (recently changed from 16) keeps ~8k samples/mini-batch (same as original)
   discount_factor: 0.99      # gamma
   lambda: 0.95               # tau
   learning_rate: 1.0e-3      # higher LR for faster initial convergence
@@ -50,7 +50,7 @@ agent:
   ratio_clip: 0.2            # e_clip
   value_clip: 0.2            # clip_value
   clip_predicted_values: True
-  entropy_loss_scale: 0.005  # lower entropy bonus for more exploration early
+  entropy_loss_scale: 0.005  # (Maybe we can try 0.01 for more exploration early?)
   value_loss_scale: 1.0      # stronger critic weight for stable learning
   kl_threshold: 0.0         # disable early-stop for policy updates
   rewards_shaper_scale: 0.6  # increase reward shaping scale
@@ -63,6 +63,6 @@ agent:
 
 trainer:
   class: SequentialTrainer
-  timesteps: 128000 #512000          # horizon_length * max_epochs (128 * 1000)
+  timesteps: 128000          # horizon_length * max_epochs (128 * 1000)
   environment_info: log
 

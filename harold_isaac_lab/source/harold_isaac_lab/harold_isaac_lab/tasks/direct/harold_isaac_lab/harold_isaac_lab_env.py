@@ -118,12 +118,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Get undesired contact bodies (body, thighs, shoulders should not touch ground)
         self._undesired_contact_body_ids, _ = self._contact_sensor.find_bodies(".*(body|thigh|shoulder)")
 
-        # --- Observation & Curriculum State Trackers ---
+        # --- Observation & State Trackers ---
         self._time = torch.zeros(self.num_envs, device=self.device)
         self._prev_lin_vel = torch.zeros(self.num_envs, 2, device=self.device)
         self._decimation_counter = 0
-        self._policy_step = 0
-        self._alpha = 0.0
         self._last_terrain_level = 0  # Track current terrain difficulty level
         
         # Track which terrain level each environment is on
@@ -469,21 +467,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             stable quadruped locomotion while maintaining manageable dimensionality.
         """
 
-        # Increment policy life-step counter (one per RL step)
-        self._policy_step += 1
-        # Calculate curriculum alpha based on training progress
-        self._alpha = min(self._policy_step / self.cfg.curriculum.phase_transition_steps, 1.0)
-
-        # WARNING: Alpha scaling has proven to be unstable and is not used in the final version
-        self._alpha = 1.0
-
         # Update terrain difficulty based on curriculum progress
         self._update_terrain_curriculum()
         
-        # Log curriculum progress occasionally
-        if self._policy_step % 10000 == 0:
-            print(f"[Curriculum] Step {self._policy_step}: α={self._alpha:.3f}, terrain_level={self._last_terrain_level}")
-
         # Update temporal state for time-based observations
         self._time += self.step_dt
 
@@ -577,17 +563,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         return observations
 
     def _update_terrain_curriculum(self) -> None:
-        """Update maximum allowed terrain difficulty based on training progress.
+        """Update maximum allowed terrain difficulty.
         
-        Implements progressive terrain curriculum where difficulty increases linearly
-        with training progress (α). Early training uses easier terrains, gradually
-        introducing more challenging obstacles as the policy improves.
+        Uses full terrain difficulty range from the start of training for
+        consistent environment distribution. No progressive curriculum.
         
-        Curriculum Progression:
-            - α = 0.0 (start): Only level 0 terrains (flat/easy)
-            - α = 0.5 (mid): Up to level 4 terrains (moderate slopes/obstacles)
-            - α = 1.0 (end): All 10 terrain levels (maximum difficulty)
-            
         Terrain Levels (0-9):
             - 0-1: Flat terrain and minimal noise
             - 2-4: Small slopes and random roughness
@@ -595,15 +575,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             - 8-9: Maximum difficulty with complex geometry
             
         Only applies to procedurally generated terrains. Static/imported
-        terrains ignore curriculum progression.
+        terrains ignore this setting.
         """
         if self.cfg.terrain.terrain_type != "generator":
             return
             
-        # Calculate desired maximum terrain level based on curriculum progress
-        max_terrain_level = 9
-        self._curriculum_max_level = int(self._alpha * max_terrain_level)
-
+        # Use full terrain difficulty range (no curriculum progression)
+        self._curriculum_max_level = 9
 
     def _get_rewards(self) -> torch.Tensor:
         """Compute multi-component reward signal for reinforcement learning.
@@ -648,8 +626,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
            - Prevents aggressive actuator usage
            
         6. Feet Air Time Reward:
-           - Rewards proper stepping patterns (0.3s optimal air time)
-           - Based on Anymal-C research for small quadrupeds
+           - Rewards proper stepping patterns (0.15s optimal air time for 40cm robot)
+           - Uses exponential reward curve to encourage stepping instead of penalizing
            - Only active when moving (|v_cmd| > 0.03 m/s)
            - Reduces sliding and shuffling behaviors
            
@@ -663,7 +641,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # VERY AGGRESSIVE: Much steeper punishment curve - only high accuracy gets meaningful reward
         lin_vel_error = torch.sum(torch.square(self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]), dim=1)
         # Square the error for even steeper punishment, then use very small normalization factor
-        lin_vel_reward = torch.exp(-torch.square(lin_vel_error) / 0.0005) #0.001
+        lin_vel_reward = torch.exp(-torch.square(lin_vel_error) / 0.0001) #0.0001 #0.00025 #0.0005 #0.001
 
         # ==================== YAW VELOCITY TRACKING ====================
         # AGGRESSIVE: Much more punishment for sitting still (0.05 vs 0.25 normalization)
@@ -718,22 +696,24 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         joint_torques = torch.sum(torch.square(self._robot.data.applied_torque), dim=1)
 
         # ==================== FEET AIR TIME REWARD ====================
-        # Reward proper stepping patterns to reduce sliding and shuffling (Anymal-C approach)
+        # Reward proper stepping patterns to reduce sliding and shuffling (Fixed implementation)
         first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._feet_ids]
         last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
-        # Reward feet that achieve optimal air time (0.3 seconds for small robot) when they land
-        # Smaller robots have faster gaits and shorter air times than large robots
-        air_time_reward = torch.sum((last_air_time - 0.3) * first_contact, dim=1) * (
+        # Reward feet that achieve optimal air time (0.15 seconds for 40cm robot) when they land
+        # Uses exponential reward curve to encourage proper stepping patterns instead of penalizing them
+        optimal_air_time = 0.15  # Appropriate for Harold's 40cm scale (was 0.3s - too long)
+        air_time_error = torch.abs(last_air_time - optimal_air_time)
+        air_time_reward = torch.sum(torch.exp(-air_time_error * 10.0) * first_contact, dim=1) * (
             torch.norm(self._commands[:, :2], dim=1) > 0.03  # Only when moving (reduced threshold for smaller velocities)
         )
 
         # ==================== REWARD ASSEMBLY ====================
         rewards = {
-            "track_xy_lin_commands": lin_vel_reward * self.step_dt * self.cfg.rewards.track_xy_lin_commands * self._alpha,
-            "track_yaw_commands": yaw_vel_reward * self.step_dt * self.cfg.rewards.track_yaw_commands * self._alpha,
+            "track_xy_lin_commands": lin_vel_reward * self.step_dt * self.cfg.rewards.track_xy_lin_commands,
+            "track_yaw_commands": yaw_vel_reward * self.step_dt * self.cfg.rewards.track_yaw_commands,
             "height_reward": height_reward * self.step_dt * self.cfg.rewards.height_reward,
             "velocity_jitter": jitter_metric * self.step_dt * self.cfg.rewards.velocity_jitter,
-            "torque_penalty": joint_torques * self.step_dt * self.cfg.rewards.torque_penalty * self._alpha,
+            "torque_penalty": joint_torques * self.step_dt * self.cfg.rewards.torque_penalty,
             "feet_air_time_reward": air_time_reward * self.step_dt * self.cfg.rewards.feet_air_time
         }
         
@@ -878,14 +858,14 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._actions[env_ids] = 0.0
         self._previous_actions[env_ids] = 0.0
 
-        # Sample and scale velocity commands based on curriculum progress
+        # Sample velocity commands for reset environments
         sampled_commands = torch.zeros_like(self._commands[env_ids])
         # X and Y velocity commands: -0.3 to 0.3 m/s (appropriate for 40cm robot = 0.75 body lengths/sec)
         sampled_commands[:, :2].uniform_(-0.3, 0.3)
         # Yaw rate commands: -0.2 to 0.2 rad/s (increased for better turning agility on small robot)
         sampled_commands[:, 2].uniform_(-0.2, 0.2)
-        # Scale by curriculum alpha: early training = small commands, later = full commands
-        self._commands[env_ids] = sampled_commands * self._alpha
+        # Use full command range (no curriculum scaling)
+        self._commands[env_ids] = sampled_commands
 
         # Reset robot state
         joint_pos = self._robot.data.default_joint_pos[env_ids]

@@ -121,8 +121,8 @@ class RewardsCfg:
                                        # Critical for stable locomotion
                                        
     feet_air_time: float = 300.0        # Proper gait reward (HIGH PRIORITY)
-                                       # Rewards 0.3s optimal air time per foot
-                                       # Based on Anymal-C research for small robots
+                                       # Rewards 0.15s optimal air time per foot (fixed for Harold's scale)
+                                       # Uses exponential reward curve to encourage stepping
                                        # Only active when moving (|v_cmd| > 0.03 m/s)
     
     # === SECONDARY OBJECTIVES AND PENALTIES (Negative Rewards) ===
@@ -131,7 +131,7 @@ class RewardsCfg:
                                        # Computes angle between consecutive velocity vectors
                                        # Scaled by commanded speed for proportional penalty
                                        
-    torque_penalty: float = -3          # Energy efficiency penalty (LOW PENALTY)
+    torque_penalty: float = -1.5        # Energy efficiency penalty (LOW PENALTY)
                                        # Quadratic penalty: sum(torque²)
                                        # Encourages smooth, low-power movements
                                        # Scaled by curriculum α (less penalty early training)
@@ -155,7 +155,7 @@ class GaitCfg:
                                 # Harold: 2.0Hz (smaller robots step faster)
                                 # ANYmal: 1.5Hz, Spot: 1.2Hz (larger robots slower)
                                 # Scaling relationship: f ∝ 1/√(leg_length)
-                                # Used in feet_air_time reward for optimal 0.3s air time
+                                # Used in feet_air_time reward for optimal 0.15s air time
                                 
     target_height: float = 0.18  # m - Desired body height above terrain surface
                                 # Harold: 18cm (natural standing height)

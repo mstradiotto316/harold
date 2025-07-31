@@ -120,7 +120,7 @@ class RewardsCfg:
                                        # Maintains ~18cm target height above terrain
                                        # Critical for stable locomotion
                                        
-    feet_air_time: float = 3000.0        # Proper gait reward (HIGH PRIORITY)
+    feet_air_time: float = 1500 #3000   # Proper gait reward (HIGH PRIORITY)
                                        # Rewards 0.15s optimal air time per foot (fixed for Harold's scale)
                                        # Uses exponential reward curve to encourage stepping
                                        # Only active when moving (|v_cmd| > 0.03 m/s)

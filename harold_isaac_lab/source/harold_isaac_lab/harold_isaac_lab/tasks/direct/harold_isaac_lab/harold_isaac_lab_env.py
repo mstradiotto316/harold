@@ -701,9 +701,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
         # Reward feet that achieve optimal air time (0.15 seconds for 40cm robot) when they land
         # Uses exponential reward curve to encourage proper stepping patterns instead of penalizing them
-        optimal_air_time = 1.0 #0.15  # Appropriate for Harold's 40cm scale (was 0.3s - too long)
+        optimal_air_time = 0.5 #0.15  # Appropriate for Harold's 40cm scale (was 0.3s - too long)
         air_time_error = torch.abs(last_air_time - optimal_air_time)
-        air_time_reward = torch.sum(torch.exp(-air_time_error * 3.0) * first_contact, dim=1) * ( #3.0 #10.0
+        air_time_reward = torch.sum(torch.exp(-air_time_error * 10.0) * first_contact, dim=1) * ( #3.0 #10.0
             torch.norm(self._commands[:, :2], dim=1) > 0.03  # Only when moving (reduced threshold for smaller velocities)
         )
 

@@ -46,7 +46,7 @@ HAROLD_GENTLE_TERRAINS_CFG = TerrainGeneratorCfg(
         # Regular pyramid slopes - robot spawns on peak, goes downhill (15%)
         "tiny_slopes": HfPyramidSlopedTerrainCfg(
             proportion=0.1,
-            slope_range=(0.1, 0.4),  # % grade 0.1
+            slope_range=(0.1, 0.3),  # % grade 0.1
             platform_width=1.0,
             border_width=0.25,
         ),
@@ -54,7 +54,7 @@ HAROLD_GENTLE_TERRAINS_CFG = TerrainGeneratorCfg(
         # Inverted pyramid slopes - robot spawns in valley, must climb uphill (15%)
         "tiny_valleys": HfInvertedPyramidSlopedTerrainCfg(
             proportion=0.1,
-            slope_range=(0.1, 0.4),  # % grade 0.1
+            slope_range=(0.1, 0.3),  # % grade 0.1
             platform_width=1.0,
             border_width=0.25,
         ),

@@ -703,8 +703,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Uses exponential reward curve to encourage proper stepping patterns instead of penalizing them
         optimal_air_time = 0.25 #0.5 #0.15  # Appropriate for Harold's 40cm scale (was 0.3s - too long)
         air_time_error = torch.abs(last_air_time - optimal_air_time)
+        # Gate the reward on actual robot speed instead of commanded speed
+        actual_speed = torch.norm(curr_vel, dim=1)
         air_time_reward = torch.sum(torch.exp(-air_time_error * 10.0) * first_contact, dim=1) * ( #3.0 #10.0
-            torch.norm(self._commands[:, :2], dim=1) > 0.03  # Only when moving (reduced threshold for smaller velocities)
+            actual_speed > 0.05  # was: torch.norm(self._commands[:, :2], dim=1) > 0.03
         )
 
         # ==================== REWARD ASSEMBLY ====================

@@ -17,13 +17,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
     """Reinforcement Learning Environment for Harold Quadruped Robot.
     
     This class implements a sophisticated RL training environment for a 12-DOF quadruped robot
-    with curriculum learning, multi-terrain support, and comprehensive reward shaping. The
+    with multi-terrain support and comprehensive reward shaping. The
     environment features progressive terrain difficulty scaling, velocity command tracking,
     and energy-efficient locomotion rewards.
     
     Key Features:
         - 12-DOF quadruped with 3 joints per leg (shoulder, thigh, calf)
-        - Curriculum learning with terrain difficulty progression
+        - Multi-terrain training with various difficulty levels
         - Multi-component reward system (velocity tracking, height maintenance, energy efficiency)
         - Contact-based termination and gait analysis
         - Real-time visualization with velocity command/actual arrows
@@ -46,7 +46,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
     def __init__(self, cfg: HaroldIsaacLabEnvCfg, render_mode: str | None = None, **kwargs):
         """Initialize the Harold RL environment with configuration and state buffers.
         
-        Sets up action/observation buffers, joint limits, contact sensors, terrain curriculum,
+        Sets up action/observation buffers, joint limits, contact sensors, terrain,
         and visualization markers. Initializes reward tracking and debugging outputs.
         
         Args:
@@ -126,7 +126,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         
         # Track which terrain level each environment is on
         self._env_terrain_levels = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-        self._curriculum_max_level = 0  # Maximum terrain level allowed by curriculum
         
         # ------------------------------------------------------------------
         # Pre-allocate constant tensors to avoid per-step allocations and
@@ -440,7 +439,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         
         Assembles robot state, sensor data, and command information into a structured
         observation that enables the policy to perform locomotion control. Updates
-        curriculum progress and terrain difficulty based on training step count.
+        terrain difficulty for each environment.
         
         Returns:
             Dict with 'policy' key containing 48D observation tensor:
@@ -452,13 +451,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 - commands (3): Velocity commands [vx, vy, yaw_rate]
                 - actions - default (12): Previous actions relative to neutral pose
                 
-        Curriculum Management:
-            - Updates terrain difficulty based on training progress
-            - Scales command magnitudes during early training
-            - Logs curriculum status every 10k steps
-            
         State Tracking:
-            - Increments policy step counter for curriculum
+            - Increments policy step counter for tracking
             - Updates time buffer for temporal observations
             - Stores previous actions for next observation
             
@@ -467,8 +461,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             stable quadruped locomotion while maintaining manageable dimensionality.
         """
 
-        # Update terrain difficulty based on curriculum progress
-        self._update_terrain_curriculum()
         
         # Update temporal state for time-based observations
         self._time += self.step_dt
@@ -510,7 +502,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # 6. Velocity Commands (3D) - [vx_cmd, vy_cmd, yaw_rate_cmd]
         #    - Target velocities for tracking objectives
         #    - Provides policy with explicit task specification
-        #    - Scaled by curriculum α during training
         #    - Directly used in reward function calculations
         #
         # 7. Previous Actions Relative to Default (12D) - [a_prev - q_default] [rad]
@@ -562,26 +553,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         return observations
 
-    def _update_terrain_curriculum(self) -> None:
-        """Update maximum allowed terrain difficulty.
-        
-        Uses full terrain difficulty range from the start of training for
-        consistent environment distribution. No progressive curriculum.
-        
-        Terrain Levels (0-9):
-            - 0-1: Flat terrain and minimal noise
-            - 2-4: Small slopes and random roughness
-            - 5-7: Steeper slopes and larger obstacles  
-            - 8-9: Maximum difficulty with complex geometry
-            
-        Only applies to procedurally generated terrains. Static/imported
-        terrains ignore this setting.
-        """
-        if self.cfg.terrain.terrain_type != "generator":
-            return
-            
-        # Use full terrain difficulty range (no curriculum progression)
-        self._curriculum_max_level = 9
 
     def _get_rewards(self) -> torch.Tensor:
         """Compute multi-component reward signal for reinforcement learning.
@@ -599,13 +570,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
            - Exponential reward for matching commanded X/Y velocities
            - Very steep penalty curve: exp(-error²/0.0005) 
            - Only high accuracy receives meaningful reward
-           - Scaled by curriculum α and step time
            
         2. Yaw Velocity Tracking (Aggressive):
            - Exponential reward for matching commanded yaw rate
            - Steep penalty: exp(-error²/0.05)
            - Prevents stationary spinning behaviors
-           - Scaled by curriculum α and step time
            
         3. Height Maintenance:
            - Maintains target height above terrain using ray-casting
@@ -622,7 +591,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         5. Torque Penalty:
            - Quadratic penalty on joint torques: sum(torque²)
            - Encourages energy-efficient movements
-           - Scaled by curriculum α (less penalty early in training)
            - Prevents aggressive actuator usage
            
         6. Feet Air Time Reward:
@@ -634,7 +602,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         Mathematical Formulation:
            Total = Σ(component_value * weight * scale_factor * dt)
            
-        Where scale_factor includes curriculum α for progressive training.
         """
         
         # ==================== LINEAR VELOCITY TRACKING ====================
@@ -800,10 +767,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         return terminated, time_out
 
     def _reset_idx(self, env_ids: Sequence[int] | None = None) -> None:
-        """Reset specified environments to initial state with curriculum-based terrain selection.
+        """Reset specified environments to initial state with terrain selection.
         
         Resets robot pose, joint states, command generation, and terrain assignment based
-        on current curriculum progress. Implements sophisticated terrain curriculum where
+        Implements sophisticated terrain system where
         environments are assigned progressively harder terrain patches during training.
         
         Args:
@@ -820,10 +787,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         2. Command Generation:
            - X/Y velocity: Uniform random [-0.3, 0.3] m/s
            - Yaw rate: Uniform random [-0.2, 0.2] rad/s
-           - Scaled by curriculum α (smaller commands early in training)
            
-        3. Terrain Curriculum Assignment:
-           - Select terrain level based on curriculum progress
+        3. Terrain Assignment:
+           - Select terrain level randomly from available levels
            - Random terrain within allowed difficulty range
            - Update environment-specific terrain tracking
            - Set spawn position to selected terrain patch
@@ -837,13 +803,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         5. Logging and Analytics:
            - Episode reward summaries (normalized by episode length)
            - Termination reason categorization
-           - Curriculum progress tracking
+           - Training progress tracking
            
         Terrain Grid Structure:
-           - 10 difficulty levels (rows) × 20 variations (columns)
            - Level 0: Flat terrain, Level 9: Maximum difficulty
-           - Curriculum controls maximum accessible level
-           - Random selection within curriculum bounds
+           - Random selection from all terrain levels
            
         Performance Optimizations:
            - Batch processing of multiple environment resets
@@ -870,7 +834,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         sampled_commands[:, :2].uniform_(-0.3, 0.3)
         # Yaw rate commands: -0.2 to 0.2 rad/s (increased for better turning agility on small robot)
         sampled_commands[:, 2].uniform_(-0.2, 0.2)
-        # Use full command range (no curriculum scaling)
+        # Use full command range
         self._commands[env_ids] = sampled_commands
 
         # Reset robot state
@@ -880,7 +844,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         
         # Use terrain origins if available, otherwise use scene origins
         if hasattr(self._terrain, 'env_origins'):
-            # Implement curriculum-based terrain selection
+            # Implement terrain selection
             if self.cfg.terrain.terrain_type == "generator" and hasattr(self._terrain, 'terrain_origins'):
                 # Get the terrain grid dimensions
                 num_rows = self.cfg.terrain.terrain_generator.num_rows  # 10 difficulty levels
@@ -893,13 +857,14 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 #    print(f"[Terrain Debug] env_origins shape: {self._terrain.env_origins.shape}")
                 #    print(f"[Terrain Debug] Total terrains: {len(self._terrain.terrain_origins)}")
                 
-                # For each resetting environment, assign a terrain level based on curriculum
+                # For each resetting environment, assign a terrain level randomly
                 for i, env_id in enumerate(env_ids):
                     # Convert to integer for indexing
                     env_idx = int(env_id)
                     
-                    # Randomly select a terrain level within curriculum limits
-                    terrain_level = torch.randint(0, self._curriculum_max_level + 1, (1,), device=self.device).item()
+                    # Randomly select a terrain level from all available levels
+                    num_rows = self.cfg.terrain.terrain_generator.num_rows  # 10 difficulty levels
+                    terrain_level = torch.randint(0, num_rows, (1,), device=self.device).item()
                     # Randomly select a column within that terrain level
                     terrain_col = torch.randint(0, num_cols, (1,), device=self.device).item()
                     

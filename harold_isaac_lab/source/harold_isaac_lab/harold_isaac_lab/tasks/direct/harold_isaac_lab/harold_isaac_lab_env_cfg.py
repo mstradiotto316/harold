@@ -29,7 +29,7 @@ HAROLD_GENTLE_TERRAINS_CFG = TerrainGeneratorCfg(
         # Flat terrain for basic walking (25%)
         "flat": MeshPlaneTerrainCfg(proportion=0.25, size=(1.0, 1.0)),
         
-        # Curriculum-aware random rough terrain (25%) - now properly scales with curriculum
+        # Random rough terrain (25%)
         "easy_random": HfRandomUniformTerrainCfg(
             proportion=0.125,  # Split random terrain into two parts
             noise_range=(0.01, 0.04),  # Easy range: 0.5cm to 3cm noise
@@ -93,9 +93,7 @@ class RewardsCfg:
     - Energy efficiency: Encourages smooth, low-power movements  
     - Gait quality: Promotes proper stepping patterns
     - Stability: Maintains upright posture and consistent height
-    
-    All weights are scaled by step time (dt) and may include curriculum scaling (α).
-    
+        
     Weight Magnitudes:
     - track_xy_lin_commands: 600 (highest priority - locomotion objective)
     - feet_air_time: 300 (high priority - proper gait patterns)
@@ -108,12 +106,10 @@ class RewardsCfg:
     track_xy_lin_commands: float = 600   # Linear velocity tracking weight (HIGHEST PRIORITY)
                                         # Aggressive exponential reward: exp(-error²/0.0005)
                                         # Only high accuracy gets meaningful reward
-                                        # Scaled by curriculum α and step time dt
                                         
     track_yaw_commands: float = 20      # Yaw velocity tracking weight (MEDIUM PRIORITY)  
                                        # Exponential reward: exp(-error²/0.05)
                                        # Enables turning and orientation control
-                                       # Scaled by curriculum α and step time dt
                                        
     height_reward: float = 15           # Height maintenance reward (STABILITY)
                                        # Tanh-based: tanh(3*exp(-5*|height_error|))
@@ -134,7 +130,6 @@ class RewardsCfg:
     torque_penalty: float = -1.5        # Energy efficiency penalty (LOW PENALTY)
                                        # Quadratic penalty: sum(torque²)
                                        # Encourages smooth, low-power movements
-                                       # Scaled by curriculum α (less penalty early training)
 
 
 @configclass
@@ -203,46 +198,6 @@ class TerminationCfg:
                                                    # TODO: Currently disabled - may be too permissive
                                                    # Consider lowering to -0.7 for stricter control
 
-
-@configclass
-class CurriculumCfg:
-    """Curriculum learning configuration for progressive training.
-    
-    Implements a curriculum learning approach where training difficulty increases
-    gradually over time. Early training focuses on basic stability and simple
-    movements, while later training introduces complex terrain and full velocity ranges.
-    
-    The curriculum affects:
-    - Terrain difficulty (easier terrains early, all terrains later)
-    - Command magnitudes (smaller velocities early, full range later)
-    - Reward scaling (some components scale with curriculum progress)
-    
-    Training Phases:
-    - α = 0.0-0.3: Basic stability on flat terrain, small commands
-    - α = 0.3-0.7: Moderate terrain difficulty, medium velocity commands  
-    - α = 0.7-1.0: Full terrain complexity, maximum velocity range
-    
-    Benefits:
-    - Prevents early training collapse from overly difficult conditions
-    - Enables learning of fundamental skills before advanced behaviors
-    - Improves final policy robustness and training efficiency
-    """
-    # === CURRICULUM PROGRESSION TIMING ===
-    phase_transition_steps: int = 128000    # Total training steps for curriculum completion
-                                           # Controls α progression: 0.0 → 1.0 over 128k steps
-                                           # 
-                                           # Timeline breakdown:
-                                           # α = 0.0-0.3 (0-38k steps): Basic stability, flat terrain
-                                           # α = 0.3-0.7 (38k-90k steps): Moderate terrain, medium commands
-                                           # α = 0.7-1.0 (90k-128k steps): Full complexity
-                                           # 
-                                           # Training time: ~2-4 hours depending on hardware
-                                           # Empirically tuned - previous values too aggressive:
-                                           #   16k steps: Too fast, training instability
-                                           #   64k steps: Better but still rushed
-                                           #   128k steps: Optimal balance of speed vs stability
-
-
 @configclass
 class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
@@ -263,9 +218,6 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     
     # Termination configuration
     termination = TerminationCfg()
-
-    # Curriculum configuration
-    curriculum: CurriculumCfg = CurriculumCfg()
 
     # viewer configuration
     viewer = ViewerCfg(
@@ -291,7 +243,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
         prim_path="/World/ground",
         terrain_type="generator",
         terrain_generator=HAROLD_GENTLE_TERRAINS_CFG,  # Use our custom gentle terrain
-        max_init_terrain_level=9,  # Enable all terrain levels (0-9) from the start for curriculum learning
+        max_init_terrain_level=9,  # Enable all terrain levels (0-9)
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",

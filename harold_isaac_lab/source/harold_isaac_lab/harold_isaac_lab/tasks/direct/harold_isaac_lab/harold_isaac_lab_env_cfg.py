@@ -107,7 +107,7 @@ class RewardsCfg:
                                         # Aggressive exponential reward: exp(-error²/0.0005)
                                         # Only high accuracy gets meaningful reward
                                         
-    track_yaw_commands: float = 20      # Yaw velocity tracking weight (MEDIUM PRIORITY)  
+    track_yaw_commands: float = 80 #20      # Yaw velocity tracking weight (MEDIUM PRIORITY)  
                                        # Exponential reward: exp(-error²/0.05)
                                        # Enables turning and orientation control
                                        
@@ -127,7 +127,7 @@ class RewardsCfg:
                                        # Computes angle between consecutive velocity vectors
                                        # Scaled by commanded speed for proportional penalty
                                        
-    torque_penalty: float = -1.5        # Energy efficiency penalty (LOW PENALTY)
+    torque_penalty: float = -3 #-1.5    # Energy efficiency penalty (LOW PENALTY)
                                        # Quadratic penalty: sum(torque²)
                                        # Encourages smooth, low-power movements
 

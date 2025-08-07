@@ -14,41 +14,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - `harold_isaac_lab_env.py`: Main RL environment class extending DirectRLEnv
   - `harold_isaac_lab_env_cfg.py`: Configuration management with dataclasses
 
-### Key Design Patterns
-- **Dataclass Configuration**: All parameters managed through `@configclass` decorators
-- **Multi-Terrain Training**: All 10 difficulty levels available from start
-- **Multi-Component Rewards**: Velocity tracking, height maintenance, energy efficiency
-- **Modular Terrain System**: 10 difficulty levels × 20 variations = 200 unique patches
-
 ### Robot Configuration (12 DOF)
 Joint order matches simulation exactly:
 - Shoulders (0-3): FL, FR, BL, BR
 - Thighs (4-7): FL, FR, BL, BR  
 - Calves (8-11): FL, FR, BL, BR
 
-### State and Action Spaces
-- **Observations**: 48D vector (robot state, commands, actions, terrain)
-- **Actions**: 12D joint position targets with safety clamping
-- **Physics**: 360Hz simulation, 20Hz policy updates (18:1 decimation)
-
-### Terrain System
-- **Flat Terrain**: 25% of patches
-- **Random Rough**: 25% (varied complexity)
-- **Slopes**: 20% (pyramid slopes and valleys)
-- **Steps**: 30% (stairs and inverted stairs)
-
 ### Training Framework Integration
 Multiple RL framework support:
 - **SKRL**: Primary framework (recommended)
-- **RSL-RL**: Alternative option
-- **Stable-Baselines3**: For comparison
-- **RL-Games**: Additional support
-
-### Important File Locations
-- **Robot Model**: `harold_isaac_lab/assets/harold_v5_11.usd`
-- **Training Logs**: `logs/skrl/harold_direct/`
-- **Configuration**: `harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_isaac_lab/agents/`
-- **Scripts**: `harold_isaac_lab/scripts/` (organized by RL framework)
+- **RSL-RL**: Not in use
+- **Stable-Baselines3**: Not in use
+- **RL-Games**: Not in use
 
 ### Hardware Integration Notes
 - **Real Robot**: ESP32 servo controller at 115200 baud, 200Hz control loop
@@ -62,27 +39,6 @@ Multiple RL framework support:
 - Pre-commit for code formatting
 - Tensorboard for training visualization
 
-This codebase implements a sophisticated quadruped locomotion system with multi-terrain training, comprehensive sensor integration, and flexible multi-framework RL training capabilities for both simulation and real-world deployment.
-
-## System Architecture Overview
-
-### High-Level Architecture
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        HAROLD SYSTEM ARCHITECTURE               │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────┐  │
-│  │   RL Training   │    │   Simulation    │    │  Hardware   │  │
-│  │                 │    │                 │    │             │  │
-│  │ • Policy Net    │◄──►│ • Isaac Lab     │◄──►│ • ESP32     │  │
-│  │ • Reward Func   │    │ • Physics Sim   │    │ • Servos    │  │
-│  │ • Multi-Terrain │    │ • Terrain Gen   │    │ • IMU       │  │
-│  └─────────────────┘    └─────────────────┘    └─────────────┘  │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
 ### Core Components
 
 #### 1. Robot Configuration (harold.py)
@@ -92,73 +48,14 @@ This codebase implements a sophisticated quadruped locomotion system with multi-
 - **USD Asset**: harold_v5_11.usd with accurate collision meshes
 
 #### 2. Environment (harold_isaac_lab_env.py)
-- **Observation Space**: 48D vector [velocities(6) + gravity(3) + joints(24) + commands(3) + actions(12)]
-- **Action Space**: 12D joint position targets with safety clamping
-- **Physics Simulation**: 360Hz physics, 20Hz policy (18:1 decimation)
-- **Multi-Environment**: 1024 parallel environments for efficient training
-
-#### 3. Terrain System (harold_isaac_lab_env_cfg.py)
-- **Grid Structure**: 10 difficulty levels × 20 variations = 200 unique patches
-- **Terrain Types**: Flat (25%), Random rough (25%), Slopes (20%), Steps (30%)
-- **Training Approach**: All terrain levels available from start
-- **High Resolution**: 10cm horizontal, 5mm vertical resolution
-
-#### 4. Reward System
-- **Multi-Component**: 6 distinct reward components for different behaviors
-- **Exponential Tracking**: Aggressive rewards for velocity accuracy
-- **Energy Efficiency**: Torque penalties encourage smooth motions
-- **Gait Quality**: Air time rewards promote proper stepping patterns
-
-#### 5. Sensor Integration
-- **Contact Sensors**: 200Hz contact force measurement on all bodies
-- **Height Scanner**: Ray-casting for terrain height measurement (3×3 grid)
-- **Robot State**: Full proprioceptive feedback (positions, velocities, orientation)
-- **Visual Markers**: Real-time velocity vector visualization
-
-### Data Flow Architecture
-
-```
-Training Loop (20Hz Policy Frequency):
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│ Observation │───►│   Policy    │───►│   Action    │───►│ Robot/Sim   │
-│ (48D)       │    │  Network    │    │ (12D)       │    │             │
-└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
-       ▲                                                        │
-       │                                                        │
-       └────────────────────────────────────────────────────────┘
-                        Physics Step (360Hz)
-
-Reward Computation (Every Step):
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│ Robot State │───►│   Reward    │───►│  Training   │
-│ Sensors     │    │  Function   │    │  Signal     │
-│ Commands    │    │ (6 terms)   │    │             │
-└─────────────┘    └─────────────┘    └─────────────┘
-```
-
-### Key Design Principles
-
-1. **Sim-to-Real Transfer**
-   - Conservative joint limits and contact thresholds
-   - Physics properties matched to real hardware
-   - Minimal proprioceptive sensing (no cameras/lidars)
-
-2. **Training Robustness**
-   - All terrain difficulties available from training start
-   - Full command range utilized throughout training
-   - Consistent reward weighting across all training phases
-
-3. **Robustness Features**
-   - Force history for reliable contact detection
-   - NaN-safe terrain height computation
-   - Pre-allocated tensors to prevent memory leaks
-   - Conservative termination conditions
-
-4. **Performance Optimization**
-   - Parallel environment training (1024 envs)
-   - Efficient tensor operations with GPU acceleration
-   - Minimal visualization overhead (20Hz vs 360Hz updates)
-   - Cached terrain generation for efficiency
+- **Observation Space**: See _get_observations in harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_isaac_lab/harold_isaac_lab_env.py
+- **Action Space**: 12D joint position targets with safety clamping. See __init__ in harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_isaac_lab/harold_isaac_lab_env.py for specific joint limits.
+- **Physics Simulation**: See the SimulationCfg in harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_isaac_lab/harold_isaac_lab_env_cfg.py
+- **Isaac Lab GPU accelerated, multi-environment training**: 4096 parallel environments headless training is what the user generally selects
+- **Terrain System**: See TerrainGeneratorCfg and TerrainImporterCfg in harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_isaac_lab/harold_isaac_lab_env_cfg.py
+- **Contact Sensors**: See ContactSensorCfg in harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_isaac_lab/harold_isaac_lab_env_cfg.py
+- **Height Scanner**: See height_scanner RayCasterCfg in harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_isaac_lab/harold_isaac_lab_env_cfg.py
+- **Visual Markers**: See _update_visualization_markers in harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_isaac_lab/harold_isaac_lab_env.py
 
 ### Training Pipeline
 
@@ -177,41 +74,6 @@ Key Characteristics:
 ```
 
 This architecture enables robust quadruped locomotion learning with progressive skill acquisition, efficient parallel training, and safe real-world deployment.
-
-## Terrain Generation Algorithm
-
-### Overview
-Harold uses a sophisticated procedural terrain generation system optimized for robust locomotion training. The system creates 200 unique terrain patches (10 difficulty levels × 20 variations) with diverse complexity.
-
-Each row contains all terrain types with proportions:
-• 25% flat terrain (5 columns)
-• 25% random rough terrain (5 columns: 2-3 easy + 2-3 hard)
-• 20% slopes (4 columns: 2 pyramid + 2 inverted pyramid)
-• 30% steps (6 columns: 2 stairs + 4 inverted stairs)
-```
-
-### Training Characteristics
-
-#### Throughout Training
-- **Available Levels**: 0-9 (all difficulty levels available from start)
-- **Terrain Diversity**: Each level contains ALL terrain types at that difficulty
-- **Random Selection**: Robot spawns randomly across all 200 terrain patches
-- **Balanced Exposure**: Equal probability of experiencing any terrain type/difficulty combination
-
-#### Benefits of This Approach
-- **Robustness**: Policy experiences full diversity from the beginning
-- **Balanced Learning**: Equal exposure to all terrain types prevents specialization
-- **Simplicity**: No curriculum scheduling needed during training
-- **Generalization**: Better transfer due to diverse training distribution
-
-### Terrain Quality Metrics
-
-#### Terrain Validation
-- **Difficulty Distribution**: Consistent challenge levels across terrain types
-- **Random Selection**: Ensures exposure to all terrain varieties
-- **Diversity Maintenance**: Sufficient variation within each difficulty level
-
-This terrain generation system provides the foundation for robust locomotion learning, enabling progressive skill acquisition from basic balance to advanced navigation across diverse challenging environments.
 
 ## Reward System
 
@@ -234,13 +96,6 @@ The system uses 6 distinct reward/penalty terms:
 6. **Feet air time** - Gait quality
 
 Each component has configurable weights and parameters that are frequently tuned during development. Check the `RewardsCfg` class for current values and detailed documentation of each component's mathematical formulation.
-
-### Key Design Principles
-- **No Curriculum Scaling**: All reward weights remain constant throughout training
-- **Temporal Scaling**: Components scaled by simulation timestep (dt = 1/360s)
-- **Exponential Shaping**: Velocity tracking uses aggressive exponential rewards
-- **Bounded Functions**: Height rewards use tanh to prevent instability
-- **Conditional Activation**: Some rewards only active when robot is moving
 
 ## Hardware Integration and Sim-to-Real Transfer
 

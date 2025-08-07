@@ -253,7 +253,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             self._cmd_marker = None
             self._act_marker = None
 
-
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         """Process and validate policy actions before physics simulation.
         
@@ -289,8 +288,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         """Apply processed joint targets to robot and update visualization.
         
         Sends the processed joint position targets to the robot's actuators and
-        handles optional data logging and visualization marker updates. Called at
-        physics frequency (360Hz) but markers update at policy frequency (20Hz).
+        handles optional data logging and visualization marker updates.
         
         Operations:
             1. Send joint position targets to robot actuators
@@ -553,7 +551,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         return observations
 
-
     def _get_rewards(self) -> torch.Tensor:
         """Compute multi-component reward signal for reinforcement learning.
         
@@ -656,9 +653,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         cos_val = torch.clamp(cos_raw, -1.0, 1.0)
         jitter_angle = torch.where(valid, torch.acos(cos_val), torch.zeros_like(dot))
 
-        # Scale jitter penalty by commanded speed
-        cmd_speed = torch.norm(self._commands[:, :2], dim=1)
-        jitter_metric = jitter_angle * cmd_speed
+        # Scale jitter penalty by actual speed (naturally approaches zero when stationary)
+        # This prevents penalizing stationary robots while maintaining proportional penalty
+        jitter_metric = jitter_angle * actual_speed
 
         # Store current velocity for next iteration
         self._prev_lin_vel.copy_(curr_vel)

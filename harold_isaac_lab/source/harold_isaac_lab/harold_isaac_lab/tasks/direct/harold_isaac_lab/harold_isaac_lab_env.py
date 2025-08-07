@@ -642,11 +642,16 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         lin_vel_error = torch.sum(torch.square(self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]), dim=1)
         # Square the error for even steeper punishment, then use very small normalization factor
         lin_vel_reward = torch.exp(-torch.square(lin_vel_error) / 0.0001) #0.0001 #0.00025 #0.0005 #0.001
+        # Gate on actual robot speed to prevent reward exploitation when standing still
+        actual_speed = torch.norm(self._robot.data.root_lin_vel_b[:, :2], dim=1)
+        lin_vel_reward *= (actual_speed > 0.05)
 
         # ==================== YAW VELOCITY TRACKING ====================
         # AGGRESSIVE: Much more punishment for sitting still (0.05 vs 0.25 normalization)
         yaw_vel_error = torch.square(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
         yaw_vel_reward = torch.exp(-yaw_vel_error / 0.05)
+        # Gate on actual robot speed (same threshold as linear velocity tracking)
+        yaw_vel_reward *= (actual_speed > 0.05)
 
         # ==================== HEIGHT MAINTENANCE ====================
         # Get height data from scanner and compute mean height (NaN-safe)
@@ -703,8 +708,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Uses exponential reward curve to encourage proper stepping patterns instead of penalizing them
         optimal_air_time = 0.4 #0.25 #0.5 #0.15  # Appropriate for Harold's 40cm scale (was 0.3s - too long)
         air_time_error = torch.abs(last_air_time - optimal_air_time)
-        # Gate the reward on actual robot speed instead of commanded speed
-        actual_speed = torch.norm(curr_vel, dim=1)
+        # Gate the reward on actual robot speed (already calculated above for velocity tracking)
         air_time_reward = torch.sum(torch.exp(-air_time_error * 10.0) * first_contact, dim=1) * ( #3.0 #10.0
             actual_speed > 0.05  # was: torch.norm(self._commands[:, :2], dim=1) > 0.03
         )

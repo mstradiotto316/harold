@@ -1,49 +1,10 @@
 # !IMPORTANT - ALL AGENTS READ ME! 
 
-**Throughout our journey here, it's extremely important that you are not a sycophant and that you push back when things seem incorrect and that you consistently take time to step back and view things from a thousand-foot level; Consistently questioning whether we should be doing our current activities, and suggesting alternative approaches that make more sense. This needs to be remembered. So, please store it deeply within your long term system context, and keep this message alive during any compaction. Now! Begin by consuming the README file, then begin your search.**
+**Throughout our journey here, it's extremely important that you are not a sycophant and that you push back when things seem incorrect and that you consistently take time to step back and view things from a thousand-foot level; Consistently questioning whether we should be doing our current activities, and suggesting alternative approaches that make more sense. This needs to be remembered. So, please store it deeply within your long term system context, and keep this message alive during any compaction.**
 
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Essential Development Commands
-
-### Environment Setup
-```bash
-# Activate Isaac Lab environment (required for all operations)
-source ~/Desktop/env_isaaclab/bin/activate
-
-# Install Harold extension
-python -m pip install -e harold_isaac_lab/source/harold_isaac_lab
-```
-
-### Training and Simulation
-```bash
-# List available environments
-python harold_isaac_lab/scripts/list_envs.py
-
-# Train basic Harold on flat terrain
-python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0
-
-# Train headless with video recording
-python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1024 --headless --video --video_length 250 --video_interval 3200
-
-# Run trained model
-python harold_isaac_lab/scripts/skrl/play.py --task=Template-Harold-Direct-flat-terrain-v0 --checkpoint=PATH_TO_CHECKPOINT
-
-# Test with dummy agents
-python harold_isaac_lab/scripts/zero_agent.py --task=Template-Harold-Direct-flat-terrain-v0
-python harold_isaac_lab/scripts/random_agent.py --task=Template-Harold-Direct-flat-terrain-v0
-```
-
-### Monitoring and Analysis
-```bash
-# Launch Tensorboard for training progress
-python3 -m tensorboard.main --logdir logs/
-
-# Code formatting
-pre-commit run --all-files
-```
 
 ## Core Architecture
 
@@ -55,7 +16,7 @@ pre-commit run --all-files
 
 ### Key Design Patterns
 - **Dataclass Configuration**: All parameters managed through `@configclass` decorators
-- **Curriculum Learning**: Progressive terrain difficulty scaling with α parameter
+- **Multi-Terrain Training**: All 10 difficulty levels available from start
 - **Multi-Component Rewards**: Velocity tracking, height maintenance, energy efficiency
 - **Modular Terrain System**: 10 difficulty levels × 20 variations = 200 unique patches
 
@@ -70,11 +31,11 @@ Joint order matches simulation exactly:
 - **Actions**: 12D joint position targets with safety clamping
 - **Physics**: 360Hz simulation, 20Hz policy updates (18:1 decimation)
 
-### Terrain Curriculum System
-- **Flat Terrain**: 25% (difficulty levels 0-1)
-- **Random Rough**: 25% (progressive complexity)
-- **Pyramid Slopes**: 25% (climbing challenges)
-- **Micro Steps**: 25% (precision locomotion)
+### Terrain System
+- **Flat Terrain**: 25% of patches
+- **Random Rough**: 25% (varied complexity)
+- **Slopes**: 20% (pyramid slopes and valleys)
+- **Steps**: 30% (stairs and inverted stairs)
 
 ### Training Framework Integration
 Multiple RL framework support:
@@ -101,23 +62,23 @@ Multiple RL framework support:
 - Pre-commit for code formatting
 - Tensorboard for training visualization
 
-This codebase implements a sophisticated quadruped locomotion system with robust curriculum learning, comprehensive sensor integration, and flexible multi-framework RL training capabilities for both simulation and real-world deployment.
+This codebase implements a sophisticated quadruped locomotion system with multi-terrain training, comprehensive sensor integration, and flexible multi-framework RL training capabilities for both simulation and real-world deployment.
 
 ## System Architecture Overview
 
 ### High-Level Architecture
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        HAROLD SYSTEM ARCHITECTURE                │
+│                        HAROLD SYSTEM ARCHITECTURE               │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────┐ │
-│  │   RL Training   │    │   Simulation    │    │  Hardware   │ │
-│  │                 │    │                 │    │             │ │
-│  │ • Policy Net    │◄──►│ • Isaac Lab     │◄──►│ • ESP32     │ │
-│  │ • Reward Func   │    │ • Physics Sim   │    │ • Servos    │ │
-│  │ • Curriculum    │    │ • Terrain Gen   │    │ • IMU       │ │
-│  └─────────────────┘    └─────────────────┘    └─────────────┘ │
+│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────┐  │
+│  │   RL Training   │    │   Simulation    │    │  Hardware   │  │
+│  │                 │    │                 │    │             │  │
+│  │ • Policy Net    │◄──►│ • Isaac Lab     │◄──►│ • ESP32     │  │
+│  │ • Reward Func   │    │ • Physics Sim   │    │ • Servos    │  │
+│  │ • Multi-Terrain │    │ • Terrain Gen   │    │ • IMU       │  │
+│  └─────────────────┘    └─────────────────┘    └─────────────┘  │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -138,8 +99,8 @@ This codebase implements a sophisticated quadruped locomotion system with robust
 
 #### 3. Terrain System (harold_isaac_lab_env_cfg.py)
 - **Grid Structure**: 10 difficulty levels × 20 variations = 200 unique patches
-- **Terrain Types**: Flat (25%), Random rough (25%), Slopes (25%), Steps (25%)
-- **Curriculum Integration**: Progressive difficulty scaling with training progress
+- **Terrain Types**: Flat (25%), Random rough (25%), Slopes (20%), Steps (30%)
+- **Training Approach**: All terrain levels available from start
 - **High Resolution**: 10cm horizontal, 5mm vertical resolution
 
 #### 4. Reward System
@@ -182,10 +143,10 @@ Reward Computation (Every Step):
    - Physics properties matched to real hardware
    - Minimal proprioceptive sensing (no cameras/lidars)
 
-2. **Curriculum Learning**
-   - Progressive terrain difficulty (α: 0→1 over 128k steps)
-   - Command magnitude scaling during early training
-   - Reward component weighting based on curriculum progress
+2. **Training Robustness**
+   - All terrain difficulties available from training start
+   - Full command range utilized throughout training
+   - Consistent reward weighting across all training phases
 
 3. **Robustness Features**
    - Force history for reliable contact detection
@@ -197,30 +158,22 @@ Reward Computation (Every Step):
    - Parallel environment training (1024 envs)
    - Efficient tensor operations with GPU acceleration
    - Minimal visualization overhead (20Hz vs 360Hz updates)
-   - Cached terrain generation with curriculum support
+   - Cached terrain generation for efficiency
 
 ### Training Pipeline
 
 ```
-Phase 1: Basic Stability (α = 0.0-0.3, 0-38k steps)
-├── Terrain: Mostly flat with minimal obstacles
-├── Commands: Small velocity targets (±0.1 m/s)
-├── Focus: Standing balance and basic stepping
-└── Duration: ~30-60 minutes
-
-Phase 2: Locomotion Skills (α = 0.3-0.7, 38k-90k steps)  
-├── Terrain: Mixed difficulty with slopes and rough patches
-├── Commands: Medium velocity targets (±0.2 m/s)
-├── Focus: Forward/backward walking, basic turning
-└── Duration: ~1-2 hours
-
-Phase 3: Advanced Behaviors (α = 0.7-1.0, 90k-128k steps)
-├── Terrain: Full complexity including stairs and valleys
+Training Process:
+├── Terrain: All difficulty levels (0-9) available from start
 ├── Commands: Full velocity range (±0.3 m/s, ±0.2 rad/s)
-├── Focus: Complex terrain navigation, rapid direction changes
-└── Duration: ~1 hour
+├── Environment: 1024 parallel environments
+├── Focus: Learning robust locomotion across all terrains simultaneously
+└── Duration: ~3-4 hours on modern GPU for convergence
 
-Total Training Time: ~3-4 hours on modern GPU
+Key Characteristics:
+- No curriculum progression - all challenges from the start
+- Random terrain selection ensures exposure to all difficulties
+- Robust policy emerges from diverse training distribution
 ```
 
 This architecture enables robust quadruped locomotion learning with progressive skill acquisition, efficient parallel training, and safe real-world deployment.
@@ -228,362 +181,66 @@ This architecture enables robust quadruped locomotion learning with progressive 
 ## Terrain Generation Algorithm
 
 ### Overview
-Harold uses a sophisticated procedural terrain generation system optimized for curriculum learning and locomotion training. The system creates 200 unique terrain patches (10 difficulty levels × 20 variations) with progressive complexity scaling.
+Harold uses a sophisticated procedural terrain generation system optimized for robust locomotion training. The system creates 200 unique terrain patches (10 difficulty levels × 20 variations) with diverse complexity.
 
-### Terrain Grid Structure
-```
-Terrain Grid Layout (10 rows × 20 columns):
-┌─────────────────────────────────────────────────────────────────┐
-│ Level 0: Flat terrain + minimal noise (easiest)                │
-├─────────────────────────────────────────────────────────────────┤
-│ Level 1: Small random variations                               │
-├─────────────────────────────────────────────────────────────────┤
-│ Level 2: Gentle slopes + low noise                             │
-├─────────────────────────────────────────────────────────────────┤
-│ Level 3: Medium slopes + moderate noise                        │
-├─────────────────────────────────────────────────────────────────┤
-│ Level 4: Steeper terrain + higher noise                        │
-├─────────────────────────────────────────────────────────────────┤
-│ Level 5: Complex slopes + obstacles                            │
-├─────────────────────────────────────────────────────────────────┤
-│ Level 6: Mixed terrain types                                   │
-├─────────────────────────────────────────────────────────────────┤
-│ Level 7: Challenging slopes + steps                            │
-├─────────────────────────────────────────────────────────────────┤
-│ Level 8: Advanced obstacle courses                             │
-├─────────────────────────────────────────────────────────────────┤
-│ Level 9: Maximum difficulty (hardest)                          │
-└─────────────────────────────────────────────────────────────────┘
-  ◄────────────── 20 variations per level ──────────────►
+Each row contains all terrain types with proportions:
+• 25% flat terrain (5 columns)
+• 25% random rough terrain (5 columns: 2-3 easy + 2-3 hard)
+• 20% slopes (4 columns: 2 pyramid + 2 inverted pyramid)
+• 30% steps (6 columns: 2 stairs + 4 inverted stairs)
 ```
 
-### Terrain Type Distribution
-The terrain generation system creates four distinct terrain categories:
+### Training Characteristics
 
-#### 1. Flat Terrain (25% of patches)
-- **Purpose**: Basic locomotion learning and curriculum initialization
-- **Configuration**: Perfectly flat meshes with no height variation
-- **Use Cases**: Standing balance, basic stepping patterns, policy initialization
+#### Throughout Training
+- **Available Levels**: 0-9 (all difficulty levels available from start)
+- **Terrain Diversity**: Each level contains ALL terrain types at that difficulty
+- **Random Selection**: Robot spawns randomly across all 200 terrain patches
+- **Balanced Exposure**: Equal probability of experiencing any terrain type/difficulty combination
 
-#### 2. Random Rough Terrain (25% of patches)
-- **Easy Random** (12.5%): Height noise 1-4cm, gentle irregularities
-- **Hard Random** (12.5%): Height noise 1-8cm, challenging obstacles
-- **Algorithm**: Uniform random height field generation with Perlin noise
-- **Progression**: Noise magnitude scales with difficulty level
-
-#### 3. Sloped Terrain (25% of patches)
-- **Pyramid Slopes** (12.5%): Robot starts on peak, navigates downhill
-- **Inverted Pyramids** (12.5%): Robot starts in valley, climbs uphill
-- **Slope Range**: 10-40% grade (increasing with difficulty)
-- **Platform Size**: 1m flat area at start position
-
-#### 4. Stepped Terrain (25% of patches)
-- **Pyramid Stairs** (12.5%): Discrete steps downward from platform
-- **Inverted Pyramid Stairs** (12.5%): Climbing steps upward from pit
-- **Step Heights**: 1-10cm (proportional to Harold's leg capability)
-- **Step Width**: 30cm (comfortable for 40cm robot)
-
-### Technical Specifications
-
-#### Resolution Parameters
-```yaml
-Grid Configuration:
-  size: [8.0m, 8.0m]              # Each terrain patch dimensions
-  border_width: 20.0m             # Flat border around entire grid
-  horizontal_scale: 0.1m          # 10cm horizontal resolution
-  vertical_scale: 0.005m          # 5mm vertical resolution
-  slope_threshold: 0.75           # Maximum traversable slope
-```
-
-#### Curriculum Integration
-The terrain system integrates seamlessly with the curriculum learning pipeline:
-
-```python
-# Curriculum-based terrain selection during environment reset
-terrain_level = int(α * max_terrain_level)  # α ∈ [0,1] curriculum progress
-terrain_variation = random.randint(0, 19)   # Random variation within level
-spawn_position = terrain_origins[terrain_level][terrain_variation]
-```
-
-### Terrain Generation Pipeline
-
-#### Phase 1: Grid Initialization
-1. **Memory Allocation**: Pre-allocate 10×20 terrain patch grid
-2. **Border Creation**: Generate 20m flat border around entire grid
-3. **Coordinate System**: Establish world coordinates for each patch
-
-#### Phase 2: Procedural Generation
-```
-For each difficulty level (0-9):
-  For each variation (0-19):
-    1. Select terrain type based on proportion weights
-    2. Generate base heightfield/mesh geometry
-    3. Apply difficulty-appropriate parameters
-    4. Add border transitions for seamless boundaries
-    5. Compute collision meshes and visual materials
-    6. Store in terrain_origins array for curriculum use
-```
-
-#### Phase 3: Physics Integration
-1. **Collision Meshes**: Generate accurate collision geometry
-2. **Material Properties**: Apply friction/restitution parameters
-3. **Ray-casting Setup**: Configure height scanner compatibility
-4. **Visual Rendering**: Apply height-based color schemes
-
-### Curriculum Progression Examples
-
-#### Early Training (α = 0.0-0.3)
-- **Available Levels**: 0-2 (flat terrain, minimal noise)
-- **Robot Behavior**: Learning basic balance and stepping
-- **Terrain Features**: Smooth surfaces, gentle variations
-- **Success Metrics**: Standing stability, simple forward motion
-
-#### Mid Training (α = 0.3-0.7)
-- **Available Levels**: 0-6 (introducing slopes and obstacles)
-- **Robot Behavior**: Developing gait patterns, terrain adaptation
-- **Terrain Features**: Moderate slopes, small steps, varied textures
-- **Success Metrics**: Consistent locomotion, direction control
-
-#### Advanced Training (α = 0.7-1.0)
-- **Available Levels**: 0-9 (full complexity available)
-- **Robot Behavior**: Mastering complex navigation, rapid adaptation
-- **Terrain Features**: Steep slopes, large steps, combined obstacles
-- **Success Metrics**: Robust locomotion, quick recovery, precise control
-
-### Performance Optimizations
-
-#### Caching System
-- **Pre-generation**: All terrain patches generated once during initialization
-- **Memory Efficiency**: Reuse terrain meshes across multiple training runs
-- **Load Balancing**: Distribute generation across available CPU cores
-
-#### GPU Acceleration
-- **Batch Processing**: Generate multiple terrain patches simultaneously
-- **Mesh Operations**: Use GPU-accelerated geometry processing
-- **Memory Management**: Efficient GPU memory allocation for large terrains
+#### Benefits of This Approach
+- **Robustness**: Policy experiences full diversity from the beginning
+- **Balanced Learning**: Equal exposure to all terrain types prevents specialization
+- **Simplicity**: No curriculum scheduling needed during training
+- **Generalization**: Better transfer due to diverse training distribution
 
 ### Terrain Quality Metrics
 
-#### Traversability Analysis
-- **Slope Validation**: Ensure all slopes within robot capability
-- **Connectivity**: Verify paths exist between spawn and goal regions
-- **Safety Margins**: Conservative limits prevent impossible situations
-
-#### Curriculum Validation
-- **Difficulty Monotonicity**: Higher levels consistently more challenging
-- **Smooth Transitions**: Gradual difficulty increase prevents training collapse
+#### Terrain Validation
+- **Difficulty Distribution**: Consistent challenge levels across terrain types
+- **Random Selection**: Ensures exposure to all terrain varieties
 - **Diversity Maintenance**: Sufficient variation within each difficulty level
 
 This terrain generation system provides the foundation for robust locomotion learning, enabling progressive skill acquisition from basic balance to advanced navigation across diverse challenging environments.
 
-## Reward System Mathematical Formulation
+## Reward System
 
 ### Overview
-Harold's reward function implements a sophisticated multi-component system designed to encourage stable, efficient, and robust quadruped locomotion. The system balances primary locomotion objectives with secondary stability and efficiency considerations.
+Harold's reward function implements a multi-component system to encourage stable, efficient, and robust quadruped locomotion. The reward components balance primary locomotion objectives with stability and efficiency considerations.
 
-### Total Reward Computation
-```mathematical
-R_total = Σ(w_i · r_i · s_i · dt)
+### Configuration Location
+The reward system configuration is defined in:
+- **Reward Weights**: `harold_isaac_lab_env_cfg.py` → `RewardsCfg` class
+- **Implementation**: `harold_isaac_lab_env.py` → `_get_rewards()` method
+- **Gait Parameters**: `harold_isaac_lab_env_cfg.py` → `GaitCfg` class
 
-Where:
-- w_i = weight for component i (from configuration)
-- r_i = normalized reward component i ∈ [0,1] or penalty ∈ [-∞,0]
-- s_i = scaling factor (curriculum α or constant 1.0)
-- dt = simulation timestep (1/360 seconds ≈ 0.00278)
-```
+### Reward Components
+The system uses 6 distinct reward/penalty terms:
+1. **Linear velocity tracking** - Primary locomotion objective
+2. **Yaw velocity tracking** - Turning control
+3. **Height maintenance** - Stability above terrain
+4. **Velocity jitter penalty** - Smooth motion
+5. **Torque penalty** - Energy efficiency
+6. **Feet air time** - Gait quality
 
-### Component-by-Component Mathematical Analysis
+Each component has configurable weights and parameters that are frequently tuned during development. Check the `RewardsCfg` class for current values and detailed documentation of each component's mathematical formulation.
 
-#### 1. Linear Velocity Tracking (Primary Objective)
-**Weight**: w₁ = 600 (highest priority)  
-**Scaling**: α curriculum scaling  
-
-```mathematical
-Mathematical Formulation:
-e_xy = Σ(v_cmd,xy - v_actual,xy)²     # Squared error in X,Y velocity
-r₁ = exp(-e_xy² / σ₁²)               # Double exponential for aggressive shaping
-R₁ = w₁ · r₁ · α · dt                # Final reward contribution
-
-Parameters:
-σ₁² = 0.0005                         # Very small normalization (aggressive)
-v_cmd,xy ∈ [-0.3, 0.3] m/s          # Command velocity range
-v_actual,xy = robot.root_lin_vel_b    # Measured body-frame velocity
-
-Reward Characteristics:
-- Exponential decay with squared error creates steep penalty curve
-- Only very accurate tracking (error < 0.02 m/s) receives significant reward
-- Curriculum scaling α reduces importance during early training
-- Dominant reward component when tracking is accurate
-```
-
-#### 2. Yaw Velocity Tracking (Turning Control)
-**Weight**: w₂ = 20 (medium priority)  
-**Scaling**: α curriculum scaling  
-
-```mathematical
-Mathematical Formulation:
-e_yaw = (ω_cmd,z - ω_actual,z)²       # Squared error in yaw rate
-r₂ = exp(-e_yaw / σ₂²)               # Single exponential (less aggressive)
-R₂ = w₂ · r₂ · α · dt                # Final reward contribution
-
-Parameters:
-σ₂² = 0.05                           # Moderate normalization
-ω_cmd,z ∈ [-0.2, 0.2] rad/s         # Yaw rate command range
-ω_actual,z = robot.root_ang_vel_b[2]  # Measured yaw rate
-
-Reward Characteristics:
-- Less aggressive than linear velocity (single exponential)
-- Enables precise turning and orientation control
-- Scaled by curriculum to focus on forward motion first
-```
-
-#### 3. Height Maintenance (Stability)
-**Weight**: w₃ = 15 (low-medium priority)  
-**Scaling**: No curriculum scaling (always active)
-
-```mathematical
-Mathematical Formulation:
-h_actual = mean(scanner.pos_z - terrain_height)  # Ray-casting height measurement
-e_height = |h_actual - h_target|                # Absolute height error
-r₃ = tanh(3 · exp(-5 · e_height))              # Smooth bounded reward
-R₃ = w₃ · r₃ · dt                              # Final reward contribution
-
-Parameters:
-h_target = 0.18 m                    # Target body height above terrain
-h_actual ∈ [0.10, 0.30] m           # Typical height range during locomotion
-
-Reward Characteristics:
-- Smooth, bounded reward function prevents instability
-- Maintains consistent ground clearance for obstacle avoidance
-- Critical for preventing dragging behavior on rough terrain
-- NaN-safe computation handles missing terrain data
-```
-
-#### 4. Velocity Jitter Penalty (Smooth Motion)
-**Weight**: w₄ = -30 (medium penalty)  
-**Scaling**: No curriculum scaling
-
-```mathematical
-Mathematical Formulation:
-v_prev, v_curr = previous/current horizontal velocities
-cos_θ = (v_prev · v_curr) / (|v_prev| · |v_curr|)  # Cosine similarity
-θ = arccos(clamp(cos_θ, -1, 1))                   # Angle between velocities
-jitter = θ · |v_cmd|                               # Scale by command magnitude
-r₄ = -jitter                                       # Direct penalty
-R₄ = w₄ · r₄ · dt                                 # Final penalty contribution
-
-Filtering:
-- Only computed when |v_prev| > ε and |v_curr| > ε (ε = 1e-3)
-- Prevents numerical issues at low velocities
-- Proportional to commanded speed (more penalty at higher speeds)
-
-Penalty Characteristics:
-- Encourages smooth, consistent motion patterns
-- Prevents rapid direction changes and oscillatory behavior
-- Stronger penalty when robot is commanded to move faster
-```
-
-#### 5. Torque Penalty (Energy Efficiency)
-**Weight**: w₅ = -3 (low penalty)  
-**Scaling**: α curriculum scaling (reduced during early training)
-
-```mathematical
-Mathematical Formulation:
-τ = robot.applied_torque              # 12D joint torque vector
-r₅ = -Σ(τᵢ²)                        # Quadratic penalty on all joints
-R₅ = w₅ · r₅ · α · dt               # Final penalty contribution
-
-Penalty Characteristics:
-- Quadratic penalty encourages smooth, low-torque movements
-- Curriculum scaling allows higher torques during learning phase
-- Promotes energy-efficient gaits and smooth control
-- Prevents aggressive actuator usage that could damage hardware
-```
-
-#### 6. Feet Air Time Reward (Gait Quality)
-**Weight**: w₆ = 300 (high priority)  
-**Scaling**: No curriculum scaling  
-
-```mathematical
-Mathematical Formulation:
-For each foot i ∈ {FL, FR, BL, BR}:
-  air_time_i = time since last ground contact
-  first_contact_i = binary flag (foot just contacted ground)
-  reward_i = (air_time_i - t_optimal) · first_contact_i
-
-r₆ = Σ(reward_i) · active_gate        # Sum over all feet
-R₆ = w₆ · r₆ · dt                     # Final reward contribution
-
-Parameters:
-t_optimal = 0.3 seconds               # Optimal air time for Harold's size
-active_gate = |v_cmd| > 0.03 m/s     # Only reward when moving
-
-Gait Quality Metrics:
-- Promotes proper stepping patterns with appropriate swing phase duration
-- Based on Anymal-C research scaled for smaller robot dynamics
-- Prevents shuffling and sliding behaviors
-- Only active during locomotion (not during standing)
-```
-
-### Reward Scaling and Normalization
-
-#### Curriculum Integration
-```mathematical
-α(t) = min(policy_step / transition_steps, 1.0)
-
-Where:
-- policy_step = current training step
-- transition_steps = 128,000 (configuration parameter)
-- α ∈ [0, 1] represents curriculum progress
-
-Components with curriculum scaling:
-- Linear velocity tracking (primary objective)
-- Yaw velocity tracking (turning control)  
-- Torque penalty (energy efficiency)
-
-Components without curriculum scaling:
-- Height maintenance (always critical for stability)
-- Velocity jitter penalty (always important for smoothness)
-- Feet air time reward (gait quality independent of difficulty)
-```
-
-#### Temporal Scaling
-All reward components are scaled by the simulation timestep dt = 1/360 ≈ 0.00278 seconds to ensure consistent magnitudes regardless of physics frequency.
-
-### Expected Reward Magnitudes
-
-#### During Optimal Performance
-```
-Component                  | Value Range      | Contribution
----------------------------|------------------|------------------
-Linear Velocity Tracking  | 0.0 - 1.67      | Dominant (80%+)
-Yaw Velocity Tracking     | 0.0 - 0.056     | Moderate (5-10%)
-Height Maintenance         | 0.0 - 0.042     | Low (2-5%)
-Velocity Jitter Penalty   | -0.25 - 0.0     | Variable penalty
-Torque Penalty           | -0.5 - 0.0      | Small penalty
-Feet Air Time Reward      | -2.5 - +2.5     | Moderate (10-15%)
-```
-
-#### Training Phase Analysis
-- **Early Training (α < 0.3)**: Dominated by height maintenance and gait rewards
-- **Mid Training (α ≈ 0.5)**: Balanced between velocity tracking and stability
-- **Late Training (α → 1.0)**: Primarily velocity tracking with efficiency penalties
-
-### Design Rationale
-
-#### Hierarchical Importance
-1. **Locomotion Objectives** (weights 600, 20): Core task performance
-2. **Gait Quality** (weight 300): Proper stepping patterns for robustness  
-3. **Stability** (weight 15): Maintain upright posture and height
-4. **Efficiency** (weights -30, -3): Encourage smooth, low-energy movement
-
-#### Mathematical Properties
-- **Differentiability**: All components are smooth and differentiable for gradient-based learning
-- **Boundedness**: Exponential and tanh functions prevent reward explosion
-- **Scalability**: Curriculum and temporal scaling ensure consistent training dynamics
-- **Robustness**: NaN-safe computations and filtering prevent numerical issues
-
-This mathematically principled reward system enables stable, efficient quadruped locomotion learning while maintaining robustness to various terrain conditions and ensuring safe sim-to-real transfer.
+### Key Design Principles
+- **No Curriculum Scaling**: All reward weights remain constant throughout training
+- **Temporal Scaling**: Components scaled by simulation timestep (dt = 1/360s)
+- **Exponential Shaping**: Velocity tracking uses aggressive exponential rewards
+- **Bounded Functions**: Height rewards use tanh to prevent instability
+- **Conditional Activation**: Some rewards only active when robot is moving
 
 ## Hardware Integration and Sim-to-Real Transfer
 

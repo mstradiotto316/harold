@@ -127,7 +127,7 @@ class RewardsCfg:
                                        # Computes angle between consecutive velocity vectors
                                        # Scaled by commanded speed for proportional penalty
                                        
-    torque_penalty: float = -3 #-1.5    # Energy efficiency penalty (LOW PENALTY)
+    torque_penalty: float = -6 #-3 -1.5    # Energy efficiency penalty (LOW PENALTY)
                                        # Quadratic penalty: sum(torque²)
                                        # Encourages smooth, low-power movements
 

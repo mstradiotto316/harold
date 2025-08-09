@@ -103,7 +103,7 @@ class RewardsCfg:
     - torque_penalty: -3 (low penalty - energy efficiency)
     """
     # === PRIMARY LOCOMOTION OBJECTIVES (Positive Rewards) ===
-    track_xy_lin_commands: float = 600   # Linear velocity tracking weight (HIGHEST PRIORITY)
+    track_xy_lin_commands: float = 300 #600   # Linear velocity tracking weight (HIGHEST PRIORITY)
                                         # Aggressive exponential reward: exp(-error²/0.0005)
                                         # Only high accuracy gets meaningful reward
                                         
@@ -116,7 +116,7 @@ class RewardsCfg:
                                        # Maintains ~18cm target height above terrain
                                        # Critical for stable locomotion
                                        
-    feet_air_time: float = 1500 #800 #1500 #3000   # Proper gait reward (HIGH PRIORITY)
+    feet_air_time: float = 800 #1500 #800 #1500 #3000   # Proper gait reward (HIGH PRIORITY)
                                        # Rewards 0.15s optimal air time per foot (fixed for Harold's scale)
                                        # Uses exponential reward curve to encourage stepping
                                        # Only active when moving (|v_cmd| > 0.03 m/s)

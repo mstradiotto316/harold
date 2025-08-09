@@ -62,6 +62,18 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._previous_actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
         self._processed_actions = ( self.cfg.action_scale * self._actions ) + self._robot.data.default_joint_pos
         
+        # --- Per-joint range scaling for natural action space ---
+        # Shoulders get smaller range (0.25) for stability, thighs and calves get larger (0.5)
+        self._joint_range = torch.tensor(
+            [0.25, 0.25, 0.25, 0.25,  # Shoulders (FL, FR, BL, BR)
+             0.5, 0.5, 0.5, 0.5,       # Thighs (FL, FR, BL, BR)
+             0.5, 0.5, 0.5, 0.5],      # Calves (FL, FR, BL, BR)
+            device=self.device
+        )
+        
+        # --- Track previous target deltas for observation space ---
+        self._prev_target_delta = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
+        
         # --- Command Tensor for Velocity Tracking (X, Y, Yaw) ---
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
 
@@ -256,8 +268,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         """Process and validate policy actions before physics simulation.
         
-        Takes raw policy outputs and applies action scaling and joint limit clamping
-        to ensure safe operation within hardware constraints. Actions are processed
+        Takes raw policy outputs and scales them around the default pose using per-joint
+        ranges. This allows natural motion without fighting gravity. Actions are processed
         at policy frequency (20Hz) but applied at physics frequency (360Hz).
         
         Args:
@@ -265,9 +277,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             
         Processing Pipeline:
             1. Copy actions to internal buffer
-            2. Scale actions by configured action_scale factor
+            2. Scale by action_scale * per_joint_range around default pose
             3. Clamp to joint angle limits for hardware safety
-            4. Store processed actions for physics application
+            4. Store target deltas for next observation
+            5. Store processed actions for physics application
             
         Safety Features:
             - Joint limits prevent mechanical damage: shoulders ±20°, others ±45°
@@ -277,12 +290,18 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # --- Action copy ---
         self._actions.copy_(actions)
 
-        # --- Action scaling & clamping to joint limits ---
+        # --- Action scaling around default pose with per-joint ranges ---
+        # Scale each joint by a safe fraction of its mechanical range
+        # This allows the policy to work around the default pose instead of fighting gravity
+        target = self._robot.data.default_joint_pos + self.cfg.action_scale * self._joint_range * self._actions
         self._processed_actions = torch.clamp(
-            self.cfg.action_scale * self._actions,
+            target,
             self._JOINT_ANGLE_MIN,
             self._JOINT_ANGLE_MAX,
         )
+        
+        # --- Store target delta for next observation ---
+        self._prev_target_delta = self._processed_actions - self._robot.data.default_joint_pos
 
     def _apply_action(self) -> None:
         """Apply processed joint targets to robot and update visualization.
@@ -447,16 +466,18 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 - joint_pos - default (12): Joint angles relative to neutral pose [rad]
                 - joint_vel (12): Joint angular velocities [rad/s]
                 - commands (3): Velocity commands [vx, vy, yaw_rate]
-                - actions - default (12): Previous actions relative to neutral pose
+                - prev_target_delta (12): Previous joint targets relative to neutral pose [rad]
                 
         State Tracking:
             - Increments policy step counter for tracking
             - Updates time buffer for temporal observations
-            - Stores previous actions for next observation
+            - Uses previous joint target deltas for temporal consistency
             
         Note:
             Observation design ensures policy receives sufficient information for
             stable quadruped locomotion while maintaining manageable dimensionality.
+            Previous target deltas correctly represent what the policy commanded,
+            not raw actions, providing proper temporal feedback.
         """
 
         
@@ -502,8 +523,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         #    - Provides policy with explicit task specification
         #    - Directly used in reward function calculations
         #
-        # 7. Previous Actions Relative to Default (12D) - [a_prev - q_default] [rad]
-        #    - Memory of previous joint position targets
+        # 7. Previous Target Deltas (12D) - [target_prev - q_default] [rad]
+        #    - Memory of previous joint position targets relative to default
+        #    - Correctly represents what the policy commanded (not raw actions)
         #    - Enables temporal consistency and smooth control
         #    - Helps prevent action oscillations and instability
         #    - Provides recurrence without explicit memory networks
@@ -525,7 +547,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                     self._robot.data.joint_pos - self._robot.data.default_joint_pos,     # (12D) Joint angles (relative)
                     self._robot.data.joint_vel,                                          # (12D) Joint velocities
                     self._commands,                                                      # (3D) Velocity commands 
-                    self._actions - self._robot.data.default_joint_pos                  # (12D) Previous actions (relative)
+                    self._prev_target_delta                                              # (12D) Previous target deltas
                 )
                 if tensor is not None
             ],

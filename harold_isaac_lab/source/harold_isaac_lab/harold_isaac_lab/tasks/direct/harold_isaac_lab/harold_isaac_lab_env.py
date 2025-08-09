@@ -627,7 +627,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # VERY AGGRESSIVE: Much steeper punishment curve - only high accuracy gets meaningful reward
         lin_vel_error = torch.sum(torch.square(self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]), dim=1)
         # Square the error for even steeper punishment, then use very small normalization factor
-        lin_vel_reward = torch.exp(-torch.square(lin_vel_error) / 0.0001) #0.0001 #0.00025 #0.0005 #0.001
+        lin_vel_reward = torch.exp(-torch.square(lin_vel_error) / 0.001) #0.0001 #0.00025 #0.0005 #0.001
         # Gate on actual robot speed to prevent reward exploitation when standing still
         actual_speed = torch.norm(self._robot.data.root_lin_vel_b[:, :2], dim=1)
         lin_vel_reward *= (actual_speed > 0.05)

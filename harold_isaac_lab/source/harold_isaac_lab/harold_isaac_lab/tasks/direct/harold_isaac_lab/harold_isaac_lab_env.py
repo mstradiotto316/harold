@@ -640,8 +640,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         # ==================== YAW VELOCITY TRACKING ====================
         # AGGRESSIVE: Much more punishment for sitting still (0.05 vs 0.25 normalization)
-        yaw_vel_error = torch.square(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
-        yaw_vel_reward = torch.exp(-yaw_vel_error / 0.05)
+        #yaw_vel_error = torch.square(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
+        #yaw_vel_reward = torch.exp(-yaw_vel_error / 0.05)
+        # yaw
+        err_yaw = torch.abs(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
+        yaw_vel_reward = torch.exp(-(err_yaw / 0.4)**2)   # sigma ≈ 0.4 rad/s
 
         # ==================== HEIGHT MAINTENANCE ====================
         # Get height data from scanner and compute mean height (NaN-safe)

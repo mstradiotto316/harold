@@ -635,6 +635,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # linear
         err_lin = torch.linalg.vector_norm(self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2], dim=1)
         lin_vel_reward = torch.exp(-(err_lin / 0.25)**2)  # sigma ≈ 0.25 m/s
+        actual_speed = torch.norm(self._robot.data.root_lin_vel_b[:, :2], dim=1)
+        lin_vel_reward *= (actual_speed > 0.05)
 
         # ==================== YAW VELOCITY TRACKING ====================
         # AGGRESSIVE: Much more punishment for sitting still (0.05 vs 0.25 normalization)

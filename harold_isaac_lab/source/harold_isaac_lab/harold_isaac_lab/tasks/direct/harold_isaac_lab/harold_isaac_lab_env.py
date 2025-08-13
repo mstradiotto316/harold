@@ -859,7 +859,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # X and Y velocity commands: -0.3 to 0.3 m/s (appropriate for 40cm robot = 0.75 body lengths/sec)
         sampled_commands[:, :2].uniform_(-0.3, 0.3)
         # Yaw rate commands: -0.2 to 0.2 rad/s (increased for better turning agility on small robot)
-        sampled_commands[:, 2].uniform_(-0.2, 0.2)
+        # TEMPORARILY SET TO 0 FOR TESTING
+        sampled_commands[:, 2].uniform_(0.0, 0.0)
         # Use full command range
         self._commands[env_ids] = sampled_commands
 

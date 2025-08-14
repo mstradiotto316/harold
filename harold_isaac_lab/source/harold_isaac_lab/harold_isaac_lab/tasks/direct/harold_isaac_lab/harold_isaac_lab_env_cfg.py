@@ -7,6 +7,7 @@ from isaaclab.sensors import ContactSensor, ContactSensorCfg, RayCaster, RayCast
 from isaaclab.sim import SimulationCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.envs.common import ViewerCfg
+from isaaclab.utils.noise import GaussianNoiseCfg, UniformNoiseCfg
 
 from .harold import HAROLD_V4_CFG
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
@@ -199,6 +200,127 @@ class TerminationCfg:
                                                    # Consider lowering to -0.7 for stricter control
 
 @configclass
+class DomainRandomizationCfg:
+    """Domain randomization configuration for sim-to-real transfer.
+    
+    To enable domain randomization in training, set:
+    ```python
+    cfg.domain_randomization.enable_randomization = True
+    cfg.domain_randomization.randomize_on_reset = True  # Per-episode randomization
+    cfg.domain_randomization.randomize_per_step = True   # Per-step noise
+    ```
+    
+    Provides controlled variation in simulation parameters to improve policy
+    robustness when deployed on physical hardware. Parameters are tuned
+    specifically for Harold's lightweight construction and servo capabilities.
+    
+    Randomization Categories:
+    - Physics: Material properties affecting contact dynamics
+    - Robot: Mass, inertia, and actuator characteristics
+    - Sensors: Observation noise modeling real sensor imperfections
+    - Actions: Control delays and noise
+    - External: Environmental disturbances
+    
+    All randomization can be toggled on/off for debugging and gradual
+    introduction during training curriculum.
+    """
+    
+    # === MASTER SWITCHES ===
+    enable_randomization: bool = True          # Global on/off for all randomization
+    randomize_on_reset: bool = True            # Apply randomization at episode reset
+    randomize_per_step: bool = True           # Apply per-step randomization (noise)
+    
+    # === PHYSICS RANDOMIZATION ===
+    randomize_friction: bool = True            # Randomize ground/foot friction
+    friction_range: tuple = (0.4, 1.0)        # Range for static/dynamic friction
+                                               # Base: 0.7, Range allows slippery to grippy surfaces
+    
+    randomize_restitution: bool = False       # Randomize bounce characteristics
+    restitution_range: tuple = (0.0, 0.2)     # Keep low for realistic ground contact
+    
+    # === ROBOT PROPERTIES RANDOMIZATION ===
+    randomize_mass: bool = True               # Randomize body and link masses
+    mass_range: tuple = (0.85, 1.15)         # ±15% mass variation (1.7-2.3kg total)
+                                              # Conservative to prevent drastic dynamics changes
+    
+    randomize_com: bool = False               # Randomize center of mass offsets
+    com_offset_range: tuple = (-0.02, 0.02)  # ±2cm COM shift in X/Y/Z
+                                              # Small shifts for balance variation
+    
+    randomize_inertia: bool = False          # Randomize rotational inertia
+    inertia_range: tuple = (0.9, 1.1)       # ±10% inertia variation
+    
+    # === ACTUATOR RANDOMIZATION ===
+    randomize_joint_stiffness: bool = True    # Vary joint PD controller stiffness
+    stiffness_range: tuple = (150, 250)      # Base: 200, allows ±25% variation
+                                              # Models servo response differences
+    
+    randomize_joint_damping: bool = True      # Vary joint PD controller damping
+    damping_range: tuple = (50, 100)         # Base: 75, allows ±33% variation
+                                              # Models servo damping characteristics
+    
+    randomize_effort_limit: bool = False      # Vary maximum joint torques
+    effort_limit_range: tuple = (0.8, 1.0)   # 80-100% of nominal torque
+                                              # Conservative to prevent servo damage
+    
+    randomize_joint_limits: bool = False      # Add small variations to joint limits
+    joint_limit_noise: float = 0.02          # ±0.02 rad (~1.15°) variation
+    
+    # === SENSOR NOISE CONFIGURATION ===
+    # IMU Noise (Body angular velocity and gravity projection)
+    add_imu_noise: bool = True                # Add noise to IMU measurements
+    imu_angular_velocity_noise: GaussianNoiseCfg = GaussianNoiseCfg(
+        mean=0.0,
+        std=0.01,                             # 0.01 rad/s noise (realistic for MPU6050)
+        operation="add"
+    )
+    imu_gravity_noise: GaussianNoiseCfg = GaussianNoiseCfg(
+        mean=0.0, 
+        std=0.05,                             # Small noise for gravity vector
+        operation="add"
+    )
+    
+    # Joint Sensor Noise
+    add_joint_noise: bool = True              # Add noise to joint measurements
+    joint_position_noise: GaussianNoiseCfg = GaussianNoiseCfg(
+        mean=0.0,
+        std=0.005,                            # 0.005 rad (~0.3°) position noise
+        operation="add"
+    )
+    joint_velocity_noise: GaussianNoiseCfg = GaussianNoiseCfg(
+        mean=0.0,
+        std=0.05,                             # 0.05 rad/s velocity noise
+        operation="add"
+    )
+    
+    # === ACTION RANDOMIZATION ===
+    add_action_noise: bool = True             # Add noise to action commands
+    action_noise: GaussianNoiseCfg = GaussianNoiseCfg(
+        mean=0.0,
+        std=0.01,                             # Small noise proportional to action scale
+        operation="add"
+    )
+    
+    add_action_delay: bool = False            # Simulate control delays
+    action_delay_steps: tuple = (0, 2)       # 0-2 timestep random delay
+                                              # Models USB/servo communication latency
+    
+    # === EXTERNAL DISTURBANCES ===
+    apply_external_forces: bool = False       # Random pushes to robot body
+    external_force_probability: float = 0.02  # 2% chance per step
+    external_force_range: tuple = (0.5, 2.0) # 0.5-2.0 N random forces
+    external_torque_range: tuple = (0.1, 0.5) # 0.1-0.5 Nm random torques
+    
+    # === TERRAIN RANDOMIZATION ===
+    add_terrain_noise: bool = False           # Add height noise to terrain
+    terrain_noise_magnitude: float = 0.01     # ±1cm height variations
+    
+    # === GRAVITY RANDOMIZATION ===
+    randomize_gravity: bool = False           # Vary gravity magnitude and direction
+    gravity_magnitude_range: tuple = (9.6, 10.0)  # 9.6-10.0 m/s² (small variation)
+    gravity_angle_range: float = 0.05        # ±0.05 rad (~3°) tilt in gravity vector
+
+@configclass
 class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
     episode_length_s = 30.0
@@ -218,6 +340,9 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     
     # Termination configuration
     termination = TerminationCfg()
+    
+    # Domain randomization configuration
+    domain_randomization = DomainRandomizationCfg()
 
     # viewer configuration
     viewer = ViewerCfg(

@@ -368,7 +368,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
         prim_path="/World/ground",
         terrain_type="generator",
         terrain_generator=HAROLD_GENTLE_TERRAINS_CFG,  # Use our custom gentle terrain
-        max_init_terrain_level=9,  # Enable all terrain levels (0-9)
+        max_init_terrain_level=4, #9  # Enable all terrain levels (0-9)
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",

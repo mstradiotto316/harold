@@ -925,8 +925,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                     env_idx = int(env_id)
                     
                     # Randomly select a terrain level from all available levels
-                    num_rows = self.cfg.terrain.terrain_generator.num_rows  # 10 difficulty levels
-                    terrain_level = torch.randint(0, num_rows, (1,), device=self.device).item()
+                    #num_rows = self.cfg.terrain.terrain_generator.num_rows  # 10 difficulty levels
+                    terrain_level = torch.randint(0, self.cfg.terrain.max_init_terrain_level, (1,), device=self.device).item()
                     # Randomly select a column within that terrain level
                     terrain_col = torch.randint(0, num_cols, (1,), device=self.device).item()
                     

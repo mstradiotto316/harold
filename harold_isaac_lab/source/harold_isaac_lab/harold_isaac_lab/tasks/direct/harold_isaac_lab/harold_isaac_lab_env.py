@@ -659,17 +659,30 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         """
         
         # ==================== LINEAR VELOCITY TRACKING ====================
-        # VERY AGGRESSIVE: Much steeper punishment curve - only high accuracy gets meaningful reward
-        #lin_vel_error = torch.sum(torch.square(self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2]), dim=1)
-        # Square the error for even steeper punishment, then use very small normalization factor
-        #lin_vel_reward = torch.exp(-torch.square(lin_vel_error) / 0.001) #0.0001 #0.00025 #0.0005 #0.001
+        # DIRECTIONAL: Decompose velocity into parallel and perpendicular components
+        # relative to command direction. Penalize sideways drift much more than along-track error.
+        
+        # Get velocity and command vectors (N,2) in body frame
+        v = self._robot.data.root_lin_vel_b[:, :2]
+        cmd = self._commands[:, :2]
+        
+        # Compute unit command direction
+        eps = 1e-6
+        cmd_mag = torch.linalg.vector_norm(cmd, dim=1)                    # (N,)
+        u = torch.where(cmd_mag[:, None] > eps, cmd / cmd_mag[:, None], torch.zeros_like(cmd))  # unit cmd dir
+        
+        # Decompose velocity into parallel and perpendicular components
+        v_par = (v * u).sum(dim=1)                                       # scalar component along u
+        v_perp = v - v_par[:, None] * u                                  # vector perpendicular to u
+        e_par = v_par - cmd_mag                                          # signed along-track error
+        e_perp = torch.linalg.vector_norm(v_perp, dim=1)                 # sideways speed magnitude
+        
+        # Elliptical Gaussian: much tighter on lateral drift
+        c_par, c_perp = 0.25, 0.08  # lateral 3x stricter
+        Q = (e_par / c_par)**2 + (e_perp / c_perp)**2
+        lin_vel_reward = torch.exp(-Q)
+        
         # Gate on actual robot speed to prevent reward exploitation when standing still
-        #actual_speed = torch.norm(self._robot.data.root_lin_vel_b[:, :2], dim=1)
-        #lin_vel_reward *= (actual_speed > 0.05)
-
-        # linear
-        err_lin = torch.linalg.vector_norm(self._commands[:, :2] - self._robot.data.root_lin_vel_b[:, :2], dim=1)
-        lin_vel_reward = torch.exp(-(err_lin / 0.25)**2)  # sigma ≈ 0.25 m/s
         actual_speed = torch.norm(self._robot.data.root_lin_vel_b[:, :2], dim=1)
         lin_vel_reward *= (actual_speed > 0.05)
 

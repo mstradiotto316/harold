@@ -105,11 +105,12 @@ class RewardsCfg:
     """
     # === PRIMARY LOCOMOTION OBJECTIVES (Positive Rewards) ===
     track_xy_lin_commands: float = 300 #600   # Linear velocity tracking weight (HIGHEST PRIORITY)
-                                        # Aggressive exponential reward: exp(-error²/0.0005)
-                                        # Only high accuracy gets meaningful reward
+                                        # Directional tracking with elliptical Gaussian
+                                        # Lateral drift penalized 3x more than along-track error
+                                        # Formula: exp(-(e_par/0.25)² + (e_perp/0.08)²)
                                         
     track_yaw_commands: float = 20      # Yaw velocity tracking weight (MEDIUM PRIORITY)  
-                                       # Exponential reward: exp(-error²/0.05)
+                                       # Gaussian reward: exp(-(error/0.4)²)
                                        # Enables turning and orientation control
                                        
     height_reward: float = 15           # Height maintenance reward (STABILITY)

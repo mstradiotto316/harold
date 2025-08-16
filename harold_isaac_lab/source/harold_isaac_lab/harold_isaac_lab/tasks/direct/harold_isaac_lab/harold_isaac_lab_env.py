@@ -620,14 +620,15 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             
         Reward Components:
         
-        1. Linear Velocity Tracking (Aggressive):
-           - Exponential reward for matching commanded X/Y velocities
-           - Very steep penalty curve: exp(-error²/0.0005) 
-           - Only high accuracy receives meaningful reward
+        1. Linear Velocity Tracking (Directional):
+           - Decomposes velocity into parallel and perpendicular components
+           - Elliptical Gaussian: exp(-(e_par/0.25)² + (e_perp/0.08)²)
+           - Lateral drift penalized 3x more strictly than along-track error
+           - Heavily penalizes sideways movement and backwards motion
            
-        2. Yaw Velocity Tracking (Aggressive):
+        2. Yaw Velocity Tracking:
            - Exponential reward for matching commanded yaw rate
-           - Steep penalty: exp(-error²/0.05)
+           - Gaussian penalty: exp(-(error/0.4)²)
            - Prevents stationary spinning behaviors
            
         3. Height Maintenance:
@@ -648,13 +649,15 @@ class HaroldIsaacLabEnv(DirectRLEnv):
            - Prevents aggressive actuator usage
            
         6. Feet Air Time Reward:
-           - Rewards proper stepping patterns (0.15s optimal air time for 40cm robot)
-           - Uses exponential reward curve to encourage stepping instead of penalizing
-           - Only active when moving (|v_cmd| > 0.03 m/s)
+           - Rewards proper stepping patterns (0.4s optimal air time)
+           - Uses exponential reward curve to encourage stepping
+           - Only active when robot speed > 0.05 m/s
            - Reduces sliding and shuffling behaviors
            
         Mathematical Formulation:
-           Total = Σ(component_value * weight * scale_factor * dt)
+           Total = Σ(component_value * weight)
+           Note: Rewards are not multiplied by step_dt to avoid double normalization
+           with the episodic logging that divides by max_episode_length_s
            
         """
         
@@ -755,13 +758,15 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         )
 
         # ==================== REWARD ASSEMBLY ====================
+        # Note: Rewards are NOT multiplied by step_dt here to avoid double normalization.
+        # The episodic sum is already normalized by max_episode_length_s when logged.
         rewards = {
-            "track_xy_lin_commands": lin_vel_reward * self.step_dt * self.cfg.rewards.track_xy_lin_commands,
-            "track_yaw_commands": yaw_vel_reward * self.step_dt * self.cfg.rewards.track_yaw_commands,
-            "height_reward": height_reward * self.step_dt * self.cfg.rewards.height_reward,
-            "velocity_jitter": jitter_metric * self.step_dt * self.cfg.rewards.velocity_jitter,
-            "torque_penalty": joint_torques * self.step_dt * self.cfg.rewards.torque_penalty,
-            "feet_air_time_reward": air_time_reward * self.step_dt * self.cfg.rewards.feet_air_time
+            "track_xy_lin_commands": lin_vel_reward * self.cfg.rewards.track_xy_lin_commands,
+            "track_yaw_commands": yaw_vel_reward * self.cfg.rewards.track_yaw_commands,
+            "height_reward": height_reward * self.cfg.rewards.height_reward,
+            "velocity_jitter": jitter_metric * self.cfg.rewards.velocity_jitter,
+            "torque_penalty": joint_torques * self.cfg.rewards.torque_penalty,
+            "feet_air_time_reward": air_time_reward * self.cfg.rewards.feet_air_time
         }
         
         # Sum all rewards

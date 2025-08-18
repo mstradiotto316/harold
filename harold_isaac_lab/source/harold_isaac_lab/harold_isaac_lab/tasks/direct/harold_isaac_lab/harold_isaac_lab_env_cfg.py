@@ -124,14 +124,14 @@ class RewardsCfg:
                                         # Only active when moving (|v_cmd| > 0.03 m/s)
     
     # === SECONDARY OBJECTIVES AND PENALTIES (Negative Rewards) ===
-    velocity_jitter: float = -3        # Smooth motion penalty (MEDIUM PENALTY)
-                                       # Penalizes rapid velocity direction changes
-                                       # Computes angle between consecutive velocity vectors
-                                       # Scaled by commanded speed for proportional penalty
+    velocity_jitter: float = -30 #-3    # Smooth motion penalty (MEDIUM PENALTY)
+                                        # Penalizes rapid velocity direction changes
+                                        # Computes angle between consecutive velocity vectors
+                                        # Scaled by commanded speed for proportional penalty
                                        
     torque_penalty: float = -0.15       # Energy efficiency penalty (LOW PENALTY)
-                                       # Quadratic penalty: sum(torque²)
-                                       # Encourages smooth, low-power movements
+                                        # Quadratic penalty: sum(torque²)
+                                        # Encourages smooth, low-power movements
 
 
 @configclass

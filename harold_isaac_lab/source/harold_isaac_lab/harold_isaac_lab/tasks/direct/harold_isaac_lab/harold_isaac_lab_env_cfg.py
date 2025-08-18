@@ -104,7 +104,7 @@ class RewardsCfg:
     - torque_penalty: -3 (low penalty - energy efficiency)
     """
     # === PRIMARY LOCOMOTION OBJECTIVES (Positive Rewards) ===
-    track_xy_lin_commands: float = 15 #30   # Linear velocity tracking weight (HIGHEST PRIORITY)
+    track_xy_lin_commands: float = 30   # Linear velocity tracking weight (HIGHEST PRIORITY)
                                         # Directional tracking with elliptical Gaussian
                                         # Lateral drift penalized 3x more than along-track error
                                         # Formula: exp(-(e_par/0.25)² + (e_perp/0.08)²)

@@ -104,32 +104,32 @@ class RewardsCfg:
     - torque_penalty: -3 (low penalty - energy efficiency)
     """
     # === PRIMARY LOCOMOTION OBJECTIVES (Positive Rewards) ===
-    track_xy_lin_commands: float = 300 #600   # Linear velocity tracking weight (HIGHEST PRIORITY)
+    track_xy_lin_commands: float = 15 #30   # Linear velocity tracking weight (HIGHEST PRIORITY)
                                         # Directional tracking with elliptical Gaussian
                                         # Lateral drift penalized 3x more than along-track error
                                         # Formula: exp(-(e_par/0.25)² + (e_perp/0.08)²)
                                         
-    track_yaw_commands: float = 20      # Yaw velocity tracking weight (MEDIUM PRIORITY)  
-                                       # Gaussian reward: exp(-(error/0.4)²)
-                                       # Enables turning and orientation control
+    track_yaw_commands: float = 2       # Yaw velocity tracking weight (MEDIUM PRIORITY)  
+                                        # Gaussian reward: exp(-(error/0.4)²)
+                                        # Enables turning and orientation control
                                        
-    height_reward: float = 15           # Height maintenance reward (STABILITY)
-                                       # Tanh-based: tanh(3*exp(-5*|height_error|))
-                                       # Maintains ~18cm target height above terrain
-                                       # Critical for stable locomotion
+    height_reward: float = 1.5    # Height maintenance reward (STABILITY)
+                                        # Tanh-based: tanh(3*exp(-5*|height_error|))
+                                        # Maintains ~18cm target height above terrain
+                                        # Critical for stable locomotion
                                        
-    feet_air_time: float = 200 #400 #800 #1500 #800 #1500 #3000   # Proper gait reward (HIGH PRIORITY)
-                                       # Rewards 0.15s optimal air time per foot (fixed for Harold's scale)
-                                       # Uses exponential reward curve to encourage stepping
-                                       # Only active when moving (|v_cmd| > 0.03 m/s)
+    feet_air_time: float = 20           # Proper gait reward (HIGH PRIORITY)
+                                        # Rewards 0.15s optimal air time per foot (fixed for Harold's scale)
+                                        # Uses exponential reward curve to encourage stepping
+                                        # Only active when moving (|v_cmd| > 0.03 m/s)
     
     # === SECONDARY OBJECTIVES AND PENALTIES (Negative Rewards) ===
-    velocity_jitter: float = -30        # Smooth motion penalty (MEDIUM PENALTY)
+    velocity_jitter: float = -3        # Smooth motion penalty (MEDIUM PENALTY)
                                        # Penalizes rapid velocity direction changes
                                        # Computes angle between consecutive velocity vectors
                                        # Scaled by commanded speed for proportional penalty
                                        
-    torque_penalty: float = -1.5      # Energy efficiency penalty (LOW PENALTY)
+    torque_penalty: float = -0.15       # Energy efficiency penalty (LOW PENALTY)
                                        # Quadratic penalty: sum(torque²)
                                        # Encourages smooth, low-power movements
 

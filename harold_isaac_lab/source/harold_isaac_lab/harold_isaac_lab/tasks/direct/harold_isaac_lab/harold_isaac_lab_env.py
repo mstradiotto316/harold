@@ -133,7 +133,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         # --- Observation & State Trackers ---
         self._time = torch.zeros(self.num_envs, device=self.device)
-        self._prev_lin_vel = torch.zeros(self.num_envs, 2, device=self.device)
         self._decimation_counter = 0
         self._last_terrain_level = 0  # Track current terrain difficulty level
         
@@ -173,7 +172,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 "track_xy_lin_commands",
                 "track_yaw_commands",
                 "height_reward",
-                "velocity_jitter",
                 "torque_penalty",
                 "feet_air_time_reward"
             ]
@@ -637,18 +635,12 @@ class HaroldIsaacLabEnv(DirectRLEnv):
            - NaN-safe terrain height computation
            - Critical for stable locomotion
            
-        4. Velocity Jitter Penalty:
-           - Penalizes rapid changes in velocity direction
-           - Computes angle between consecutive velocity vectors
-           - Scaled by commanded speed (more penalty at higher speeds)
-           - Encourages smooth, consistent motion
-           
-        5. Torque Penalty:
+        4. Torque Penalty:
            - Quadratic penalty on joint torques: sum(torque²)
            - Encourages energy-efficient movements
            - Prevents aggressive actuator usage
            
-        6. Feet Air Time Reward:
+        5. Feet Air Time Reward:
            - Rewards proper stepping patterns (0.4s optimal air time)
            - Uses exponential reward curve to encourage stepping
            - Only active when robot speed > 0.05 m/s
@@ -711,35 +703,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         height_error = torch.abs(current_height - target_height)
         height_reward = torch.tanh(3.0 * torch.exp(-5.0 * height_error))
 
-        # ==================== VELOCITY JITTER ====================
-        # Get current and previous horizontal velocities
-        curr_vel = self._robot.data.root_lin_vel_b[:, :2]
-        prev_vel = self._prev_lin_vel
-
-        # Compute angle between velocity vectors
-        dot = torch.sum(prev_vel * curr_vel, dim=1)
-        norm_prev = torch.norm(prev_vel, dim=1)
-        norm_curr = torch.norm(curr_vel, dim=1)
-
-        # Filter out low-speed noise
-        eps = 1e-3
-        valid = (norm_prev > eps) & (norm_curr > eps)
-
-        # Compute angle between vectors (in radians) – avoid NaNs by masking _before_ division.
-        denom = norm_prev * norm_curr + 1e-8
-        cos_raw = torch.zeros_like(dot)
-        if torch.any(valid):
-            cos_raw[valid] = dot[valid] / denom[valid]
-        cos_val = torch.clamp(cos_raw, -1.0, 1.0)
-        jitter_angle = torch.where(valid, torch.acos(cos_val), torch.zeros_like(dot))
-
-        # Scale jitter penalty by actual speed (naturally approaches zero when stationary)
-        # This prevents penalizing stationary robots while maintaining proportional penalty
-        jitter_metric = jitter_angle * actual_speed
-
-        # Store current velocity for next iteration
-        self._prev_lin_vel.copy_(curr_vel)
-
         # ==================== TORQUE PENALTY ====================
         # Penalize large actuator efforts to encourage energy-efficient motions.
         joint_torques = torch.sum(torch.square(self._robot.data.applied_torque), dim=1)
@@ -764,7 +727,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "track_xy_lin_commands": lin_vel_reward * self.cfg.rewards.track_xy_lin_commands,
             "track_yaw_commands": yaw_vel_reward * self.cfg.rewards.track_yaw_commands,
             "height_reward": height_reward * self.cfg.rewards.height_reward,
-            "velocity_jitter": jitter_metric * self.cfg.rewards.velocity_jitter,
             "torque_penalty": joint_torques * self.cfg.rewards.torque_penalty,
             "feet_air_time_reward": air_time_reward * self.cfg.rewards.feet_air_time
         }
@@ -976,9 +938,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 self._action_delays[env_ids] = torch.randint(
                     delay_min, delay_max + 1, (len(env_ids),), device=self.device
                 )
-
-        # Reset previous velocity for jitter penalty
-        self._prev_lin_vel[env_ids].copy_(self._robot.data.root_lin_vel_b[env_ids, :2])
 
         # Reset time for sinusoidal observation
         self._time[env_ids] = 0

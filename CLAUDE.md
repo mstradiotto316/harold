@@ -87,15 +87,27 @@ The reward system configuration is defined in:
 - **Gait Parameters**: `harold_isaac_lab_env_cfg.py` → `GaitCfg` class
 
 ### Reward Components
-The system uses 6 distinct reward/penalty terms:
-1. **Linear velocity tracking** - Primary locomotion objective
+The system uses 5 distinct reward/penalty terms:
+1. **Linear velocity tracking (Directional)** - Primary locomotion objective
+   - Uses elliptical Gaussian: exp(-(e_par/0.25)² + (e_perp/0.08)²)
+   - Lateral drift penalized 3x more strictly than along-track error
+   - Heavily penalizes sideways movement and backwards motion
 2. **Yaw velocity tracking** - Turning control
+   - Gaussian reward: exp(-(error/0.4)²)
 3. **Height maintenance** - Stability above terrain
-4. **Velocity jitter penalty** - Smooth motion
-5. **Torque penalty** - Energy efficiency
-6. **Feet air time** - Gait quality
+   - Tanh-based reward maintaining ~18cm target height
+4. **Torque penalty** - Energy efficiency
+   - Quadratic penalty on joint torques to reduce energy consumption
+5. **Feet air time** - Gait quality
+   - Rewards optimal air time (0.4s) to encourage proper stepping patterns
+   - Only active when robot speed > 0.05 m/s
+
+Note: Velocity jitter penalty was removed as it was redundant with directional tracking and penalized natural gait patterns.
 
 Each component has configurable weights and parameters that are frequently tuned during development. Check the `RewardsCfg` class for current values and detailed documentation of each component's mathematical formulation.
+
+### Reward Normalization
+Rewards are NOT multiplied by `step_dt` in the reward assembly to avoid double normalization. The episodic sum is already normalized by `max_episode_length_s` when logged to tensorboard, providing proper per-second normalization for visualization while maintaining correct step rewards for RL training.
 
 ## Hardware Integration and Sim-to-Real Transfer
 

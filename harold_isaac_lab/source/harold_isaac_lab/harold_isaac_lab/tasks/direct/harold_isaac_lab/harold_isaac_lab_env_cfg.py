@@ -96,12 +96,11 @@ class RewardsCfg:
     - Stability: Maintains upright posture and consistent height
         
     Weight Magnitudes:
-    - track_xy_lin_commands: 600 (highest priority - locomotion objective)
-    - feet_air_time: 300 (high priority - proper gait patterns)
-    - velocity_jitter: -30 (medium penalty - smooth motion)
+    - track_xy_lin_commands: 300 (highest priority - locomotion objective)
+    - feet_air_time: 200 (high priority - proper gait patterns)
     - track_yaw_commands: 20 (medium priority - turning ability)
     - height_reward: 15 (low-medium priority - stability)
-    - torque_penalty: -3 (low penalty - energy efficiency)
+    - torque_penalty: -0.15 (low penalty - energy efficiency)
     """
     # === PRIMARY LOCOMOTION OBJECTIVES (Positive Rewards) ===
     track_xy_lin_commands: float = 30   # Linear velocity tracking weight (HIGHEST PRIORITY)
@@ -124,11 +123,6 @@ class RewardsCfg:
                                         # Only active when moving (|v_cmd| > 0.03 m/s)
     
     # === SECONDARY OBJECTIVES AND PENALTIES (Negative Rewards) ===
-    velocity_jitter: float = -30 #-3    # Smooth motion penalty (MEDIUM PENALTY)
-                                        # Penalizes rapid velocity direction changes
-                                        # Computes angle between consecutive velocity vectors
-                                        # Scaled by commanded speed for proportional penalty
-                                       
     torque_penalty: float = -0.15       # Energy efficiency penalty (LOW PENALTY)
                                         # Quadratic penalty: sum(torque²)
                                         # Encourages smooth, low-power movements

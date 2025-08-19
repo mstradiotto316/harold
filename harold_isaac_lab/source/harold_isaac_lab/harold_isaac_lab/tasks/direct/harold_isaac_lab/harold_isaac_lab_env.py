@@ -413,7 +413,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         
         # Use pre-allocated buffer with minimum scale to ensure visibility when commands exist
         # If no command exists (magnitude near 0), arrow will be tiny but visible for debugging
-        self._cmd_scale_buffer[:, 0] = torch.clamp(cmd_magnitude * 2.0, min=0.05)  # Minimum length 0.05
+        self._cmd_scale_buffer[:, 0] = torch.clamp(cmd_magnitude * 2.0, min=0.02)  # Minimum length 0.02
         self._cmd_scale_buffer[:, 1] = self._arrow_width
         self._cmd_scale_buffer[:, 2] = self._arrow_width
         self._cmd_marker.visualize(marker_pos_cmd, marker_ori_cmd, marker_indices=marker_idx, scales=self._cmd_scale_buffer)

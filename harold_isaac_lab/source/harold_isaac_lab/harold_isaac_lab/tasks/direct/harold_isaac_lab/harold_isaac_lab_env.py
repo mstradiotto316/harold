@@ -673,7 +673,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         e_perp = torch.linalg.vector_norm(v_perp, dim=1)                 # sideways speed magnitude
         
         # Elliptical Gaussian: much tighter on lateral drift
-        c_par, c_perp = 0.25, 0.08  # lateral 3x stricter
+        c_par, c_perp = 0.08, 0.03 #0.25, 0.08  # lateral 3x stricter
         Q = (e_par / c_par)**2 + (e_perp / c_perp)**2
         lin_vel_reward = torch.exp(-Q)
         

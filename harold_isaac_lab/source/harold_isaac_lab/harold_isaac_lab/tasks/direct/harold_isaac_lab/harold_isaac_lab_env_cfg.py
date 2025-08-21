@@ -112,7 +112,7 @@ class RewardsCfg:
                                         # Gaussian reward: exp(-(error/0.4)²)
                                         # Enables turning and orientation control
                                        
-    height_reward: float = 0.75 #1.5    # Height maintenance reward (STABILITY)
+    height_reward: float = 0.1 #0.75 #1.5    # Height maintenance reward (STABILITY)
                                         # Tanh-based: tanh(3*exp(-5*|height_error|))
                                         # Maintains ~18cm target height above terrain
                                         # Critical for stable locomotion

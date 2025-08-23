@@ -28,34 +28,45 @@ const int DIR[13] = { 0,
 };
 
 // Diagnostic data structure
-struct Diag { 
-  int loadRaw; 
-  int mA; 
-  int tempC; 
-  int voltage_dV; 
+struct Diag {
+  bool ok;          // whether a full feedback frame was received
+  int load;         // signed load value (-1000..+1000)
+  int mA;           // motor current (mA)
+  int tempC;        // temperature (°C)
+  int voltage_dV;   // bus voltage in decivolts
 };
 
-// Function to read diagnostic data from a servo
+// Function to read diagnostic data from a servo using a single feedback frame
 Diag readDiag(uint8_t id) {
-  Diag d{
-    st.ReadLoad(id), 
-    st.ReadCurrent(id),
-    st.ReadTemper(id), 
-    st.ReadVoltage(id)
-  };
+  Diag d{};
+  int n = st.FeedBack(id);
+  d.ok = (n >= 0);
+  if (!d.ok) {
+    // Populate with sentinel values; callers can skip printing when !ok
+    d.load = d.mA = d.tempC = d.voltage_dV = -1;
+    return d;
+  }
+  d.load = st.ReadLoad(-1);       // signed: library already decoded sign bit
+  d.mA = st.ReadCurrent(-1);
+  d.tempC = st.ReadTemper(-1);
+  d.voltage_dV = st.ReadVoltage(-1);
   return d;
 }
 
 // Function to pretty-print diagnostic data for one servo
 void printDiag(uint8_t id, const Diag& d) {
-  // Load: bits 0-9 magnitude (0-1000), bit 10 direction (1=CCW)
-  bool ccw = d.loadRaw & 0x400;
-  int  mag = d.loadRaw & 0x3FF;
-  float pct = mag / 1000.0f * 100.0f;
+  if (!d.ok) {
+    Serial.printf("ID%02u  (no data)\n", id);
+    return;
+  }
+  int mag = d.load < 0 ? -d.load : d.load;
+  if (mag > 1000) mag = 1000; // clamp to documented range
+  char dir = (d.load < 0) ? '-' : '+';
+  float pct = (mag / 1000.0f) * 100.0f;
 
   Serial.printf(
-    "ID%02u  Load:%c%3d (%.0f%%)  I:%4dmA  T:%3d°C  V:%.1fV\n",
-    id, ccw ? '-' : '+', mag, pct, d.mA, d.tempC, d.voltage_dV / 10.0f
+    "ID%02u  Load:%c%4d (%.0f%%)  I:%4dmA  T:%3d°C  V:%.1fV\n",
+    id, dir, mag, pct, d.mA, d.tempC, d.voltage_dV / 10.0f
   );
 }
 
@@ -173,16 +184,11 @@ void setup() {
       float current_thigh_angle = std::lerp(THIGH_START, THIGH_END, t);
       float current_calf_angle = std::lerp(CALF_START, CALF_END, t);
       writeAllLegsPushup(current_thigh_angle, current_calf_angle);
-      
-      // Read and print diagnostics every 4th step to avoid overwhelming the bus
-      if (s % 4 == 0) {
-        delay(50); // Small delay to let servos settle before reading diagnostics
-        dumpAllDiags();
-      }
-      
       delay(STEP_MS); // Wait for the small incremental move
     }
     delay(300); // Pause at the bottom of the push-up
+    // Diagnostics at the bottom to avoid stalling motion
+    dumpAllDiags();
 
     Serial.println("…UP");
     // Up phase: interpolate from bent positions back to athletic stance
@@ -191,16 +197,11 @@ void setup() {
       float current_thigh_angle = std::lerp(THIGH_START, THIGH_END, t);
       float current_calf_angle = std::lerp(CALF_START, CALF_END, t);
       writeAllLegsPushup(current_thigh_angle, current_calf_angle);
-      
-      // Read and print diagnostics every 4th step to avoid overwhelming the bus
-      if (s % 4 == 0) {
-        delay(50); // Small delay to let servos settle before reading diagnostics
-        dumpAllDiags();
-      }
-      
       delay(STEP_MS); // Wait for the small incremental move
     }
     delay(300); // Pause at the top of the push-up (athletic stance)
+    // Diagnostics at the top to avoid stalling motion
+    dumpAllDiags();
   }
 
   Serial.println("\nPush-up routine complete. Holding athletic stance.");

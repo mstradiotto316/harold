@@ -12,6 +12,12 @@ const uint32_t BUS_BAUD = 1000000;
 const float MAX_SHOULDER_ANGLE = 30.0f;  // Maximum shoulder angle from center
 const float MAX_LEG_ANGLE = 90.0f;       // Maximum thigh/calf angle from center
 
+// Simple torque estimation based on datasheet stall torque
+// Assumes ~20 kg·cm stall torque at 12V for STS3215
+constexpr float RATED_STALL_TORQUE_KGCM = 20.0f;
+constexpr float KGCM_TO_NM = 0.0980665f;
+constexpr float RATED_STALL_TORQUE_NM = RATED_STALL_TORQUE_KGCM * KGCM_TO_NM;
+
 // Pushup movement angles
 // THIGH_START and CALF_START define the "up" position (athletic stance)
 // Calf range of motion is set to be twice the thigh's range of motion.
@@ -64,9 +70,17 @@ void printDiag(uint8_t id, const Diag& d) {
   char dir = (d.load < 0) ? '-' : '+';
   float pct = (mag / 1000.0f) * 100.0f;
 
+  // Approximate joint torque from present load percent and torque limit.
+  // This is an estimate; actual output depends on speed, friction, and control.
+  int torque_lim = st.readWord(id, SMS_STS_TORQUE_LIMIT_L); // 0..1023
+  if (torque_lim < 0) torque_lim = 1023; // assume full if unreadable
+  float lim_frac = torque_lim / 1023.0f;
+  float tau_nm = (d.load / 1000.0f) * RATED_STALL_TORQUE_NM * lim_frac;
+  float tau_ncm = tau_nm * 100.0f; // display in N·cm for small robot
+
   Serial.printf(
-    "ID%02u  Load:%c%4d (%.0f%%)  I:%4dmA  T:%3d°C  V:%.1fV\n",
-    id, dir, mag, pct, d.mA, d.tempC, d.voltage_dV / 10.0f
+    "ID%02u  Load:%c%4d (%.0f%%)  I:%4dmA  T:%3d°C  V:%.1fV  Torq≈%+.1f N·cm\n",
+    id, dir, mag, pct, d.mA, d.tempC, d.voltage_dV / 10.0f, tau_ncm
   );
 }
 

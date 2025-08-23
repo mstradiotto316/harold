@@ -319,7 +319,7 @@ class DomainRandomizationCfg:
 class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
     episode_length_s = 30.0
-    decimation = 18
+    decimation = 9 #decimation = 18
     action_scale = 1.0
     
     # Space definitions
@@ -347,7 +347,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
 
     # simulation
     sim: SimulationCfg = SimulationCfg(
-        dt= 1 / 360,
+        dt= 1 / 180, #dt= 1 / 360,
         render_interval=decimation,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",

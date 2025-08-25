@@ -103,7 +103,7 @@ class RewardsCfg:
     - torque_penalty: -0.15 (low penalty - energy efficiency)
     """
     # === PRIMARY LOCOMOTION OBJECTIVES (Positive Rewards) ===
-    track_xy_lin_commands: float = 30   # Linear velocity tracking weight (HIGHEST PRIORITY)
+    track_xy_lin_commands: float = 80   # Linear velocity tracking weight (HIGHEST PRIORITY)
                                         # Directional tracking with elliptical Gaussian
                                         # Lateral drift penalized 3x more than along-track error
                                         # Formula: exp(-(e_par/0.25)² + (e_perp/0.08)²)
@@ -112,18 +112,18 @@ class RewardsCfg:
                                         # Gaussian reward: exp(-(error/0.4)²)
                                         # Enables turning and orientation control
                                        
-    height_reward: float = 0.1 #0.75 #1.5    # Height maintenance reward (STABILITY)
+    height_reward: float = 0.75 #0.1 #0.75 #1.5    # Height maintenance reward (STABILITY)
                                         # Tanh-based: tanh(3*exp(-5*|height_error|))
                                         # Maintains ~18cm target height above terrain
                                         # Critical for stable locomotion
                                        
-    feet_air_time: float = 20           # Proper gait reward (HIGH PRIORITY)
+    feet_air_time: float = 12           # Proper gait reward (HIGH PRIORITY)
                                         # Rewards 0.15s optimal air time per foot (fixed for Harold's scale)
                                         # Uses exponential reward curve to encourage stepping
                                         # Only active when moving (|v_cmd| > 0.03 m/s)
     
     # === SECONDARY OBJECTIVES AND PENALTIES (Negative Rewards) ===
-    torque_penalty: float = -0.15       # Energy efficiency penalty (LOW PENALTY)
+    torque_penalty: float = -0.08       # Temporarily eased to encourage exploration
                                         # Quadratic penalty: sum(torque²)
                                         # Encourages smooth, low-power movements
 
@@ -234,7 +234,7 @@ class DomainRandomizationCfg:
     restitution_range: tuple = (0.0, 0.2)     # Keep low for realistic ground contact
     
     # === ROBOT PROPERTIES RANDOMIZATION ===
-    randomize_mass: bool = True               # Randomize body and link masses
+    randomize_mass: bool = False               # Randomize body and link masses
     mass_range: tuple = (0.85, 1.15)         # ±15% mass variation (1.7-2.3kg total)
                                               # Conservative to prevent drastic dynamics changes
     
@@ -246,11 +246,11 @@ class DomainRandomizationCfg:
     inertia_range: tuple = (0.9, 1.1)       # ±10% inertia variation
     
     # === ACTUATOR RANDOMIZATION ===
-    randomize_joint_stiffness: bool = True    # Vary joint PD controller stiffness
+    randomize_joint_stiffness: bool = False    # Vary joint PD controller stiffness
     stiffness_range: tuple = (150, 250)      # Base: 200, allows ±25% variation
                                               # Models servo response differences
     
-    randomize_joint_damping: bool = True      # Vary joint PD controller damping
+    randomize_joint_damping: bool = False      # Vary joint PD controller damping
     damping_range: tuple = (50, 100)         # Base: 75, allows ±33% variation
                                               # Models servo damping characteristics
     
@@ -289,7 +289,7 @@ class DomainRandomizationCfg:
     )
     
     # === ACTION RANDOMIZATION ===
-    add_action_noise: bool = True             # Add noise to action commands
+    add_action_noise: bool = False             # Add noise to action commands
     action_noise: GaussianNoiseCfg = GaussianNoiseCfg(
         mean=0.0,
         std=0.01,                             # Small noise proportional to action scale
@@ -363,7 +363,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
         prim_path="/World/ground",
         terrain_type="generator",
         terrain_generator=HAROLD_GENTLE_TERRAINS_CFG,  # Use our custom gentle terrain
-        max_init_terrain_level=4, #9  # Enable all terrain levels (0-9)
+        max_init_terrain_level=2, #9  # Enable all terrain levels (0-9)
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",

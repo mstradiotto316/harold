@@ -40,7 +40,7 @@ agent:
   learning_rate_scheduler: KLAdaptiveLR  # adaptive LR schedule
   learning_rate_scheduler_kwargs:
     kl_threshold: 0.01      # match Anymal example
-  state_preprocessor: null   # disable input normalization
+  state_preprocessor: RunningStandardScaler   # enable input normalization for stability
   state_preprocessor_kwargs: null
   value_preprocessor: RunningStandardScaler  # normalize value
   value_preprocessor_kwargs: null
@@ -50,7 +50,7 @@ agent:
   ratio_clip: 0.2            # e_clip
   value_clip: 0.2            # clip_value
   clip_predicted_values: True
-  entropy_loss_scale: 0.005  # (Maybe we can try 0.01 for more exploration early?)
+  entropy_loss_scale: 0.01  # temporarily boost exploration
   value_loss_scale: 1.0      # stronger critic weight for stable learning
   kl_threshold: 0.0         # disable early-stop for policy updates
   rewards_shaper_scale: 0.6  # increase reward shaping scale
@@ -65,4 +65,3 @@ trainer:
   class: SequentialTrainer
   timesteps: 128000          # horizon_length * max_epochs (128 * 1000)
   environment_info: log
-

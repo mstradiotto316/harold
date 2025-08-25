@@ -66,7 +66,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # --- Per-joint range scaling for natural action space ---
         # Shoulders get smaller range (0.25) for stability, thighs and calves get larger (0.5)
         self._joint_range = torch.tensor(
-            [0.25, 0.25, 0.25, 0.25,  # Shoulders (FL, FR, BL, BR)
+            [0.35, 0.35, 0.35, 0.35,  # Shoulders (FL, FR, BL, BR) - increased to aid lateral control
              0.5, 0.5, 0.5, 0.5,       # Thighs (FL, FR, BL, BR)
              0.5, 0.5, 0.5, 0.5],      # Calves (FL, FR, BL, BR)
             device=self.device
@@ -174,6 +174,15 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 "height_reward",
                 "torque_penalty",
                 "feet_air_time_reward"
+            ]
+        }
+        # --- Additional alignment diagnostics (episodic sums) ---
+        self._metric_sums = {
+            key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+            for key in [
+                "alignment_cos",      # cosine between cmd and actual velocity
+                "v_par_cmd_ratio",    # along-track speed / commanded speed
+                "lateral_speed"        # perpendicular speed magnitude
             ]
         }
         
@@ -675,11 +684,28 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Elliptical Gaussian: much tighter on lateral drift
         c_par, c_perp = 0.25, 0.08  # lateral 3x stricter
         Q = (e_par / c_par)**2 + (e_perp / c_perp)**2
-        lin_vel_reward = torch.exp(-Q)
+        # Subtract zero-motion baseline so stationary when commanded yields zero reward
+        # At v=0 -> Q0 = (|cmd|/c_par)^2, so exp(-Q) - exp(-Q0) = 0
+        Q0 = (cmd_mag / c_par)**2
+        base_dir_reward = torch.exp(-Q) - torch.exp(-Q0)
+        # Add underspeed penalty to discourage inaction when commanded
+        k_under = 0.7
+        under = torch.relu(cmd_mag - torch.clamp(v_par, min=0.0))
+        lin_vel_reward = base_dir_reward - k_under * under
         
-        # Gate on actual robot speed to prevent reward exploitation when standing still
-        actual_speed = torch.norm(self._robot.data.root_lin_vel_b[:, :2], dim=1)
-        lin_vel_reward *= (actual_speed > 0.05)
+        # Gate reward when a non-trivial command is provided
+        cmd_mag_for_gate = torch.norm(self._commands[:, :2], dim=1)
+        lin_vel_reward *= (cmd_mag_for_gate > 0.03)
+
+        # --- Alignment diagnostics (for logging) ---
+        v_norm = torch.linalg.vector_norm(v, dim=1)
+        denom = v_norm * cmd_mag + 1e-6
+        alignment_cos = torch.sum(v * cmd, dim=1) / denom
+        v_par_cmd_ratio = torch.clamp(v_par / (cmd_mag + 1e-6), 0.0, 1.5)
+        lateral_speed = torch.linalg.vector_norm(v_perp, dim=1)
+        self._metric_sums["alignment_cos"] += alignment_cos
+        self._metric_sums["v_par_cmd_ratio"] += v_par_cmd_ratio
+        self._metric_sums["lateral_speed"] += lateral_speed
 
         # ==================== YAW VELOCITY TRACKING ====================
         # AGGRESSIVE: Much more punishment for sitting still (0.05 vs 0.25 normalization)
@@ -715,7 +741,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Uses exponential reward curve to encourage proper stepping patterns instead of penalizing them
         optimal_air_time = 0.4 #0.25 #0.5 #0.15  # Appropriate for Harold's 40cm scale (was 0.3s - too long)
         air_time_error = torch.abs(last_air_time - optimal_air_time)
-        # Gate the reward on actual robot speed (already calculated above for velocity tracking)
+        # Gate the reward on actual robot speed
+        actual_speed = torch.norm(self._robot.data.root_lin_vel_b[:, :2], dim=1)
         air_time_reward = torch.sum(torch.exp(-air_time_error * 10.0) * first_contact, dim=1) * ( #3.0 #10.0
             actual_speed > 0.05  # was: torch.norm(self._commands[:, :2], dim=1) > 0.03
         )
@@ -870,13 +897,17 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._previous_actions[env_ids] = 0.0
 
         # Sample velocity commands for reset environments
+        # Ensure non-trivial magnitude to avoid idle tasks: sample angle and magnitude
+        num = len(env_ids)
+        angles = torch.rand(num, device=self.device) * 2 * math.pi
+        mags = torch.rand(num, device=self.device) * (0.3 - 0.1) + 0.1  # [0.1, 0.3]
+        vx = mags * torch.cos(angles)
+        vy = mags * torch.sin(angles)
         sampled_commands = torch.zeros_like(self._commands[env_ids])
-        # X and Y velocity commands: -0.3 to 0.3 m/s (appropriate for 40cm robot = 0.75 body lengths/sec)
-        sampled_commands[:, :2].uniform_(-0.3, 0.3)
-        # Yaw rate commands: -0.2 to 0.2 rad/s (increased for better turning agility on small robot)
-        # TEMPORARILY SET TO 0 FOR TESTING
-        sampled_commands[:, 2].uniform_(0.0, 0.0)
-        # Use full command range
+        sampled_commands[:, 0] = vx
+        sampled_commands[:, 1] = vy
+        # Yaw rate pinned to 0 for this phase
+        sampled_commands[:, 2] = 0.0
         self._commands[env_ids] = sampled_commands
 
         # Reset robot state
@@ -949,6 +980,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             # Normalize by max episode length (seconds)
             extras["Episode_Reward/" + key] = episodic_sum_avg / self.max_episode_length_s
             self._episode_sums[key][env_ids] = 0.0
+        # Add alignment diagnostics (normalized similarly for consistency)
+        for key in self._metric_sums.keys():
+            episodic_sum_avg = torch.mean(self._metric_sums[key][env_ids])
+            extras["Episode_Metric/" + key] = episodic_sum_avg / self.max_episode_length_s
+            self._metric_sums[key][env_ids] = 0.0
         self.extras["log"] = dict()
         self.extras["log"].update(extras)
         

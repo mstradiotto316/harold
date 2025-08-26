@@ -1,19 +1,10 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers.
-# All rights reserved.
-#
-# SPDX-License-Identifier: BSD-3-Clause
-
 import gymnasium as gym
 
 from . import agents
 
-##
-# Register Gym environments.
-##
-
-
+# Register Gym environment for Pushup (copy of flat for now)
 gym.register(
-    id="Template-Harold-Direct-flat-terrain-v0",
+    id="Template-Harold-Direct-pushup-v0",
     entry_point=f"{__name__}.harold_isaac_lab_env:HaroldIsaacLabEnv",
     disable_env_checker=True,
     kwargs={
@@ -24,5 +15,3 @@ gym.register(
         "sb3_cfg_entry_point": f"{agents.__name__}:sb3_ppo_cfg.yaml",
     },
 )
-
-# Identical copy of flat terrain task for rough terrain placeholder

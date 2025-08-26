@@ -4,3 +4,8 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import gymnasium as gym  # noqa: F401
+
+# Import task modules to register Gym environments on package import
+from . import harold_isaac_lab  # noqa: F401
+from . import harold_rough  # noqa: F401
+from . import harold_pushup  # noqa: F401

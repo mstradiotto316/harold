@@ -10,15 +10,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Harold Isaac Lab Extension Structure
 - **Primary Task**: `harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_isaac_lab/`
-  - `harold.py`: Robot configuration (joints, actuators, physics)
+  - `harold.py`: Robot configuration (USD V4 asset, actuators, physics)
   - `harold_isaac_lab_env.py`: Main RL environment class extending DirectRLEnv
-  - `harold_isaac_lab_env_cfg.py`: Configuration management with dataclasses
+  - `harold_isaac_lab_env_cfg.py`: Environment/config dataclasses (rewards, gait, terminations, DR)
 
 ### Robot Configuration (12 DOF)
 Joint order matches simulation exactly:
 - Shoulders (0-3): FL, FR, BL, BR
 - Thighs (4-7): FL, FR, BL, BR  
 - Calves (8-11): FL, FR, BL, BR
+
+Key details from current code (`harold.py`):
+- USD asset: `part_files/V4/harold_7.usd`
+- Initial pose: body z=0.20 m; thigh ≈ 0.3 rad; calf ≈ -0.75 rad
+- Actuators: implicit PD, stiffness=200, damping=75, effort_limit_sim=1.0
+- Joint angle limits (enforced in env): shoulders ±20°, thighs/calves ±45°
 
 ### Training Framework Integration
 Multiple RL framework support:
@@ -42,38 +48,49 @@ Multiple RL framework support:
 ### Core Components
 
 #### 1. Robot Configuration (harold.py)
-- **12-DOF Quadruped**: 3 joints per leg (shoulder, thigh, calf)
-- **Joint Limits**: Shoulders ±20°, thighs/calves ±45°
-- **Physical Properties**: 2kg mass, 40cm length, realistic inertia
-- **USD Asset**: harold_v5_11.usd with accurate collision meshes
+- 12-DOF quadruped: 3 joints per leg (shoulder, thigh, calf)
+- Joint limits: shoulders ±20°, thighs/calves ±45° (clamped in env)
+- USD asset: V4 `harold_7.usd` (contact sensors enabled)
+- Actuators: implicit PD (stiffness 200, damping 75)
 
 #### 2. Environment (harold_isaac_lab_env.py)
-- **Observation Space**: See _get_observations in harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_isaac_lab/harold_isaac_lab_env.py
-- **Action Space**: 12D joint position targets with safety clamping. See __init__ in harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_isaac_lab/harold_isaac_lab_env.py for specific joint limits.
-- **Physics Simulation**: See the SimulationCfg in harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_isaac_lab/harold_isaac_lab_env_cfg.py
-- **Isaac Lab GPU accelerated, multi-environment training**: 4096 parallel environments headless training is what the user generally selects
-- **Terrain System**: See TerrainGeneratorCfg and TerrainImporterCfg in harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_isaac_lab/harold_isaac_lab_env_cfg.py
-- **Contact Sensors**: See ContactSensorCfg in harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_isaac_lab/harold_isaac_lab_env_cfg.py
-- **Height Scanner**: See height_scanner RayCasterCfg in harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_isaac_lab/harold_isaac_lab_env_cfg.py
-- **Visual Markers**: See _update_visualization_markers in harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_isaac_lab/harold_isaac_lab_env.py
+- Observation space (48D): root_lin_vel_b (3), root_ang_vel_b (3), projected_gravity_b (3), joint_pos − default (12), joint_vel (12), commands [vx, vy, yaw] (3), prev_target_delta (12)
+- Action space (12D): position targets around default pose; per-joint scaling (shoulders 0.35; thighs/calves 0.5); clamped to safety limits
+- Physics: dt=1/180, decimation=9 → control at 20 Hz
+- Parallel envs: default 1024 (headless runs can scale higher)
+- Terrain: custom generator `HAROLD_GENTLE_TERRAINS_CFG` (balanced mix; curriculum enabled)
+- Height scanner: ray-caster grid 0.25×0.25 m, 0.1 m resolution, 20 Hz updates
+- Contact sensor: history length 3; 0.005 s update period
+- Visual markers (GUI): command vs actual velocity arrows
 
 ### Training Pipeline
 
 ```
-Training Process:
-├── Terrain: All difficulty levels (0-9) available from start
-├── Commands: Full velocity range (±0.3 m/s, ±0.2 rad/s)
-├── Environment: 1024 parallel environments
-├── Focus: Learning robust locomotion across all terrains simultaneously
-└── Duration: ~3-4 hours on modern GPU for convergence
+Training Process (current defaults):
+├── Terrain: Generator `HAROLD_GENTLE_TERRAINS_CFG` (curriculum enabled)
+│   └── Importer sets max_init_terrain_level=2 (levels 0–1 sampled at reset)
+├── Commands: XY speed sampled in [0.1, 0.3] m/s; yaw = 0.0 rad/s (for now)
+├── Environments: 1024 parallel envs (scale up headless as needed)
+├── Control Rate: 20 Hz (dt 1/180, decimation 9)
+└── Focus: Robust flat-to-gentle terrain locomotion with directional tracking
 
-Key Characteristics:
-- No curriculum progression - all challenges from the start
-- Random terrain selection ensures exposure to all difficulties
-- Robust policy emerges from diverse training distribution
+Notes:
+- Terrain level selection is randomized within allowed levels on each reset.
+- Yaw tracking reward exists but yaw commands are currently pinned to 0.
 ```
 
 This architecture enables robust quadruped locomotion learning with progressive skill acquisition, efficient parallel training, and safe real-world deployment.
+
+### SKRL PPO Config (current defaults)
+
+- Policy: Gaussian, ELU MLP [512, 256, 128]
+- Value: Deterministic, ELU MLP [512, 256, 128]
+- Rollouts: 24, Learning epochs: 5, Mini-batches: 4
+- Learning rate: 1e-3 (KLAdaptiveLR, kl_threshold=0.01)
+- Preprocessors: RunningStandardScaler for state and value
+- Entropy coef: 0.01, Value loss scale: 1.0, Grad clip: 1.0
+- Ratio clip: 0.2, Value clip: 0.2, Rewards shaper scale: 0.6
+- Trainer: Sequential, timesteps: 128000, experiment dir: `harold_direct`
 
 ## Reward System
 
@@ -81,10 +98,10 @@ This architecture enables robust quadruped locomotion learning with progressive 
 Harold's reward function implements a multi-component system to encourage stable, efficient, and robust quadruped locomotion. The reward components balance primary locomotion objectives with stability and efficiency considerations.
 
 ### Configuration Location
-The reward system configuration is defined in:
-- **Reward Weights**: `harold_isaac_lab_env_cfg.py` → `RewardsCfg` class
-- **Implementation**: `harold_isaac_lab_env.py` → `_get_rewards()` method
-- **Gait Parameters**: `harold_isaac_lab_env_cfg.py` → `GaitCfg` class
+Defined in code as:
+- Reward weights: `harold_isaac_lab_env_cfg.py` → `RewardsCfg`
+- Implementation: `harold_isaac_lab_env.py` → `_get_rewards()`
+- Gait parameters: `harold_isaac_lab_env_cfg.py` → `GaitCfg`
 
 ### Reward Components
 The system uses 5 distinct reward/penalty terms:
@@ -99,15 +116,40 @@ The system uses 5 distinct reward/penalty terms:
 4. **Torque penalty** - Energy efficiency
    - Quadratic penalty on joint torques to reduce energy consumption
 5. **Feet air time** - Gait quality
-   - Rewards optimal air time (0.4s) to encourage proper stepping patterns
-   - Only active when robot speed > 0.05 m/s
+   - Rewards optimal air time (~0.4 s) to encourage proper stepping
+   - Gated active when actual speed > 0.05 m/s
 
 Note: Velocity jitter penalty was removed as it was redundant with directional tracking and penalized natural gait patterns.
 
-Each component has configurable weights and parameters that are frequently tuned during development. Check the `RewardsCfg` class for current values and detailed documentation of each component's mathematical formulation.
+Current reward weights (`RewardsCfg`):
+- track_xy_lin_commands: 80.0
+- track_yaw_commands: 2.0
+- height_reward: 0.75
+- torque_penalty: -0.08
+- feet_air_time: 12.0
+
+Each component has configurable weights and parameters; see `RewardsCfg` and `_get_rewards()` for exact formulations.
 
 ### Reward Normalization
 Rewards are NOT multiplied by `step_dt` in the reward assembly to avoid double normalization. The episodic sum is already normalized by `max_episode_length_s` when logged to tensorboard, providing proper per-second normalization for visualization while maintaining correct step rewards for RL training.
+
+## Termination and Safety
+
+- Immediate reset on any undesired contact (body/shoulders/thighs) with threshold ≈ 0.05 N
+- Feet (calves) are the only intended ground-contact bodies for locomotion
+- Orientation termination exists in config (`orientation_threshold=-0.5`) but is currently disabled in env logic
+
+## Domain Randomization
+
+Enabled by default (on-reset and per-step where applicable):
+- Physics/materials: friction randomized (≈ 0.4–1.0); restitution off
+- Robot/actuator: stiffness/damping/mass/inertia hooks present; disabled by default
+- Sensors: IMU (ang vel, gravity) and joint (pos/vel) noise enabled
+- Actions: noise and delay available; disabled by default
+- External disturbances: available; disabled by default
+- Gravity randomization: available; disabled by default
+
+See `DomainRandomizationCfg` and env helpers for details.
 
 ## Hardware Integration and Sim-to-Real Transfer
 

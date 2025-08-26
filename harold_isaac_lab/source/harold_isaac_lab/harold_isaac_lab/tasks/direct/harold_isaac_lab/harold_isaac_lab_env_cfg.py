@@ -341,7 +341,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
 
     # viewer configuration
     viewer = ViewerCfg(
-        eye     = (-20.0, -20.0, 2.0),   # camera XYZ in metres
+        eye     = (-40.0, 0.0, 2.0),   # camera XYZ in metres
         lookat = (0.0, 0.0, 0.0),  # aim at robot base
     )
 

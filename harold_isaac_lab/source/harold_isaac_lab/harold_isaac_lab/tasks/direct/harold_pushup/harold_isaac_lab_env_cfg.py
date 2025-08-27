@@ -13,7 +13,6 @@ from .harold import HAROLD_V4_CFG
 from isaaclab.terrains import TerrainGeneratorCfg
 from isaaclab.terrains.trimesh import MeshPlaneTerrainCfg
 
-
 # Simple flat terrain for push-up playback (no curriculum or roughness)
 PUSHUP_FLAT_TERRAIN_CFG = TerrainGeneratorCfg(
     size=(4.0, 4.0),
@@ -31,11 +30,6 @@ PUSHUP_FLAT_TERRAIN_CFG = TerrainGeneratorCfg(
     color_scheme="height",
 )
 
-
-# No rewards/gait/termination configuration needed for push-up playback
-
-
-
 @configclass
 class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
@@ -51,7 +45,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
 
     # viewer configuration
     viewer = ViewerCfg(
-        eye=(0.0, 1.0, 0.4),     # close-up side view
+        eye=(0.0, 1.0, 0.4),     # close-up view
         lookat=(0.0, 0.0, 0.3),  # center on robot body
     )
 
@@ -62,8 +56,8 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
             restitution_combine_mode="multiply",
-            static_friction=0.7, #1.0,
-            dynamic_friction=0.7, #1.0,
+            static_friction=0.7,
+            dynamic_friction=0.7,
             restitution=0.0,
         ),
     )
@@ -122,7 +116,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
 
     contact_sensor: ContactSensorCfg = ContactSensorCfg(
         prim_path="/World/envs/env_.*/Robot/.*",
-        history_length=3,               # Increased from 1 to 3 for proper contact force filtering
-        update_period=0.005,            # 5ms update rate (much higher frequency than 0.05s)
-        track_air_time=True             # Keep enabled for gait analysis and feet air time rewards
+        history_length=3,
+        update_period=0.005,
+        track_air_time=True
     )

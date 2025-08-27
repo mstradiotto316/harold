@@ -82,7 +82,7 @@ HAROLD_V4_CFG = ArticulationCfg(
         "all_joints": ImplicitActuatorCfg(
             joint_names_expr=[".*"],
             effort_limit_sim=30.0,
-            stiffness=200.0, #100.0, #200.0,
+            stiffness=200.0,
             damping=75.0,
         ),
     },

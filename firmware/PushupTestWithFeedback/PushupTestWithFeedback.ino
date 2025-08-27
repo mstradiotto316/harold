@@ -113,8 +113,9 @@ const uint8_t LEG[4][3] = {
 };
 
 const int SPEED = 1800, ACC = 100;        // Servo speed and acceleration
-const int STEP_MS = 30;                   // Milliseconds per interpolation step
-const int STEPS   = 40;                   // Number of interpolation steps for push-up movement
+// Target 20 Hz command updates to match simulation (50 ms period)
+const int STEP_MS = 50;                   // Milliseconds per interpolation step (20 Hz)
+const int STEPS   = 24;                   // Steps per down/up phase (~1.2 s total at 20 Hz)
 
 // Function to clamp a value between a minimum and maximum
 float clamp(float value, float min_val, float max_val) {

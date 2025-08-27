@@ -9,10 +9,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Core Architecture
 
 ### Harold Isaac Lab Extension Structure
-- **Primary Task**: `harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_isaac_lab/`
+- **Primary Task (Rough Terrain)**: `harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_rough/`
   - `harold.py`: Robot configuration (USD V4 asset, actuators, physics)
   - `harold_isaac_lab_env.py`: Main RL environment class extending DirectRLEnv
   - `harold_isaac_lab_env_cfg.py`: Environment/config dataclasses (rewards, gait, terminations, DR)
+
+- **Other Tasks (Short)**
+  - Flat Terrain (baseline): `.../tasks/direct/harold_flat/` — identical env with flat-only terrain generator.
+  - Pushup (scripted playback): `.../tasks/direct/harold_pushup/` — deterministic joint-position playback for sim–real comparison.
+
+### Task Types and Gym IDs
+- Flat Terrain: `Template-Harold-Direct-flat-terrain-v0`
+- Rough Terrain (primary): `Template-Harold-Direct-rough-terrain-v0`
+- Pushup Playback: `Template-Harold-Direct-pushup-v0`
+
+All tasks are registered under `harold_isaac_lab/harold_isaac_lab/tasks/direct`, via the package’s `__init__.py` which imports each task module to trigger registration.
 
 ### Robot Configuration (12 DOF)
 Joint order matches simulation exactly:
@@ -63,20 +74,19 @@ Multiple RL framework support:
 - Contact sensor: history length 3; 0.005 s update period
 - Visual markers (GUI): command vs actual velocity arrows
 
-### Training Pipeline
+### Training Pipeline (Rough Terrain Task)
 
 ```
-Training Process (current defaults):
-├── Terrain: Generator `HAROLD_GENTLE_TERRAINS_CFG` (curriculum enabled)
-│   └── Importer sets max_init_terrain_level=2 (levels 0–1 sampled at reset)
-├── Commands: XY speed sampled in [0.1, 0.3] m/s; yaw = 0.0 rad/s (for now)
+Defaults:
+├── Terrain: Procedural generator with a mix of flat / noise / slopes / steps (curriculum enabled)
+├── Commands: XY speed sampled in [0.1, 0.3] m/s; yaw in config
 ├── Environments: 1024 parallel envs (scale up headless as needed)
 ├── Control Rate: 20 Hz (dt 1/180, decimation 9)
-└── Focus: Robust flat-to-gentle terrain locomotion with directional tracking
+└── Focus: Robust locomotion over progressively harder terrain
 
 Notes:
-- Terrain level selection is randomized within allowed levels on each reset.
-- Yaw tracking reward exists but yaw commands are currently pinned to 0.
+- Terrain sampling uses the importer’s row/column grid and curriculum gating.
+- Exact sub-terrains and weights are defined in the task config.
 ```
 
 This architecture enables robust quadruped locomotion learning with progressive skill acquisition, efficient parallel training, and safe real-world deployment.

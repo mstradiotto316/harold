@@ -108,7 +108,7 @@ class RewardsCfg:
                                         # Lateral drift penalized 3x more than along-track error
                                         # Formula: exp(-(e_par/0.25)² + (e_perp/0.08)²)
                                         
-    track_yaw_commands: float = 2       # Yaw velocity tracking weight (MEDIUM PRIORITY)  
+    track_yaw_commands: float = 12.0       # Yaw velocity tracking weight (MEDIUM PRIORITY)  
                                         # Gaussian reward: exp(-(error/0.4)²)
                                         # Enables turning and orientation control
                                        

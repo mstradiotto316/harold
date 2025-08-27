@@ -173,7 +173,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 "track_yaw_commands",
                 "height_reward",
                 "torque_penalty",
-                "feet_air_time_reward"
+                "feet_air_time_reward",
+                "anti_spin_penalty",
             ]
         }
         # --- Additional alignment diagnostics (episodic sums) ---
@@ -182,7 +183,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             for key in [
                 "alignment_cos",      # cosine between cmd and actual velocity
                 "v_par_cmd_ratio",    # along-track speed / commanded speed
-                "lateral_speed"        # perpendicular speed magnitude
+                "lateral_speed",       # perpendicular speed magnitude
+                "abs_wz_when_yaw_cmd_zero",
             ]
         }
         
@@ -715,6 +717,18 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         err_yaw = torch.abs(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
         yaw_vel_reward = torch.exp(-(err_yaw / 0.4)**2)   # sigma ≈ 0.4 rad/s
 
+        # ==================== ANTI-SPIN PENALTY (for straight-walk commands) ====================
+        # Penalize unintended spinning when commanded yaw is ~0 and robot is moving.
+        speed_xy = torch.linalg.vector_norm(self._robot.data.root_lin_vel_b[:, :2], dim=1)
+        yaw_cmd_abs = torch.abs(self._commands[:, 2])
+        wz_abs = torch.abs(self._robot.data.root_ang_vel_b[:, 2])
+        anti_spin_gate = (speed_xy > 0.05) & (yaw_cmd_abs < 0.02)
+        anti_spin_k = 1.5
+        anti_spin_penalty = -anti_spin_k * wz_abs * anti_spin_gate.float()
+
+        # Diagnostic metric: absolute yaw rate when yaw_cmd≈0
+        self._metric_sums["abs_wz_when_yaw_cmd_zero"] += wz_abs * anti_spin_gate.float()
+
         # ==================== HEIGHT MAINTENANCE ====================
         # Get height data from scanner and compute mean height (NaN-safe)
         pos_z = self._height_scanner.data.pos_w[:, 2].unsqueeze(1)
@@ -755,7 +769,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "track_yaw_commands": yaw_vel_reward * self.cfg.rewards.track_yaw_commands,
             "height_reward": height_reward * self.cfg.rewards.height_reward,
             "torque_penalty": joint_torques * self.cfg.rewards.torque_penalty,
-            "feet_air_time_reward": air_time_reward * self.cfg.rewards.feet_air_time
+            "feet_air_time_reward": air_time_reward * self.cfg.rewards.feet_air_time,
+            "anti_spin_penalty": anti_spin_penalty,
         }
         
         # Sum all rewards
@@ -906,8 +921,12 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         sampled_commands = torch.zeros_like(self._commands[env_ids])
         sampled_commands[:, 0] = vx
         sampled_commands[:, 1] = vy
-        # Yaw rate pinned to 0 for this phase
-        sampled_commands[:, 2] = 0.0
+        # Yaw command sampling: 50% episodes have random yaw rate in [-0.4, 0.4], others 0.0
+        yaw_cmds = torch.zeros(num, device=self.device)
+        yaw_mask = torch.rand(num, device=self.device) < 0.5
+        if yaw_mask.any():
+            yaw_cmds[yaw_mask] = torch.rand(torch.count_nonzero(yaw_mask), device=self.device) * 0.8 - 0.4
+        sampled_commands[:, 2] = yaw_cmds
         self._commands[env_ids] = sampled_commands
 
         # Reset robot state

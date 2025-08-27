@@ -47,3 +47,46 @@ Do not go off on tangents or attempt to fix things you were not instructed to do
 
 HERE ARE YOUR INSTRUCTIONS FOR THIS PROJECT:
 
+
+
+
+
+
+
+
+
+
+
+Please begin by reading CLAUDE.md to familiarize yourself with this repo. We
+are going to be focused on isaac lab robot training today, so once you have read
+CLAUDE.md in full, please read the following files in full:
+
+harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/
+harold_rough/harold_isaac_lab_env_cfg.py
+
+harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/
+harold_rough/harold_isaac_lab_env.py
+
+harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/
+harold_rough/harold.py
+
+The most recent training run was terrain_52, the logs for which can be found in:
+/home/matteo/Desktop/code_projects/harold/logs/skrl/harold_direct
+
+I have also taken screenshots of every metric that is charted on tensorboard
+so you can see how the values evolve over time during training. All files in my
+screenshot folder are from the most recent training run:
+
+/home/matteo/Pictures/Screenshots
+
+Please take your time and review the provided files in detail. Think deeply and
+ingest files in their entirety. Fill your context window with all of this data
+so you have a robust understanding of the situation.
+
+Finally, generate 3 different action plans to improve the robot's training.
+Assess them all in detail, and choose one to present to me. Your chosen plan of
+action will be used to modify the simulation for our next experiment.
+
+Note that the current trained policy from terrain_52 gets to a decently reliable
+walking state, but it does not work in all directions, and the robot tends to
+rotate clockwise while walking.

@@ -10,75 +10,24 @@ from isaaclab.envs.common import ViewerCfg
 from isaaclab.utils.noise import GaussianNoiseCfg, UniformNoiseCfg
 
 from .harold import HAROLD_V4_CFG
-from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
 from isaaclab.terrains import TerrainGeneratorCfg
-from isaaclab.terrains.height_field import HfRandomUniformTerrainCfg, HfPyramidSlopedTerrainCfg, HfInvertedPyramidSlopedTerrainCfg
-from isaaclab.terrains.trimesh import MeshPlaneTerrainCfg, MeshRandomGridTerrainCfg, MeshPyramidStairsTerrainCfg, MeshInvertedPyramidStairsTerrainCfg
+from isaaclab.terrains.trimesh import MeshPlaneTerrainCfg
 
 
-# Custom terrain configuration for Harold - balanced mix of upward and downward terrain
-HAROLD_GENTLE_TERRAINS_CFG = TerrainGeneratorCfg(
+# Flat terrain configuration only (no curriculum or rough variants)
+HAROLD_FLAT_TERRAIN_CFG = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
-    num_rows=10,
-    num_cols=20,
-    horizontal_scale=0.1,  # 10cm resolution
-    vertical_scale=0.005,  # 5mm height resolution - much finer than default
-    slope_threshold=0.75,
+    num_rows=1,
+    num_cols=1,
+    horizontal_scale=0.1,
+    vertical_scale=0.001,
+    slope_threshold=0.0,
     use_cache=False,
     sub_terrains={
-        # Flat terrain for basic walking (25%)
-        "flat": MeshPlaneTerrainCfg(proportion=0.25, size=(1.0, 1.0)),
-        
-        # Random rough terrain (25%)
-        "easy_random": HfRandomUniformTerrainCfg(
-            proportion=0.125,  # Split random terrain into two parts
-            noise_range=(0.01, 0.04),  # Easy range: 0.5cm to 3cm noise
-            noise_step=0.01,  
-            border_width=0.25,
-        ),
-        "hard_random": HfRandomUniformTerrainCfg(
-            proportion=0.125,  # Split random terrain into two parts  
-            noise_range=(0.01, 0.08),  # Hard range: 8cm to 16cm noise
-            noise_step=0.01,
-            border_width=0.25,
-        ),
-        
-        # Regular pyramid slopes - robot spawns on peak, goes downhill (15%)
-        "tiny_slopes": HfPyramidSlopedTerrainCfg(
-            proportion=0.1,
-            slope_range=(0.1, 0.3),  # % grade 0.1
-            platform_width=1.0,
-            border_width=0.25,
-        ),
-        
-        # Inverted pyramid slopes - robot spawns in valley, must climb uphill (15%)
-        "tiny_valleys": HfInvertedPyramidSlopedTerrainCfg(
-            proportion=0.1,
-            slope_range=(0.1, 0.3),  # % grade 0.1
-            platform_width=1.0,
-            border_width=0.25,
-        ),
-        
-        # Regular pyramid stairs - robot spawns on top platform, goes down steps (10%)
-        "micro_steps": MeshPyramidStairsTerrainCfg(
-            proportion=0.1,
-            step_height_range=(0.01, 0.1),  # In meters
-            step_width=0.3,
-            platform_width=1.0,
-            border_width=0.25,
-        ),
-        
-        # Inverted pyramid stairs - robot spawns in pit, must climb up steps (10%)
-        "micro_pits": MeshInvertedPyramidStairsTerrainCfg(
-            proportion=0.2,
-            step_height_range=(0.01, 0.1),  # In meters
-            step_width=0.3,
-            platform_width=1.0,
-            border_width=0.25,
-        )
+        "flat": MeshPlaneTerrainCfg(proportion=1.0, size=(1.0, 1.0)),
     },
-    curriculum=True,
+    curriculum=False,
     color_scheme="height",
 )
 
@@ -362,8 +311,8 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="generator",
-        terrain_generator=HAROLD_GENTLE_TERRAINS_CFG,  # Use our custom gentle terrain
-        max_init_terrain_level=2, #9  # Enable all terrain levels (0-9)
+        terrain_generator=HAROLD_FLAT_TERRAIN_CFG,  # Flat plane only
+        max_init_terrain_level=1,
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
@@ -371,10 +320,6 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
             static_friction=1.0,
             dynamic_friction=1.0,
             restitution=0.0,
-        ),
-        visual_material=sim_utils.MdlFileCfg(
-            mdl_path="{NVIDIA_NUCLEUS_DIR}/Materials/Base/Architecture/Shingles_01.mdl",
-            project_uvw=True,
         ),
         debug_vis=False,
     )

@@ -17,24 +17,19 @@ from isaaclab.utils.noise import gaussian_noise, uniform_noise
 class HaroldIsaacLabEnv(DirectRLEnv):
     """Reinforcement Learning Environment for Harold Quadruped Robot.
     
-    This class implements a sophisticated RL training environment for a 12-DOF quadruped robot
-    with multi-terrain support and comprehensive reward shaping. The
-    environment features progressive terrain difficulty scaling, velocity command tracking,
-    and energy-efficient locomotion rewards.
+    This class implements an RL training environment for a 12-DOF quadruped robot
+    on flat terrain with velocity tracking and energy-efficiency rewards.
     
     Key Features:
         - 12-DOF quadruped with 3 joints per leg (shoulder, thigh, calf)
-        - Multi-terrain training with various difficulty levels
         - Multi-component reward system (velocity tracking, height maintenance, energy efficiency)
         - Contact-based termination and gait analysis
-        - Real-time visualization with velocity command/actual arrows
         - 48-dimensional observation space including robot state, commands, and terrain info
         - Physics simulation at 360Hz with 20Hz policy updates (18:1 decimation)
     
     State Spaces:
         - Observation: 48D vector [root_vel(6) + gravity(3) + joint_pos(12) + joint_vel(12) + commands(3) + actions(12)]
         - Action: 12D joint position targets (clamped to safety limits)
-        - Terrain: 200 unique patches (10 difficulty levels × 20 variations)
     
     Args:
         cfg: Configuration object containing robot, terrain, reward, and simulation parameters
@@ -134,9 +129,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # --- Observation & State Trackers ---
         self._time = torch.zeros(self.num_envs, device=self.device)
         self._decimation_counter = 0
-        self._last_terrain_level = 0  # Track current terrain difficulty level
-        
-        # Track which terrain level each environment is on
+        # Terrain bookkeeping (flat terrain uses a single origin)
+        self._last_terrain_level = 0
         self._env_terrain_levels = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         
         # ------------------------------------------------------------------
@@ -257,8 +251,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
 
-        # --- Visualization Markers Setup ---
-        # Only create markers when GUI is enabled to save memory in headless training
+        # --- Visualization Markers Setup (optional UI arrows) ---
         self._markers_enabled = self.sim.has_gui()
         if self._markers_enabled:
             # Instantiate and configure arrow markers for command vs actual velocity
@@ -493,8 +486,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         """Construct the 48-dimensional observation vector for policy input.
         
         Assembles robot state, sensor data, and command information into a structured
-        observation that enables the policy to perform locomotion control. Updates
-        terrain difficulty for each environment.
+        observation that enables the policy to perform locomotion control.
         
         Returns:
             Dict with 'policy' key containing 48D observation tensor:
@@ -857,10 +849,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
            - Yaw rate: Uniform random [-0.2, 0.2] rad/s
            
         3. Terrain Assignment:
-           - Select terrain level randomly from available levels
-           - Random terrain within allowed difficulty range
-           - Update environment-specific terrain tracking
-           - Set spawn position to selected terrain patch
+           - Flat terrain selection (single origin)
            
         4. State Buffer Reset:
            - Action buffers: Zero previous actions
@@ -873,9 +862,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
            - Termination reason categorization
            - Training progress tracking
            
-        Terrain Grid Structure:
-           - Level 0: Flat terrain, Level 9: Maximum difficulty
-           - Random selection from all terrain levels
+        Terrain:
+           - Flat plane only (no curriculum, no difficulty levels)
            
         Performance Optimizations:
            - Batch processing of multiple environment resets
@@ -919,9 +907,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         if hasattr(self._terrain, 'env_origins'):
             # Implement terrain selection
             if self.cfg.terrain.terrain_type == "generator" and hasattr(self._terrain, 'terrain_origins'):
-                # Get the terrain grid dimensions
-                num_rows = self.cfg.terrain.terrain_generator.num_rows  # 10 difficulty levels
-                num_cols = self.cfg.terrain.terrain_generator.num_cols  # 20 variations per level
+                # Get the terrain grid dimensions (flat terrain: 1x1)
+                num_rows = self.cfg.terrain.terrain_generator.num_rows
+                num_cols = self.cfg.terrain.terrain_generator.num_cols
                 
                 # Debug: Print terrain information once
                 #if env_ids[0] == 0:  # Only print for first environment
@@ -935,8 +923,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                     # Convert to integer for indexing
                     env_idx = int(env_id)
                     
-                    # Randomly select a terrain level from all available levels
-                    #num_rows = self.cfg.terrain.terrain_generator.num_rows  # 10 difficulty levels
+                    # Select terrain level/column (flat terrain: single choice)
                     terrain_level = torch.randint(0, self.cfg.terrain.max_init_terrain_level, (1,), device=self.device).item()
                     # Randomly select a column within that terrain level
                     terrain_col = torch.randint(0, num_cols, (1,), device=self.device).item()

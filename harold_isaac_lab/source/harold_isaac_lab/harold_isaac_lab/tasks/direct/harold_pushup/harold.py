@@ -3,7 +3,7 @@
 Run Pushup Test:
 python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-pushup-v0 --num_envs 1
 
-Train model in headless mode with video recording:
+Headless video recording of pushup:
 python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-pushup-v0 --num_envs 1 --headless --video --video_length 250 --video_interval 6400
 
 """
@@ -82,7 +82,7 @@ HAROLD_V4_CFG = ArticulationCfg(
         "all_joints": ImplicitActuatorCfg(
             joint_names_expr=[".*"],
             effort_limit_sim=30.0,
-            stiffness=200.0,
+            stiffness=2000.0,
             damping=75.0,
         ),
     },

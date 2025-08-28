@@ -63,5 +63,5 @@ agent:
 
 trainer:
   class: SequentialTrainer
-  timesteps: 5000          # horizon_length * max_epochs (128 * 1000)
+  timesteps: 300          # horizon_length * max_epochs (128 * 1000)
   environment_info: log

@@ -1,4 +1,7 @@
 """
+# ACTIVATE VENV:
+source ~/Desktop/env_isaaclab/bin/activate
+
 # WHEN USING SKRL TRAINING LIBRARY
 Run Pushup Test:
 python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-pushup-v0 --num_envs 1
@@ -28,7 +31,7 @@ except:
     exit(1)
 
 # Construct the USD file path
-USD_FILE_PATH = HAROLD_ROOT / "part_files" / "V4" / "harold_7.usd"
+USD_FILE_PATH = HAROLD_ROOT / "part_files" / "V4" / "harold_8.usd"
 
 # Validate that the file exists
 if not USD_FILE_PATH.exists():

@@ -57,7 +57,7 @@ HAROLD_V4_CFG = ArticulationCfg(
             max_depenetration_velocity=2,
         ),
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-            enabled_self_collisions=False, solver_position_iteration_count=4, solver_velocity_iteration_count=0
+            enabled_self_collisions=False, solver_position_iteration_count=8, solver_velocity_iteration_count=2
         )
     ),
     init_state=ArticulationCfg.InitialStateCfg(
@@ -84,9 +84,9 @@ HAROLD_V4_CFG = ArticulationCfg(
     actuators={
         "all_joints": ImplicitActuatorCfg(
             joint_names_expr=[".*"],
-            effort_limit_sim=30.0,
-            stiffness=2000.0,
-            damping=75.0,
+            effort_limit_sim=250.0,
+            stiffness=1000,
+            damping=100.0,
         ),
     },
 )

@@ -191,6 +191,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Advance the push-up routine at control rate (20 Hz)
         if (self._physics_step_count % self.cfg.decimation) == 0:
             self._advance_pushup_and_update_target()
+            #print(f"Target: {self._processed_actions}")
         self._physics_step_count += 1
 
         # Send joint targets to robot every physics step

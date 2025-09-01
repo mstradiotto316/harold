@@ -46,7 +46,7 @@ except:
     exit(1)
 
 # Construct the USD file path
-USD_FILE_PATH = HAROLD_ROOT / "part_files" / "V4" / "harold_7.usd"
+USD_FILE_PATH = HAROLD_ROOT / "part_files" / "V4" / "harold_8.usd"
 
 # Validate that the file exists
 if not USD_FILE_PATH.exists():
@@ -72,7 +72,7 @@ HAROLD_V4_CFG = ArticulationCfg(
             max_depenetration_velocity=2,
         ),
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-            enabled_self_collisions=False, solver_position_iteration_count=4, solver_velocity_iteration_count=0
+            enabled_self_collisions=False, solver_position_iteration_count=8, solver_velocity_iteration_count=2
         )
     ),
     init_state=ArticulationCfg.InitialStateCfg(
@@ -99,10 +99,9 @@ HAROLD_V4_CFG = ArticulationCfg(
     actuators={
         "all_joints": ImplicitActuatorCfg(
             joint_names_expr=[".*"],
-            effort_limit_sim=1.0,
-            stiffness=200.0, #100.0, #200.0,
-            damping=75.0,
+            effort_limit_sim=250.0,
+            stiffness=1000,
+            damping=100.0,
         ),
     },
 )
-

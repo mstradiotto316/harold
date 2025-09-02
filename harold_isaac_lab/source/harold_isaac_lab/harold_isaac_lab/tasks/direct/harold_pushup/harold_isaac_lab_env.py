@@ -35,12 +35,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Commands removed for push-up playback (no velocity tracking)
         self._commands = None
 
-        self._JOINT_ANGLE_MAX = torch.tensor([
-            0.5236, 0.5236, 0.5236, 0.5236,  # shoulders
-            1.5708, 1.5708, 1.5708, 1.5708,  # thighs
-            1.5708, 1.5708, 1.5708, 1.5708   # calves
-        ], device=self.device)
-        self._JOINT_ANGLE_MIN = -self._JOINT_ANGLE_MAX.clone()
+        self._JOINT_ANGLE_MAX = torch.tensor(self.cfg.joint_angle_max, device=self.device)
+        self._JOINT_ANGLE_MIN = torch.tensor(self.cfg.joint_angle_min, device=self.device)
 
         # --- Push-up playback parameters (match firmware timing at 20 Hz) ---
         # Replicate Arduino timing exactly:

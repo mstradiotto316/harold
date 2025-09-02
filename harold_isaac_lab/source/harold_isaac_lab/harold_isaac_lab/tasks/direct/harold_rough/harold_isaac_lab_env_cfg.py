@@ -425,3 +425,25 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
         update_period=0.005,            # 5ms update rate (much higher frequency than 0.05s)
         track_air_time=True             # Keep enabled for gait analysis and feet air time rewards
     )
+
+    # === Joint configuration (moved from env implementation) ===
+    # Per-joint normalized action ranges (scaled later by action_scale)
+    # Order: [shoulders(4), thighs(4), calves(4)]
+    joint_range: tuple = (
+        0.30, 0.30, 0.30, 0.30,  # shoulders
+        0.90, 0.90, 0.90, 0.90,      # thighs
+        0.90, 0.90, 0.90, 0.90       # calves
+    )
+
+    # === Joint configuration for push-up routine ===
+    # Absolute joint angle limits in radians
+    joint_angle_max: tuple = (
+        0.5236, 0.5236, 0.5236, 0.5236,  # shoulders ±30°
+        1.5708, 1.5708, 1.5708, 1.5708,  # thighs ±90°
+        1.5708, 1.5708, 1.5708, 1.5708   # calves ±90°
+    )
+    joint_angle_min: tuple = (
+        -0.5236, -0.5236, -0.5236, -0.5236,
+        -1.5708, -1.5708, -1.5708, -1.5708,
+        -1.5708, -1.5708, -1.5708, -1.5708
+    )

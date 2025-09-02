@@ -63,14 +63,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._previous_actions = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
         self._processed_actions = ( self.cfg.action_scale * self._actions ) + self._robot.data.default_joint_pos
         
-        # --- Per-joint range scaling for natural action space ---
-        # Shoulders get smaller range (0.25) for stability, thighs and calves get larger (0.5)
-        self._joint_range = torch.tensor(
-            [0.35, 0.35, 0.35, 0.35,  # Shoulders (FL, FR, BL, BR) - increased to aid lateral control
-             0.5, 0.5, 0.5, 0.5,       # Thighs (FL, FR, BL, BR)
-             0.5, 0.5, 0.5, 0.5],      # Calves (FL, FR, BL, BR)
-            device=self.device
-        )
+        # --- Per-joint range scaling for natural action space (from config) ---
+        self._joint_range = torch.tensor(self.cfg.joint_range, device=self.device)
         
         # --- Track previous target deltas for observation space ---
         self._prev_target_delta = torch.zeros(self.num_envs, self.cfg.action_space, device=self.device)
@@ -107,8 +101,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # - Conservative ranges ensure sim-to-real transfer safety
         # - FeeTech STS3215 servos have built-in position limits
         # - These software limits provide additional protection layer
-        self._JOINT_ANGLE_MAX = torch.tensor([0.3491, 0.3491, 0.3491, 0.3491, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853, 0.7853], device=self.device)
-        self._JOINT_ANGLE_MIN = torch.tensor([-0.3491, -0.3491, -0.3491, -0.3491, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853, -0.7853], device=self.device)
+        self._JOINT_ANGLE_MAX = torch.tensor(self.cfg.joint_angle_max, device=self.device)
+        self._JOINT_ANGLE_MIN = torch.tensor(self.cfg.joint_angle_min, device=self.device)
 
         # --- Debug: Print Robot Body & Joint Info ---
         print("--------------------------------")

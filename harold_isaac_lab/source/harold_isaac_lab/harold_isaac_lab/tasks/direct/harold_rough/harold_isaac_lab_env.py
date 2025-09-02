@@ -319,12 +319,20 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         """
         # --- Action copy ---
         self._actions.copy_(actions)
+
+        # --- Low-pass filter (EMA) on actions for stability and sim2real ---
+        # a_t_smooth = (1 - beta) * a_{t-1}_smooth + beta * a_t_raw
+        # beta in (0,1]; lower beta = stronger smoothing
+        if not hasattr(self, "_actions_smooth"):
+            self._actions_smooth = torch.zeros_like(self._actions)
+        beta = getattr(self.cfg, "action_filter_beta", 0.2)
+        self._actions_smooth = (1.0 - beta) * self._actions_smooth + beta * self._actions
         
         # --- Apply action noise and delays if domain randomization is enabled ---
         if self.cfg.domain_randomization.enable_randomization:
-            actions_to_use = self._add_action_noise(self._actions)
+            actions_to_use = self._add_action_noise(self._actions_smooth)
         else:
-            actions_to_use = self._actions
+            actions_to_use = self._actions_smooth
 
         # --- Action scaling around default pose with per-joint ranges ---
         # Scale each joint by a safe fraction of its mechanical range

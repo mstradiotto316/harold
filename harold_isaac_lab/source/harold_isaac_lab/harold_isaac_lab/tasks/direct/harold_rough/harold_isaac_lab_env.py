@@ -808,7 +808,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Undesired contact termination (body, shoulders, thighs touching ground) - IMMEDIATE RESET
         # Very sensitive threshold for 2kg robot - any significant contact = reset
         undesired_contact = torch.any(
-            torch.max(torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1)[0] > 0.05, 
+            torch.max(torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1)[0] > self.cfg.termination.undesired_contact_force_threshold,
             dim=1
         )
         

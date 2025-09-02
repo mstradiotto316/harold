@@ -106,7 +106,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # - Bottom:               thighs +45° (delta +35°), calves -90° (delta -70°)
         # Calf moves exactly 2x the thigh delta in the opposite direction to counter thigh rotation.
         thigh_deg_top, calf_deg_top = 10.0, -20.0
-        thigh_deg_bottom, calf_deg_bottom = 45.0, -90.0
+        thigh_deg_bottom = 45.0  # calf_deg_bottom (-90°) is calculated dynamically below
 
         # Before reps begin, replicate Arduino holds:
         # a) Hold fully neutral for ~1.5s

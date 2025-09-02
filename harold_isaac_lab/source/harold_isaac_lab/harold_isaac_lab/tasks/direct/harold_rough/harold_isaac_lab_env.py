@@ -72,35 +72,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # --- Command Tensor for Velocity Tracking (X, Y, Yaw) ---
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
 
-        # --- Joint Angle Limits Configuration ---
-        # Safety limits for Harold's 12 joints to prevent mechanical damage
-        # 
-        # Joint Classification and Limits:
-        # - Shoulders (0-3): ±20° (±0.3491 rad) - limited swing to prevent leg collision
-        # - Thighs (4-7): ±45° (±0.7853 rad) - primary lift/extension joints
-        # - Calves (8-11): ±45° (±0.7853 rad) - foot positioning and ground contact
-        #
-        # Joint Naming Convention (matches hardware and USD file):
-        # Index | Name           | Type     | Limit   | Function
-        # ------|----------------|----------|---------|---------------------------
-        #   0   | FL_shoulder    | Shoulder | ±20°    | Front-Left leg swing
-        #   1   | FR_shoulder    | Shoulder | ±20°    | Front-Right leg swing  
-        #   2   | BL_shoulder    | Shoulder | ±20°    | Back-Left leg swing
-        #   3   | BR_shoulder    | Shoulder | ±20°    | Back-Right leg swing
-        #   4   | FL_thigh       | Thigh    | ±45°    | Front-Left leg lift
-        #   5   | FR_thigh       | Thigh    | ±45°    | Front-Right leg lift
-        #   6   | BL_thigh       | Thigh    | ±45°    | Back-Left leg lift
-        #   7   | BR_thigh       | Thigh    | ±45°    | Back-Right leg lift
-        #   8   | FL_calf        | Calf     | ±45°    | Front-Left foot position
-        #   9   | FR_calf        | Calf     | ±45°    | Front-Right foot position
-        #  10   | BL_calf        | Calf     | ±45°    | Back-Left foot position
-        #  11   | BR_calf        | Calf     | ±45°    | Back-Right foot position
-        #
-        # Hardware Safety Notes:
-        # - Limits prevent servo stall and mechanical binding
-        # - Conservative ranges ensure sim-to-real transfer safety
-        # - FeeTech STS3215 servos have built-in position limits
-        # - These software limits provide additional protection layer
+        # --- Joint Angle Limits ---
         self._JOINT_ANGLE_MAX = torch.tensor(self.cfg.joint_angle_max, device=self.device)
         self._JOINT_ANGLE_MIN = torch.tensor(self.cfg.joint_angle_min, device=self.device)
 

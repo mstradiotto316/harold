@@ -877,10 +877,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._robot.reset(env_ids)
         super()._reset_idx(env_ids)
         
-        if len(env_ids) == self.num_envs:
-            # Spread out the resets to avoid spikes in training when many environments reset at a similar time
-            self.episode_length_buf[:] = torch.randint_like(self.episode_length_buf, high=self.max_episode_length)
-        
         # Reset action buffers
         self._actions[env_ids] = 0.0
         self._previous_actions[env_ids] = 0.0

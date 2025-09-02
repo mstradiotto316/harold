@@ -178,7 +178,7 @@ class TerminationCfg:
                                                    # Force scaling: F ∝ robot_mass
                                                    # Currently UNUSED - see undesired_contact instead
                                                    
-    undesired_contact_force_threshold: float = 1.0 #0.05 # Limb contact termination limit [N]
+    undesired_contact_force_threshold: float = 10.0 #0.1 #0.05 # Limb contact termination limit [N]
                                                     # Extremely sensitive threshold
                                                     # Applies to: body, shoulders, thighs
                                                     # Only feet (calves) should contact ground

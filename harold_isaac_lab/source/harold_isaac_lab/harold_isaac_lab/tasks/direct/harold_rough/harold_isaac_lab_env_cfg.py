@@ -178,7 +178,7 @@ class TerminationCfg:
                                                    # Force scaling: F ∝ robot_mass
                                                    # Currently UNUSED - see undesired_contact instead
                                                    
-    undesired_contact_force_threshold: float = 10.0 #0.1 #0.05 # Limb contact termination limit [N]
+    undesired_contact_force_threshold: float = 1.0 #10.0 #0.1 #0.05 # Limb contact termination limit [N]
                                                     # Extremely sensitive threshold
                                                     # Applies to: body, shoulders, thighs
                                                     # Only feet (calves) should contact ground
@@ -328,7 +328,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     state_space = 0
 
     # Action filtering (EMA low-pass)
-    action_filter_beta: float = 0.5 #0.75 #0.5 #0.2  # 0..1, lower = smoother; 0.2 ≈ ~0.1s time-constant at 20 Hz
+    action_filter_beta: float = 0.3 #0.2  # 0..1, lower = smoother; 0.2 ≈ ~0.1s time-constant at 20 Hz
 
     # Reward configuration
     rewards = RewardsCfg()

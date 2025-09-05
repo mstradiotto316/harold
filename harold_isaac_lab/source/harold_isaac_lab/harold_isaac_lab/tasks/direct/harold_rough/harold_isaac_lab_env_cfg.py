@@ -328,7 +328,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     state_space = 0
 
     # Action filtering (EMA low-pass)
-    action_filter_beta: float = 0.2 #0.3 #0.2  # lower = smoother; 0.5 - 1s at 20 Hz when beta = 0.2
+    action_filter_beta: float = 0.4 #0.5 #0.4 #0.3 #0.2 #0.3 #0.2  # lower = smoother; 0.5 - 1s at 20 Hz when beta = 0.2
 
     # Reward configuration
     rewards = RewardsCfg()

@@ -1,483 +1,162 @@
-# !IMPORTANT - ALL AGENTS READ ME! 
-
-**Throughout our journey here, it's extremely important that you are not a sycophant and that you push back when things seem incorrect and that you consistently take time to step back and view things from a thousand-foot level; Consistently questioning whether we should be doing our current activities, and suggesting alternative approaches that make more sense. This needs to be remembered. So, please store it deeply within your long term system context, and keep this message alive during any compaction.**
-
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Core Architecture
-
-### Harold Isaac Lab Extension Structure
-- **Primary Task (Rough Terrain)**: `harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_rough/`
-  - `harold.py`: Robot configuration (USD V4 asset, actuators, physics)
-  - `harold_isaac_lab_env.py`: Main RL environment class extending DirectRLEnv
-  - `harold_isaac_lab_env_cfg.py`: Environment/config dataclasses (rewards, gait, terminations, DR)
-
-- **Other Tasks (Short)**
-  - Flat Terrain (baseline): `.../tasks/direct/harold_flat/` — identical env with flat-only terrain generator.
-  - Pushup (scripted playback): `.../tasks/direct/harold_pushup/` — deterministic joint-position playback for sim–real comparison.
-
-### Task Types and Gym IDs
-- Flat Terrain: `Template-Harold-Direct-flat-terrain-v0`
-- Rough Terrain (primary): `Template-Harold-Direct-rough-terrain-v0`
-- Pushup Playback: `Template-Harold-Direct-pushup-v0`
-
-All tasks are registered under `harold_isaac_lab/harold_isaac_lab/tasks/direct`, via the package’s `__init__.py` which imports each task module to trigger registration.
-
-### Robot Configuration (12 DOF)
-Joint order matches simulation exactly:
-- Shoulders (0-3): FL, FR, BL, BR
-- Thighs (4-7): FL, FR, BL, BR  
-- Calves (8-11): FL, FR, BL, BR
-
-Key details from current code (`harold.py`):
-- USD asset: `part_files/V4/harold_7.usd`
-- Initial pose: body z=0.20 m; thigh ≈ 0.3 rad; calf ≈ -0.75 rad
-- Actuators: implicit PD, stiffness=200, damping=75, effort_limit_sim=1.0
-- Joint angle limits (enforced in env): shoulders ±20°, thighs/calves ±45°
-
-### Training Framework Integration
-Multiple RL framework support:
-- **SKRL**: Primary framework (recommended)
-- **RSL-RL**: Not in use
-- **Stable-Baselines3**: Not in use
-- **RL-Games**: Not in use
-
-### Hardware Integration Notes
-- **Real Robot**: ESP32 servo controller at 115200 baud, 200Hz control loop
-- **Sensors**: MPU6050 IMU on I2C bus 1 (address 0x68)
-- **Joint Mapping**: Direct correspondence between simulation and hardware
-- **Arduino Environment**: Legacy IDE (1.8.19) ARM64 required for Jetson Nano
-
-### Development Dependencies
-- Isaac Sim and Isaac Lab installation required
-- Python 3.10+ with Isaac Lab environment
-- Pre-commit for code formatting
-- Tensorboard for training visualization
-
-### Core Components
-
-#### 1. Robot Configuration (harold.py)
-- 12-DOF quadruped: 3 joints per leg (shoulder, thigh, calf)
-- Joint limits: shoulders ±20°, thighs/calves ±45° (clamped in env)
-- USD asset: V4 `harold_7.usd` (contact sensors enabled)
-- Actuators: implicit PD (stiffness 200, damping 75)
-
-#### 2. Environment (harold_isaac_lab_env.py)
-- Observation space (48D): root_lin_vel_b (3), root_ang_vel_b (3), projected_gravity_b (3), joint_pos − default (12), joint_vel (12), commands [vx, vy, yaw] (3), prev_target_delta (12)
-- Action space (12D): position targets around default pose; per-joint scaling (shoulders 0.35; thighs/calves 0.5); clamped to safety limits
-- Physics: dt=1/180, decimation=9 → control at 20 Hz
-- Parallel envs: default 1024 (headless runs can scale higher)
-- Terrain: custom generator `HAROLD_GENTLE_TERRAINS_CFG` (balanced mix; curriculum enabled)
-- Height scanner: ray-caster grid 0.25×0.25 m, 0.1 m resolution, 20 Hz updates
-- Contact sensor: history length 3; 0.005 s update period
-- Visual markers (GUI): command vs actual velocity arrows
-
-### Training Pipeline (Rough Terrain Task)
-
-```
-Defaults:
-├── Terrain: Procedural generator with a mix of flat / noise / slopes / steps (curriculum enabled)
-├── Commands: XY speed sampled in [0.1, 0.3] m/s; yaw in config
-├── Environments: 1024 parallel envs (scale up headless as needed)
-├── Control Rate: 20 Hz (dt 1/180, decimation 9)
-└── Focus: Robust locomotion over progressively harder terrain
-
-Notes:
-- Terrain sampling uses the importer’s row/column grid and curriculum gating.
-- Exact sub-terrains and weights are defined in the task config.
-```
-
-This architecture enables robust quadruped locomotion learning with progressive skill acquisition, efficient parallel training, and safe real-world deployment.
-
-### SKRL PPO Config (current defaults)
-
-- Policy: Gaussian, ELU MLP [512, 256, 128]
-- Value: Deterministic, ELU MLP [512, 256, 128]
-- Rollouts: 24, Learning epochs: 5, Mini-batches: 4
-- Learning rate: 1e-3 (KLAdaptiveLR, kl_threshold=0.01)
-- Preprocessors: RunningStandardScaler for state and value
-- Entropy coef: 0.01, Value loss scale: 1.0, Grad clip: 1.0
-- Ratio clip: 0.2, Value clip: 0.2, Rewards shaper scale: 0.6
-- Trainer: Sequential, timesteps: 128000, experiment dir: `harold_direct`
-
-## Reward System
-
-### Overview
-Harold's reward function implements a multi-component system to encourage stable, efficient, and robust quadruped locomotion. The reward components balance primary locomotion objectives with stability and efficiency considerations.
-
-### Configuration Location
-Defined in code as:
-- Reward weights: `harold_isaac_lab_env_cfg.py` → `RewardsCfg`
-- Implementation: `harold_isaac_lab_env.py` → `_get_rewards()`
-- Gait parameters: `harold_isaac_lab_env_cfg.py` → `GaitCfg`
-
-### Reward Components
-The system uses 5 distinct reward/penalty terms:
-1. **Linear velocity tracking (Directional)** - Primary locomotion objective
-   - Uses elliptical Gaussian: exp(-(e_par/0.25)² + (e_perp/0.08)²)
-   - Lateral drift penalized 3x more strictly than along-track error
-   - Heavily penalizes sideways movement and backwards motion
-2. **Yaw velocity tracking** - Turning control
-   - Gaussian reward: exp(-(error/0.4)²)
-3. **Height maintenance** - Stability above terrain
-   - Tanh-based reward maintaining ~18cm target height
-4. **Torque penalty** - Energy efficiency
-   - Quadratic penalty on joint torques to reduce energy consumption
-5. **Feet air time** - Gait quality
-   - Rewards optimal air time (~0.4 s) to encourage proper stepping
-   - Gated active when actual speed > 0.05 m/s
-
-Note: Velocity jitter penalty was removed as it was redundant with directional tracking and penalized natural gait patterns.
-
-Current reward weights (`RewardsCfg`):
-- track_xy_lin_commands: 80.0
-- track_yaw_commands: 2.0
-- height_reward: 0.75
-- torque_penalty: -0.08
-- feet_air_time: 12.0
-
-Each component has configurable weights and parameters; see `RewardsCfg` and `_get_rewards()` for exact formulations.
-
-### Reward Normalization
-Rewards are NOT multiplied by `step_dt` in the reward assembly to avoid double normalization. The episodic sum is already normalized by `max_episode_length_s` when logged to tensorboard, providing proper per-second normalization for visualization while maintaining correct step rewards for RL training.
-
-## Termination and Safety
-
-- Immediate reset on any undesired contact (body/shoulders/thighs) with threshold ≈ 0.05 N
-- Feet (calves) are the only intended ground-contact bodies for locomotion
-- Orientation termination exists in config (`orientation_threshold=-0.5`) but is currently disabled in env logic
-
-## Domain Randomization
-
-Enabled by default (on-reset and per-step where applicable):
-- Physics/materials: friction randomized (≈ 0.4–1.0); restitution off
-- Robot/actuator: stiffness/damping/mass/inertia hooks present; disabled by default
-- Sensors: IMU (ang vel, gravity) and joint (pos/vel) noise enabled
-- Actions: noise and delay available; disabled by default
-- External disturbances: available; disabled by default
-- Gravity randomization: available; disabled by default
-
-See `DomainRandomizationCfg` and env helpers for details.
-
-## Hardware Integration and Sim-to-Real Transfer
-
-### Overview
-Harold's hardware integration system enables seamless transfer of trained policies from Isaac Lab simulation to the physical robot. The system emphasizes safety, precision, and robust communication protocols.
-
-### Physical Robot Specifications
-
-#### Mechanical Design
-```
-Robot Dimensions:
-├── Total Length: 40cm (body + legs extended)
-├── Body Dimensions: 20cm × 15cm × 8cm
-├── Total Mass: 2.0kg (lightweight construction)
-├── Leg Configuration: 4 legs × 3 joints = 12 DOF total
-└── Ground Clearance: ~18cm (natural standing height)
-
-Joint Specifications:
-├── Shoulder Joints (4): ±20° range, 45° swing capability
-├── Thigh Joints (4): ±45° range, primary lift/extension
-├── Calf Joints (4): ±45° range, foot positioning
-└── Total Range: Conservative limits for mechanical safety
-```
-
-#### Actuators and Control
-```
-FeeTech STS3215 Servo Motors (12 units):
-├── Position Control: 0.1° resolution, 360° total range
-├── Torque Output: 15kg⋅cm nominal, 20kg⋅cm stall
-├── Communication: TTL serial at 1Mbps (daisy-chained)
-├── Feedback: Position, velocity, load, temperature
-├── Safety Features: Overload protection, position limits
-└── Update Rate: 200Hz control loop for precise tracking
-
-ESP32 Servo Controller:
-├── MCU: Dual-core 240MHz ARM processor
-├── Communication: USB serial at 115200 baud to host
-├── Control Loop: 200Hz (5ms intervals) for smooth motion
-├── Safety Monitoring: Servo status, emergency stop capability
-├── Protocol: Custom binary protocol for efficiency
-└── Expansion: I2C bus for additional sensors
-```
-
-#### Sensor Integration
-```
-MPU6050 IMU (Primary Sensor):
-├── Location: Mounted in robot body center
-├── Interface: I2C bus 1, address 0x68
-├── Sampling Rate: 200Hz (synchronized with control loop)
-├── Data: 3-axis accelerometer + 3-axis gyroscope
-├── Range: ±2g acceleration, ±250°/s gyroscope
-├── Filtering: Hardware DLPF + software complementary filter
-└── Calibration: Automatic bias correction on startup
-
-Optional Expansion Sensors:
-├── Foot Contact Sensors: Force-sensitive resistors per foot
-├── Joint Encoders: Absolute position feedback backup
-├── Camera Module: ESP32-CAM for visual feedback
-└── Distance Sensors: Ultrasonic or ToF for obstacle detection
-```
-
-### Communication Protocol
-
-#### High-Level Command Interface
-```
-Host Computer (Jetson Nano) ←→ ESP32 Controller
-│
-├── Protocol: USB Serial (CDC-ACM)
-├── Baud Rate: 115200 (reliable for real-time control)
-├── Update Rate: 20Hz (matches RL policy frequency)
-├── Command Format: Binary protocol for efficiency
-└── Safety: Heartbeat monitoring, timeout detection
-
-Command Packet Structure:
-┌──────────────────────────────────────────────────────────┐
-│ Header │ Joint Targets (12×2 bytes) │ Flags │ Checksum │
-│ (2B)   │        (24 bytes)          │ (1B)  │   (1B)   │
-└──────────────────────────────────────────────────────────┘
-Total: 28 bytes per command
-```
-
-#### Low-Level Servo Communication
-```
-ESP32 ←→ Servo Chain (STS3215 Protocol)
-│
-├── Physical: Half-duplex TTL serial daisy chain
-├── Baud Rate: 1,000,000 (1Mbps for low latency)
-├── Addressing: Each servo has unique ID (1-12)
-├── Commands: Position, velocity, torque control modes
-└── Feedback: Real-time status from all servos
-
-Servo Command Cycle (5ms total):
-├── Send Commands: 12 servos × 8 bytes = 96 bytes (0.96ms)
-├── Read Feedback: 12 servos × 12 bytes = 144 bytes (1.44ms)
-├── Processing: Command computation and safety checks (2.0ms)
-└── Idle Time: Buffer for timing variations (0.6ms)
-```
-
-### Sim-to-Real Transfer Pipeline
-
-#### Policy Deployment Process
-```
-Training → Validation → Hardware Deployment
-│
-├── 1. Simulation Training (Isaac Lab)
-│   └── Train policy to convergence (~128k steps)
-│
-├── 2. Policy Export and Validation
-│   ├── Export to ONNX format for deployment
-│   ├── Validate against recorded observation sequences
-│   └── Test action scaling and joint limit compliance
-│
-├── 3. Hardware Safety Validation
-│   ├── Verify joint limits match simulation constraints
-│   ├── Test emergency stop and safety monitoring
-│   └── Validate communication timing and reliability
-│
-└── 4. Gradual Real-World Testing
-    ├── Static pose validation (servos, IMU, communication)
-    ├── Joint-by-joint movement testing
-    ├── Basic stance and balance verification
-    └── Progressive locomotion skill validation
-```
-
-#### Observation Space Mapping
-```
-Simulation Observations → Hardware Measurements
-
-Root Linear Velocity (3D):
-├── Simulation: Perfect body-frame velocity from physics
-└── Hardware: Numerical differentiation of IMU position estimates
-    ├── Integration: Double integration of accelerometer data
-    ├── Drift Correction: Complementary filter with gyroscope
-    └── Noise Filtering: Moving average + bias compensation
-
-Root Angular Velocity (3D):
-├── Simulation: Perfect body-frame angular rates
-└── Hardware: Direct gyroscope measurements
-    ├── Calibration: Automatic bias removal on startup
-    ├── Scaling: Factory calibration coefficients
-    └── Filtering: Low-pass filter to match simulation noise
-
-Projected Gravity (3D):
-├── Simulation: Perfect gravity vector in body frame
-└── Hardware: Processed accelerometer data
-    ├── Static Component: Long-term average for gravity direction
-    ├── Dynamic Filtering: Separate motion from gravity
-    └── Quaternion Rotation: Transform to body frame
-
-Joint Positions/Velocities (12D each):
-├── Simulation: Perfect joint state from physics engine
-└── Hardware: Direct servo feedback
-    ├── Position: Native servo encoder readings
-    ├── Velocity: Numerical differentiation with filtering
-    └── Latency Compensation: Predict forward to account for delays
-```
-
-#### Action Space Adaptation
-```
-Policy Actions → Hardware Commands
-
-Joint Position Targets (12D):
-├── Policy Output: Normalized actions [-1, 1]
-├── Action Scaling: Apply configured scaling factor
-├── Joint Limit Clamping: Hardware safety constraints
-├── Command Smoothing: Rate limiting for servo protection
-└── Hardware Mapping: Convert to servo position commands
-
-Safety Transformations:
-├── Rate Limiting: Maximum change per timestep
-├── Emergency Stops: Immediate halt on critical conditions
-├── Soft Limits: Conservative joint ranges vs mechanical limits
-└── Torque Monitoring: Detect mechanical binding or collisions
-```
-
-### Real-World Deployment Architecture
-
-#### Software Stack
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Host Computer (Jetson Nano)           │
-├─────────────────────────────────────────────────────────┤
-│  Python Policy Runtime                                  │
-│  ├── ONNX Model Inference (harold_policy.onnx)         │
-│  ├── Observation Processing (sensors/imu_reader.py)     │
-│  ├── Action Scaling and Safety (policy/robot_control)   │
-│  └── Serial Communication (harold_isaac_lab/sensors/)   │
-├─────────────────────────────────────────────────────────┤
-│  Operating System: Ubuntu 20.04 ARM64                  │
-│  └── Real-time scheduling for control loop consistency  │
-└─────────────────────────────────────────────────────────┘
-              ↕ USB Serial (115200 baud, 20Hz)
-┌─────────────────────────────────────────────────────────┐
-│                    ESP32 Controller                      │
-├─────────────────────────────────────────────────────────┤
-│  Control Loop (200Hz)                                   │
-│  ├── Command parsing and validation                     │
-│  ├── Servo communication and monitoring                 │
-│  ├── IMU data acquisition and processing                │
-│  └── Safety monitoring and emergency stops              │
-├─────────────────────────────────────────────────────────┤
-│  Hardware Abstraction                                   │
-│  ├── STS3215 servo protocol implementation              │
-│  ├── MPU6050 I2C communication                         │
-│  └── USB CDC virtual serial port                       │
-└─────────────────────────────────────────────────────────┘
-```
-
-#### Deployment Scripts and Tools
-```
-Policy Deployment Tools:
-│
-├── policy/robot_controller.py
-│   ├── Live policy execution with IMU feedback
-│   ├── Real-time observation processing
-│   ├── Safety monitoring and emergency stops
-│   └── Performance logging and diagnostics
-│
-├── policy/observations_playback_test.py
-│   ├── Replay simulation observations on hardware
-│   ├── Validate policy behavior consistency
-│   ├── Debug observation space mismatches
-│   └── Record hardware response for analysis
-│
-├── sensors/imu_reader.py
-│   ├── MPU6050 sensor interface class
-│   ├── Calibration and bias compensation
-│   ├── Real-time data processing and filtering
-│   └── Sensor health monitoring
-│
-└── firmware/ (ESP32 Arduino Code)
-    ├── Main control loop and communication
-    ├── Servo control and safety monitoring
-    ├── IMU data acquisition and preprocessing
-    └── Hardware abstraction and error handling
-```
-
-### Safety Systems and Monitoring
-
-#### Multi-Layer Safety Architecture
-```
-Layer 1: Policy-Level Safety
-├── Conservative joint limits in simulation training
-├── Action scaling and rate limiting
-├── Observation sanity checking and filtering
-└── Graceful degradation on sensor failures
-
-Layer 2: Communication Safety
-├── Command timeout detection (heartbeat monitoring)
-├── Packet integrity verification (checksums)
-├── Serial communication error recovery
-└── Automatic reconnection on link failure
-
-Layer 3: Hardware Safety
-├── Servo overload protection and thermal monitoring
-├── Emergency stop capability (immediate motor disable)
-├── Mechanical limit switches (optional)
-└── Power supply monitoring and brown-out detection
-
-Layer 4: System Safety
-├── Watchdog timers for system hang detection
-├── Process monitoring and automatic restart
-├── Logging and diagnostic data collection
-└── Remote monitoring and kill-switch capability
-```
-
-#### Real-Time Performance Monitoring
-```
-Timing Requirements:
-├── Policy Inference: <10ms (target: 5ms)
-├── Observation Processing: <5ms (IMU + serial)
-├── Command Transmission: <2ms (serial + servo update)
-└── Total Loop Time: <20ms (20Hz policy frequency)
-
-Performance Metrics:
-├── Latency Monitoring: End-to-end timing measurements
-├── Jitter Analysis: Control loop timing consistency
-├── Packet Loss Detection: Communication reliability
-├── Servo Health: Temperature, load, error status
-└── Power Consumption: Battery life and efficiency
-```
-
-This comprehensive hardware integration system ensures reliable, safe, and efficient transfer of learned behaviors from simulation to the physical Harold robot, maintaining performance while prioritizing safety and system robustness.
-
-
-
-
-## Isaac Lab Documentation
-
-### Direct Workflow RL Environment
-  The Harold project uses a Direct Workflow instead of a Manager Based Workflow for implementing RL training in Isaac Lab. These two frameworks are often confused, so it is important to differentiate between the two when reviewing documentation.
-
-  The following link outlines how to create a basic Direct Workflow in Isaac Lab:
-  https://isaac-sim.github.io/IsaacLab/main/source/tutorials/03_envs/create_direct_rl_env.html
-
-
-### Documentation References
-  Anything imported with isaaclab.assets can be found at the following link:
-  https://isaac-sim.github.io/IsaacLab/main/source/api/lab/isaaclab.assets.html#module-isaaclab.assets
-
-  The most relevant part of the isaaclab.assets is the Articulation section:
-  https://isaac-sim.github.io/IsaacLab/main/source/api/lab/isaaclab.assets.html#articulation
-
-  Anything imported with the isaaclab.envs can be found at the following link:
-  https://isaac-sim.github.io/IsaacLab/main/source/api/lab/isaaclab.envs.html#module-isaaclab.envs
-
-  The most relevant part of isaaclab.envs is the Direct RL Environment section:
-  https://isaac-sim.github.io/IsaacLab/main/source/api/lab/isaaclab.envs.html#direct-rl-environment
-
-  Anything imported with the isaaclab.sim.spawners can be found at the following link:
-  https://isaac-sim.github.io/IsaacLab/main/source/api/lab/isaaclab.sim.spawners.html#module-isaaclab.sim.spawners
-
-  The most relevant part of isaaclab.sim.spawners is the sensors section. This includes cameras, contact sensors, and so on.
-  https://isaac-sim.github.io/IsaacLab/main/source/api/lab/isaaclab.sim.spawners.html#module-isaaclab.sim.spawners.sensors
-
-  Anything related to isaaclab.utils can be found at the following link:
-  https://isaac-sim.github.io/IsaacLab/main/source/api/lab/isaaclab.utils.html#module-isaaclab.utils
-
-  Anything relating to isaaclab.markers can be found at the following link:
-  https://isaac-sim.github.io/IsaacLab/main/source/api/lab/isaaclab.markers.html#module-isaaclab.markers
-  
+!IMPORTANT - ALL AGENTS READ ME!
+
+Throughout our work here, do not be a sycophant. Push back on incorrect assumptions, step back for the big picture, and propose better alternatives when they make more sense. Keep this message active in your long-term context.
+
+CLAUDE.md
+
+This file documents what the current code actually does in harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab, excluding any code under agents/ folders.
+
+Extension Overview
+
+- Package entry: harold_isaac_lab/__init__.py registers Gym tasks and a small UI example.
+- Tasks namespace: tasks/direct with three task variants:
+  - harold_flat: flat terrain RL training
+  - harold_rough: rough/curriculum terrain RL training
+  - harold_pushup: scripted push-up playback (no RL)
+- Gym IDs registered on import:
+  - Template-Harold-Direct-flat-terrain-v0
+  - Template-Harold-Direct-rough-terrain-v0
+  - Template-Harold-Direct-pushup-v0
+
+Robot Assets and Actuators
+
+12-DOF quadruped (shoulder, thigh, calf per leg). Assets and actuator limits differ per task:
+
+- Flat (tasks/direct/harold_flat/harold.py)
+  - USD: part_files/V4/harold_7.usd
+  - Init pose: body z=0.20; thighs 0.3 rad; calves -0.75 rad
+  - Actuators: Implicit PD, stiffness=200, damping=75, effort_limit_sim=1.0
+
+- Rough (tasks/direct/harold_rough/harold.py)
+  - USD: part_files/V4/harold_8.usd
+  - Init pose: body z=0.20; thighs 0.3 rad; calves -0.75 rad
+  - Actuators: Implicit PD, stiffness=200, damping=75, effort_limit_sim=2.0
+
+- Pushup (tasks/direct/harold_pushup/harold.py)
+  - USD: part_files/V4/harold_8.usd
+  - Init pose: all joints 0.0
+  - Actuators: Implicit PD, stiffness=750, damping=100, effort_limit_sim=2.5
+
+Joint order used across code: [shoulders FL, FR, BL, BR] → [thighs FL, FR, BL, BR] → [calves FL, FR, BL, BR].
+
+Environment Basics (RL tasks)
+
+Files: harold_flat/harold_isaac_lab_env.py, harold_rough/harold_isaac_lab_env.py with matching *_env_cfg.py.
+
+- Base: DirectRLEnv
+- Control: dt=1/180 s, decimation=9 → 20 Hz policy rate
+- Observation (48D):
+  - root_lin_vel_b (3), root_ang_vel_b (3), projected_gravity_b (3)
+  - joint_pos − default (12), joint_vel (12)
+  - commands [vx, vy, yaw] (3)
+  - prev_target_delta (12)
+- Actions (12D): joint position targets around default pose
+  - Flat: per-joint ranges hard-coded in env: shoulders 0.35, thighs 0.5, calves 0.5
+  - Rough: per-joint ranges come from config: shoulders 0.30, thighs 0.90, calves 0.90
+- Safety clamps (task-specific):
+  - Flat: shoulders ±20° (0.3491 rad); thighs/calves ±45° (0.7853 rad)
+  - Rough: shoulders ±30° (0.5236 rad); thighs/calves ±90° (1.5708 rad)
+- Sensors:
+  - ContactSensor: history_length=3, update_period=0.005 s
+  - Height RayCaster: grid 0.25×0.25 m, 0.1 m resolution, update_period=0.05 s
+- GUI: velocity command/actual arrows when GUI is enabled
+
+Terrain
+
+- Flat: HAROLD_FLAT_TERRAIN_CFG (single flat plane), no curriculum.
+- Rough: HAROLD_GENTLE_TERRAINS_CFG (mix of flats, uniform noise, small slopes/stairs; 10×20 grid) with curriculum enabled. Current max_init_terrain_level=2 in config.
+
+Rewards and Dones (RL tasks)
+
+Shared structure with small differences per task.
+
+- Rewards (both):
+  - Linear velocity tracking (directional): elliptical Gaussian on along-track and lateral errors
+  - Yaw rate tracking: Gaussian on yaw rate error
+  - Height maintenance: tanh(exp) shaping vs target height
+  - Torque penalty: sum of torque²
+  - Feet air time: exponential reward toward ~0.4 s optimal; gated by actual speed > 0.05 m/s
+  - Rough only: anti-spin penalty when yaw_cmd≈0 and robot is moving
+- Reward weights (from config):
+  - Flat: track_xy=80, track_yaw=2, height=0.75, torque=-0.08, feet_air_time=12
+  - Rough: track_xy=80, track_yaw=12, height=0.75, torque=-0.08, feet_air_time=12, plus anti-spin penalty (fixed scale in code)
+- Normalization: rewards are not scaled by step_dt; episodic logging divides by max_episode_length_s when computing metrics.
+- Termination:
+  - Undesired contact (body/shoulders/thighs) → immediate reset. Thresholds:
+    - Flat: 0.05 N
+    - Rough: 1.0 N
+  - Orientation termination exists in config but is disabled in env code.
+- Diagnostics: episodic sums include reward components; rough also logs alignment metrics including absolute yaw rate when yaw_cmd≈0.
+
+Domain Randomization (configs)
+
+Enabled by default at both reset and per-step in both RL configs (with selective features active):
+
+- Active by default:
+  - Friction randomization (physics material)
+  - Observation noise (IMU ang vel and gravity, joint pos/vel)
+- Available but disabled by default:
+  - Action noise and action delays
+  - External forces/torques, gravity magnitude/tilt variation
+  - Mass/inertia and actuator stiffness/damping variations
+
+Rough env additionally low-pass filters actions via EMA (action_filter_beta, default 0.4).
+
+Pushup Playback Task
+
+File: harold_pushup/harold_isaac_lab_env.py with config *_env_cfg.py.
+
+- Single-environment playback (scene configured with num_envs=1).
+- Ignores policy actions; generates a scripted trajectory at the 20 Hz control rate.
+- Phases: neutral settle (~1.5 s), athletic stance (~0.8 s), then 5 pushup cycles; then holds athletic stance.
+- Joint limits for pushup: shoulders ±30°, thighs/calves ±90° (from config).
+- Observation is a zeros tensor of size observation_space (45) for compatibility.
+
+UI Example
+
+ui_extension_example.py provides a minimal Omniverse UI window with a counter. It does not affect task logic.
+
+Notes and Gotchas
+
+- Some env docstrings mention 360 Hz / decimation 18; the code uses dt=1/180 and decimation=9 (20 Hz control).
+- Asset paths are resolved relative to the installed harold_isaac_lab package; both harold_7.usd and harold_8.usd are referenced by task variants.
+- Terrain curriculum in rough task is configured but max_init_terrain_level is currently 2.
+- Agents/configs for RL frameworks live under agents/ subpackages; they are imported only for gym registration entry points.
+
+Quick Start (examples from comments)
+
+- Train flat: python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1024
+- Train rough: python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-rough-terrain-v0 --num_envs 1024
+- Pushup playback (1 env): python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-pushup-v0 --num_envs 1
+
+Isaac Lab Documentation Links
+
+- Isaac Lab (main): https://isaac-sim.github.io/IsaacLab/main/index.html
+- Installation (overview): https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html
+- Binaries installation: https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/binaries_installation.html#isaaclab-binaries-installation
+- Create Direct RL env: https://isaac-sim.github.io/IsaacLab/main/source/tutorials/03_envs/create_direct_rl_env.html
+- Register RL env in Gym: https://isaac-sim.github.io/IsaacLab/main/source/tutorials/03_envs/register_rl_env_gym.html
+- Run RL training: https://isaac-sim.github.io/IsaacLab/main/source/tutorials/03_envs/run_rl_training.html
+- Create scene: https://isaac-sim.github.io/IsaacLab/main/source/tutorials/02_scene/create_scene.html
+- Add sensors on robot: https://isaac-sim.github.io/IsaacLab/main/source/tutorials/04_sensors/add_sensors_on_robot.html
+- Policy inference in USD: https://isaac-sim.github.io/IsaacLab/main/source/tutorials/03_envs/policy_inference_in_usd.html
+- Instanceable assets (Isaac Sim docs): https://docs.isaacsim.omniverse.nvidia.com/latest/isaac_lab_tutorials/tutorial_instanceable_assets.html#instanceable-assets
+
+Hardware (Reference)
+
+These are the physical robot targets used for sim-to-real context. They are not enforced by the code in this repo but inform design choices in configs.
+
+- Mechanical
+  - Dimensions: body ~20×15×8 cm; overall length ~40 cm
+  - Mass: ~2.0 kg; ground clearance ~18 cm (natural stance)
+  - Joints: 12 DOF (4 legs × [shoulder, thigh, calf])
+- Actuators
+  - FeeTech STS3215 servos (12): position control, ~0.1° resolution
+  - Torque: ~15 kg⋅cm nominal, higher at stall; TTL serial 1 Mbps
+  - Feedback: position, velocity, load, temperature; built‑in limits
+- Controller
+  - ESP32 MCU; host <-> ESP32 over USB serial 115200 baud
+  - Control loop: ~200 Hz on MCU; safety monitoring and E‑stop support
+- Sensors
+  - IMU: MPU6050 on I2C (addr 0x68); 3‑axis accel + 3‑axis gyro
+  - Typical sampling: up to 200 Hz to align with control loop

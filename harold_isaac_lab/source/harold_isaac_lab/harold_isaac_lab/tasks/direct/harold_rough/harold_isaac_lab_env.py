@@ -607,7 +607,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
            - Decomposes velocity into parallel and perpendicular components
            - Elliptical Gaussian: exp(-(e_par/0.25)² + (e_perp/0.08)²)
            - Lateral drift penalized 3x more strictly than along-track error
-           - Heavily penalizes sideways movement and backwards motion
+           - Signed underspeed hinge uses v_par (no clamp) for a corrective gradient when moving opposite to the command
            
         2. Yaw Velocity Tracking:
            - Exponential reward for matching commanded yaw rate
@@ -664,14 +664,14 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # At v=0 -> Q0 = (|cmd|/c_par)^2, so exp(-Q) - exp(-Q0) = 0
         Q0 = (cmd_mag / c_par)**2
         base_dir_reward = torch.exp(-Q) - torch.exp(-Q0)
-        # Add underspeed penalty to discourage inaction when commanded
+        # Add underspeed penalty to discourage inaction and provide gradient when going the wrong way
+        # Use signed v_par without clamping so moving opposite to the command increases the penalty smoothly
         k_under = 0.7
-        under = torch.relu(cmd_mag - torch.clamp(v_par, min=0.0))
+        under = torch.relu(cmd_mag - v_par)
         lin_vel_reward = base_dir_reward - k_under * under
         
         # Gate reward when a non-trivial command is provided
-        cmd_mag_for_gate = torch.norm(self._commands[:, :2], dim=1)
-        lin_vel_reward *= (cmd_mag_for_gate > 0.03)
+        lin_vel_reward *= (cmd_mag > 0.03).float()
 
         # --- Alignment diagnostics (for logging) ---
         v_norm = torch.linalg.vector_norm(v, dim=1)
@@ -684,16 +684,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._metric_sums["lateral_speed"] += lateral_speed
 
         # ==================== YAW VELOCITY TRACKING ====================
-        # AGGRESSIVE: Much more punishment for sitting still (0.05 vs 0.25 normalization)
-        #yaw_vel_error = torch.square(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
-        #yaw_vel_reward = torch.exp(-yaw_vel_error / 0.05)
-        # yaw
+        # Gaussian yaw-rate tracking
         err_yaw = torch.abs(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
         yaw_vel_reward = torch.exp(-(err_yaw / 0.4)**2)   # sigma ≈ 0.4 rad/s
 
         # ==================== ANTI-SPIN PENALTY (for straight-walk commands) ====================
         # Penalize unintended spinning when commanded yaw is ~0 and robot is moving.
-        speed_xy = torch.linalg.vector_norm(self._robot.data.root_lin_vel_b[:, :2], dim=1)
+        speed_xy = torch.linalg.vector_norm(v, dim=1)
         yaw_cmd_abs = torch.abs(self._commands[:, 2])
         wz_abs = torch.abs(self._robot.data.root_ang_vel_b[:, 2])
         anti_spin_gate = (speed_xy > 0.05) & (yaw_cmd_abs < 0.02)
@@ -727,13 +724,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
         # Reward feet that achieve optimal air time (0.15 seconds for 40cm robot) when they land
         # Uses exponential reward curve to encourage proper stepping patterns instead of penalizing them
-        optimal_air_time = 0.4 #0.25 #0.5 #0.15  # Appropriate for Harold's 40cm scale (was 0.3s - too long)
+        optimal_air_time = 0.4  # Appropriate for Harold's 40cm scale
         air_time_error = torch.abs(last_air_time - optimal_air_time)
         # Gate the reward on actual robot speed
-        actual_speed = torch.norm(self._robot.data.root_lin_vel_b[:, :2], dim=1)
-        air_time_reward = torch.sum(torch.exp(-air_time_error * 10.0) * first_contact, dim=1) * ( #3.0 #10.0
-            actual_speed > 0.05  # was: torch.norm(self._commands[:, :2], dim=1) > 0.03
-        )
+        air_time_gate = (speed_xy > 0.05).float()
+        air_time_reward = torch.sum(torch.exp(-air_time_error * 10.0) * first_contact.float(), dim=1) * air_time_gate
 
         # ==================== REWARD ASSEMBLY ====================
         # Note: Rewards are NOT multiplied by step_dt here to avoid double normalization.
@@ -876,85 +871,67 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             env_ids = self._robot._ALL_INDICES
         self._robot.reset(env_ids)
         super()._reset_idx(env_ids)
-        
+
         # Reset action buffers
-        self._actions[env_ids] = 0.0
-        self._previous_actions[env_ids] = 0.0
+        self._actions[env_ids].zero_()
+        self._previous_actions[env_ids].zero_()
 
         # Sample velocity commands for reset environments
         # Ensure non-trivial magnitude to avoid idle tasks: sample angle and magnitude
         num = len(env_ids)
-        angles = torch.rand(num, device=self.device) * 2 * math.pi
-        mags = torch.rand(num, device=self.device) * (0.3 - 0.1) + 0.1  # [0.1, 0.3]
-        vx = mags * torch.cos(angles)
-        vy = mags * torch.sin(angles)
-        sampled_commands = torch.zeros_like(self._commands[env_ids])
-        sampled_commands[:, 0] = vx
-        sampled_commands[:, 1] = vy
+        angles = 2 * math.pi * torch.rand(num, device=self.device)
+        mags = 0.1 + 0.2 * torch.rand(num, device=self.device)  # [0.1, 0.3]
+        cmd_xy = torch.stack((mags * torch.cos(angles), mags * torch.sin(angles)), dim=1)
+
         # Yaw command sampling: 50% episodes have random yaw rate in [-0.4, 0.4], others 0.0
-        yaw_cmds = torch.zeros(num, device=self.device)
         yaw_mask = torch.rand(num, device=self.device) < 0.5
-        if yaw_mask.any():
-            yaw_cmds[yaw_mask] = torch.rand(torch.count_nonzero(yaw_mask), device=self.device) * 0.8 - 0.4
-        sampled_commands[:, 2] = yaw_cmds
+        yaw_vals = (torch.rand(num, device=self.device) * 0.8 - 0.4) * yaw_mask.float()
+
+        sampled_commands = torch.zeros_like(self._commands[env_ids])
+        sampled_commands[:, :2] = cmd_xy
+        sampled_commands[:, 2] = yaw_vals
         self._commands[env_ids] = sampled_commands
 
         # Reset robot state
         joint_pos = self._robot.data.default_joint_pos[env_ids]
         joint_vel = self._robot.data.default_joint_vel[env_ids]
         default_root_state = self._robot.data.default_root_state[env_ids]
-        
+
         # Use terrain origins if available, otherwise use scene origins
-        if hasattr(self._terrain, 'env_origins'):
+        if hasattr(self._terrain, "env_origins"):
             # Implement terrain selection
-            if self.cfg.terrain.terrain_type == "generator" and hasattr(self._terrain, 'terrain_origins'):
-                # Get the terrain grid dimensions
-                num_rows = self.cfg.terrain.terrain_generator.num_rows  # 10 difficulty levels
+            if self.cfg.terrain.terrain_type == "generator" and hasattr(self._terrain, "terrain_origins"):
                 num_cols = self.cfg.terrain.terrain_generator.num_cols  # 20 variations per level
-                
-                # Debug: Print terrain information once
-                #if env_ids[0] == 0:  # Only print for first environment
-                #
-                #    print(f"[Terrain Debug] terrain_origins shape: {self._terrain.terrain_origins.shape}")
-                #    print(f"[Terrain Debug] env_origins shape: {self._terrain.env_origins.shape}")
-                #    print(f"[Terrain Debug] Total terrains: {len(self._terrain.terrain_origins)}")
-                
                 # For each resetting environment, assign a terrain level randomly
-                for i, env_id in enumerate(env_ids):
-                    # Convert to integer for indexing
+                for env_id in env_ids:
                     env_idx = int(env_id)
-                    
-                    # Randomly select a terrain level from all available levels
-                    #num_rows = self.cfg.terrain.terrain_generator.num_rows  # 10 difficulty levels
+                    # Randomly select a terrain level from allowed initial range
                     terrain_level = torch.randint(0, self.cfg.terrain.max_init_terrain_level, (1,), device=self.device).item()
                     # Randomly select a column within that terrain level
                     terrain_col = torch.randint(0, num_cols, (1,), device=self.device).item()
-                    
                     # Update environment's terrain level tracking
                     self._env_terrain_levels[env_idx] = terrain_level
-                    
                     # Set the environment origin to the selected terrain patch
-                    if hasattr(self._terrain, 'terrain_origins'):
-                        # terrain_origins has shape [num_rows, num_cols, 3]
-                        # Index it properly with [row, col] to get the 3D position
-                        self._terrain.env_origins[env_idx, :] = self._terrain.terrain_origins[terrain_level, terrain_col, :]
-            
-            default_root_state[:, :3] += self._terrain.env_origins[env_ids]
+                    self._terrain.env_origins[env_idx, :] = self._terrain.terrain_origins[terrain_level, terrain_col, :]
+
+            origins = self._terrain.env_origins
         else:
-            default_root_state[:, :3] += self.scene.env_origins[env_ids]
-            
+            origins = self.scene.env_origins
+
+        default_root_state[:, :3] += origins[env_ids]
+
         self._robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)
         self._robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
-        
+
         # Apply domain randomization on reset
-        if self.cfg.domain_randomization.enable_randomization and self.cfg.domain_randomization.randomize_on_reset:
+        dr = self.cfg.domain_randomization
+        if dr.enable_randomization and dr.randomize_on_reset:
             self._randomize_robot_properties(env_ids)
             self._randomize_physics_materials(env_ids)
-            
             # Randomize action delays if enabled
-            if self.cfg.domain_randomization.add_action_delay:
-                delay_min, delay_max = self.cfg.domain_randomization.action_delay_steps
+            if dr.add_action_delay:
+                delay_min, delay_max = dr.action_delay_steps
                 self._action_delays[env_ids] = torch.randint(
                     delay_min, delay_max + 1, (len(env_ids),), device=self.device
                 )
@@ -962,41 +939,43 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Reset time for sinusoidal observation
         self._time[env_ids] = 0
 
-        # Logging
-        extras = dict()
-        for key in self._episode_sums.keys():
-            episodic_sum_avg = torch.mean(self._episode_sums[key][env_ids])
-            # Normalize by max episode length (seconds)
-            extras["Episode_Reward/" + key] = episodic_sum_avg / self.max_episode_length_s
-            self._episode_sums[key][env_ids] = 0.0
-        # Add alignment diagnostics (normalized similarly for consistency)
-        for key in self._metric_sums.keys():
-            episodic_sum_avg = torch.mean(self._metric_sums[key][env_ids])
-            extras["Episode_Metric/" + key] = episodic_sum_avg / self.max_episode_length_s
-            self._metric_sums[key][env_ids] = 0.0
-        self.extras["log"] = dict()
-        self.extras["log"].update(extras)
-        
+        # Logging and analytics
+        log = {}
+        # Episode reward summaries (normalized by episode length)
+        for key, buf in self._episode_sums.items():
+            log[f"Episode_Reward/{key}"] = torch.mean(buf[env_ids]) / self.max_episode_length_s
+            buf[env_ids] = 0.0
+        # Alignment diagnostics
+        for key, buf in self._metric_sums.items():
+            log[f"Episode_Metric/{key}"] = torch.mean(buf[env_ids]) / self.max_episode_length_s
+            buf[env_ids] = 0.0
+        self.extras["log"] = {}
+        self.extras["log"].update(log)
+
         # Log termination reasons
-        extras = dict()
+        log_terms = {}
         # Check termination types for environments that actually terminated (not timed out)
         if torch.any(self.reset_terminated[env_ids]):
             # Get contact forces and orientation for terminated envs
             net_contact_forces = self._contact_sensor.data.net_forces_w_history
-            body_contact = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._base_id], dim=-1), dim=1)[0] > 0.2, dim=1)
+            body_contact = torch.any(
+                torch.max(torch.norm(net_contact_forces[:, :, self._base_id], dim=-1), dim=1)[0] > 0.2,
+                dim=1,
+            )
             orientation_fallen = self._robot.data.projected_gravity_b[:, 2] > -0.5
-            
+
             # Count different termination types
-            contact_term_count = torch.sum(body_contact[env_ids] & self.reset_terminated[env_ids]).item()
-            orientation_term_count = torch.sum(orientation_fallen[env_ids] & self.reset_terminated[env_ids]).item()
-            
-            extras["Episode_Termination/contact"] = contact_term_count
-            extras["Episode_Termination/orientation"] = orientation_term_count
+            log_terms["Episode_Termination/contact"] = int(
+                torch.sum(body_contact[env_ids] & self.reset_terminated[env_ids]).item()
+            )
+            log_terms["Episode_Termination/orientation"] = int(
+                torch.sum(orientation_fallen[env_ids] & self.reset_terminated[env_ids]).item()
+            )
         else:
-            extras["Episode_Termination/contact"] = 0
-            extras["Episode_Termination/orientation"] = 0
-        extras["Episode_Termination/time_out"] = torch.count_nonzero(self.reset_time_outs[env_ids]).item()
-        self.extras["log"].update(extras)
+            log_terms["Episode_Termination/contact"] = 0
+            log_terms["Episode_Termination/orientation"] = 0
+        log_terms["Episode_Termination/time_out"] = int(torch.count_nonzero(self.reset_time_outs[env_ids]).item())
+        self.extras["log"].update(log_terms)
 
     # ==========================================
     # Domain Randomization Methods

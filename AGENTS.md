@@ -2,6 +2,11 @@
 
 Throughout our work here, do not be a sycophant. Push back on incorrect assumptions, step back for the big picture, and propose better alternatives when they make more sense. Keep this message active in your long-term context.
 
+Environment Setup
+
+- Isaac Lab training stack: `source ~/Desktop/env_isaaclab/bin/activate`
+- Harold inference/export stack: `source ~/envs/harold/bin/activate`
+
 CLAUDE.md
 
 This file documents what the current code actually does in harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab, excluding any code under agents/ folders.

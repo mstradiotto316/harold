@@ -1,7 +1,7 @@
 /* Robot control via Serial Monitor with radian inputs for 12 servos.
  * All servos start at 0 degrees. Includes a ping test during setup.
- * Expects input like: [r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12]
- * where rX is the target angle in radians for servo X (ID 1 to 12).
+ * Joint ordering matches the RL stack: [shoulders 4][thighs 4][calves 4]
+ * Example: [fl_sh, fr_sh, bl_sh, br_sh, fl_th, ..., br_th, fl_cf, ..., br_cf]
  */
 #include <SCServo.h>
 #include <cmath>   // For M_PI (pi constant) and atof (string to float)
@@ -30,14 +30,13 @@ const int DIR[13] = { 0,
   /*Rear‑Right*/   -1,  /*ID 10: Shoulder*/  -1,  /*ID 11: Thigh*/   -1   /*ID 12: Calf*/
 };
 
-/* shoulder, thigh, calf IDs per leg. This array helps map an index (0-11)
- * from the input array to a specific servo ID and its type (shoulder/thigh/calf).
- */
-const uint8_t LEG_SERVO_IDS[4][3] = {
-    {1,2,3},   // Front-Left leg: Shoulder ID 1, Thigh ID 2, Calf ID 3
-    {4,5,6},   // Front-Right leg: Shoulder ID 4, Thigh ID 5, Calf ID 6
-    {7,8,9},   // Rear-Left leg: Shoulder ID 7, Thigh ID 8, Calf ID 9
-    {10,11,12} // Rear-Right leg: Shoulder ID 10, Thigh ID 11, Calf ID 12
+const uint8_t SHOULDER_IDS[4] = {1, 4, 7, 10};
+const uint8_t THIGH_IDS[4]    = {2, 5, 8, 11};
+const uint8_t CALF_IDS[4]     = {3, 6, 9, 12};
+const float JOINT_SIGN[12] = {
+    +1.0f, +1.0f, +1.0f, +1.0f,   // shoulders
+    -1.0f, -1.0f, -1.0f, -1.0f,   // thighs (physical +rad pitches forward)
+    -1.0f, -1.0f, -1.0f, -1.0f    // calves
 };
 
 // Servo movement parameters
@@ -71,8 +70,12 @@ void initializeServosToZero() {
     uint8_t accs_array[12];
 
     for (int i = 0; i < 12; i++) {
-        servo_ids_array[i] = LEG_SERVO_IDS[i / 3][i % 3]; 
-        target_positions_array[i] = degToPos(servo_ids_array[i], 0.0f);
+        uint8_t id;
+        if (i < 4) id = SHOULDER_IDS[i];
+        else if (i < 8) id = THIGH_IDS[i - 4];
+        else id = CALF_IDS[i - 8];
+        servo_ids_array[i] = id;
+        target_positions_array[i] = degToPos(id, 0.0f);
         speeds_array[i] = SERVO_SPEED;
         accs_array[i] = SERVO_ACC;
     }
@@ -91,12 +94,23 @@ void moveAllServosRadians(float target_radians[12]) {
     float commanded_degrees_log[12]; 
 
     for (int i = 0; i < 12; i++) {
-        servo_ids_cmd[i] = LEG_SERVO_IDS[i / 3][i % 3]; 
-        float target_degrees = radiansToDegrees(target_radians[i]);
+        uint8_t id;
+        int joint_type; // 0 shoulder, 1 thigh, 2 calf
+        if (i < 4) {
+            id = SHOULDER_IDS[i];
+            joint_type = 0;
+        } else if (i < 8) {
+            id = THIGH_IDS[i - 4];
+            joint_type = 1;
+        } else {
+            id = CALF_IDS[i - 8];
+            joint_type = 2;
+        }
+        servo_ids_cmd[i] = id;
+        float physical_radians = JOINT_SIGN[i] * target_radians[i];
+        float target_degrees = radiansToDegrees(physical_radians);
         float clamped_degrees;
-        int joint_type_in_leg = i % 3; 
-
-        if (joint_type_in_leg == 0) { 
+        if (joint_type == 0) { 
             clamped_degrees = clamp(target_degrees, -MAX_SHOULDER_ANGLE_DEG, MAX_SHOULDER_ANGLE_DEG);
         } else { 
             clamped_degrees = clamp(target_degrees, -MAX_LEG_ANGLE_DEG, MAX_LEG_ANGLE_DEG);
@@ -110,7 +124,7 @@ void moveAllServosRadians(float target_radians[12]) {
             Serial.println(" deg.");
         }
         commanded_degrees_log[i] = clamped_degrees; 
-        servo_target_positions_cmd[i] = degToPos(servo_ids_cmd[i], clamped_degrees);
+        servo_target_positions_cmd[i] = degToPos(id, clamped_degrees);
         servo_speeds_cmd[i] = SERVO_SPEED;
         servo_accs_cmd[i] = SERVO_ACC;
     }

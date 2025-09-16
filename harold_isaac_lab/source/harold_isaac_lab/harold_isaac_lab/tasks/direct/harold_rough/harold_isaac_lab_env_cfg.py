@@ -123,7 +123,7 @@ class RewardsCfg:
                                         # Only active when moving (|v_cmd| > 0.03 m/s)
     
     # === SECONDARY OBJECTIVES AND PENALTIES (Negative Rewards) ===
-    torque_penalty: float = -0.08       # Temporarily eased to encourage exploration
+    torque_penalty: float = -0.16 #-0.12 #-0.08       # Temporarily eased to encourage exploration
                                         # Quadratic penalty: sum(torque²)
                                         # Encourages smooth, low-power movements
 
@@ -148,7 +148,7 @@ class GaitCfg:
                                 # Scaling relationship: f ∝ 1/√(leg_length)
                                 # Used in feet_air_time reward for optimal 0.15s air time
                                 
-    target_height: float = 0.18  # m - Desired body height above terrain surface
+    target_height: float = 0.20 #0.18  # m - Desired body height above terrain surface
                                 # Harold: 18cm (natural standing height)
                                 # ANYmal: 40cm, Spot: 35cm (proportional to leg length)
                                 # Critical for height_reward component calculation
@@ -178,7 +178,7 @@ class TerminationCfg:
                                                    # Force scaling: F ∝ robot_mass
                                                    # Currently UNUSED - see undesired_contact instead
                                                    
-    undesired_contact_force_threshold: float = 1.0 #10.0 #0.1 #0.05 # Limb contact termination limit [N]
+    undesired_contact_force_threshold: float = 3.0 #1.0 # Limb contact termination limit [N]
                                                     # Extremely sensitive threshold
                                                     # Applies to: body, shoulders, thighs
                                                     # Only feet (calves) should contact ground

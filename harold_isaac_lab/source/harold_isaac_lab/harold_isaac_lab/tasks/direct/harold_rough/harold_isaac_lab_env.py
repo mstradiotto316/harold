@@ -1,5 +1,8 @@
 from typing import Sequence
 import sys
+import os
+import json
+from pathlib import Path
 import torch
 from isaaclab.assets import Articulation
 from isaaclab.envs import DirectRLEnv
@@ -100,6 +103,42 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # --- Observation & State Trackers ---
         self._time = torch.zeros(self.num_envs, device=self.device)
         self._decimation_counter = 0
+
+        # --- Optional policy logging for sim-to-real dataset capture ---
+        self._policy_log_dir: Path | None = None
+        self._policy_log_step = 0
+        log_dir_env = os.getenv("HAROLD_POLICY_LOG_DIR")
+        if log_dir_env:
+            log_dir = Path(log_dir_env).expanduser().resolve()
+            log_dir.mkdir(parents=True, exist_ok=True)
+            self._policy_log_dir = log_dir
+            self._policy_log_file = self._policy_log_dir / "policy_steps.jsonl"
+            if self._policy_log_file.exists():
+                self._policy_log_file.unlink()
+
+            actuator_cfg = self.cfg.robot.actuators.get("all_joints")
+            control_dt = getattr(self.cfg.sim, "dt", None)
+            if control_dt is None:
+                control_dt = self.step_dt
+            metadata = {
+                "decimation": int(self.cfg.decimation),
+                "control_dt": float(control_dt),
+                "action_scale": float(self.cfg.action_scale),
+                "joint_range": [float(x) for x in self.cfg.joint_range],
+                "joint_angle_min": [float(x) for x in self.cfg.joint_angle_min],
+                "joint_angle_max": [float(x) for x in self.cfg.joint_angle_max],
+                "action_filter_beta": float(getattr(self.cfg, "action_filter_beta", 0.0)),
+            }
+            if actuator_cfg is not None:
+                metadata["actuator"] = {
+                    "type": actuator_cfg.__class__.__name__,
+                    "stiffness": float(actuator_cfg.stiffness),
+                    "damping": float(actuator_cfg.damping),
+                    "effort_limit_sim": float(actuator_cfg.effort_limit_sim),
+                }
+
+            with open(self._policy_log_dir / "metadata.json", "w", encoding="utf-8") as f:
+                json.dump(metadata, f, indent=2)
         self._last_terrain_level = 0  # Track current terrain difficulty level
         
         # Track which terrain level each environment is on
@@ -330,21 +369,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             - Headless training skips all visualization computations
             - Pre-allocated buffers prevent memory allocations in hot loop
         """
-        
-        # --- Logging (commented for later use) ---
-        """
-        log_dir = "/home/matteo/Desktop/Harold_V5/policy_playback_test/"
-        if self._decimation_counter % 18 == 0: # Log every 18 steps
-            with open(log_dir + "actions.log", "a") as f:
-                f.write(f"{self._actions.tolist()}\n") # Write tensor data only
-
-        # Log scaled actions to a file
-        log_dir = "/home/matteo/Desktop/Harold_V5/policy_playback_test/"
-        if self._decimation_counter % 18 == 0: # Log every 18 steps
-            with open(log_dir + "processed_actions.log", "a") as f:
-                f.write(f"{self._processed_actions.tolist()}\n") # Write tensor data only
-        """
-        
         # --- Send joint targets to robot ---
         self._robot.set_joint_position_target(self._processed_actions)
         
@@ -577,17 +601,24 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Update previous actions
         self._previous_actions.copy_(self._actions)
 
-
         # ============================ LOGGING FOR SIMULATION PLAYBACK =============================
-        # Log observations to a file
-        
-        """
-        log_dir = "/home/matteo/Desktop/Harold_V5/policy_playback_test/"
-        if self._decimation_counter % 18 == 0: # Log every 18 steps
-            with open(log_dir + "observations.log", "a") as f:
-                f.write(f"{obs[0].tolist()}\n")
-        """
-        
+        if self._policy_log_dir is not None and self.num_envs > 0:
+            entry = {
+                "step": int(self._policy_log_step),
+                "sim_time": float(self._time),
+                "observation": obs[0].detach().cpu().tolist(),
+                "command": self._commands[0].detach().cpu().tolist(),
+                "raw_action": self._actions[0].detach().cpu().tolist(),
+                "processed_action": self._processed_actions[0].detach().cpu().tolist(),
+            }
+            smoothed_actions = getattr(self, "_actions_smooth", None)
+            if smoothed_actions is not None:
+                entry["smoothed_action"] = smoothed_actions[0].detach().cpu().tolist()
+
+            with open(self._policy_log_file, "a", encoding="utf-8") as f:
+                json.dump(entry, f)
+                f.write("\n")
+            self._policy_log_step += 1
 
         return observations
 
@@ -891,6 +922,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         sampled_commands[:, :2] = cmd_xy
         sampled_commands[:, 2] = yaw_vals
         self._commands[env_ids] = sampled_commands
+
+        if self._policy_log_dir is not None:
+            # During logging runs, hold a fixed forward command to simplify replay analysis
+            self._commands[env_ids] = 0.0
+            self._commands[env_ids, 0] = 0.4
 
         # Reset robot state
         joint_pos = self._robot.data.default_joint_pos[env_ids]

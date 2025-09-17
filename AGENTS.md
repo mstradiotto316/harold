@@ -135,6 +135,7 @@ Quick Start (examples from comments)
 - Train flat: python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1024
 - Train rough: python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-rough-terrain-v0 --num_envs 1024
 - Pushup playback (1 env): python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-pushup-v0 --num_envs 1
+- Log single-env replay for hardware tests: `HAROLD_POLICY_LOG_DIR=deployment_artifacts/terrain_64_2/sim_logs python harold_isaac_lab/scripts/skrl/play.py --task=Template-Harold-Direct-rough-terrain-v0 --num_envs 1 --checkpoint=logs/skrl/harold_direct/terrain_64_2/checkpoints/best_agent.pt --max_steps 200` (rough env forces 0.4 m/s forward command when logging variable is set, producing JSONL observations/actions).
 
 Isaac Lab Documentation Links
 

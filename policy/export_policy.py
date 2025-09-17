@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export terrain_62 PPO policy to TorchScript and ONNX."""
+"""Export terrain_64_2 PPO policy to TorchScript and ONNX."""
 import argparse
 import json
 import math
@@ -155,8 +155,8 @@ def export_policy(checkpoint_path: Path, output_dir: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export Harold PPO policy")
-    parser.add_argument("--checkpoint", type=Path, default=Path("logs/skrl/harold_direct/terrain_62/checkpoints/best_agent.pt"))
-    parser.add_argument("--output", type=Path, default=Path("deployment_artifacts/terrain_62"))
+    parser.add_argument("--checkpoint", type=Path, default=Path("logs/skrl/harold_direct/terrain_64_2/checkpoints/best_agent.pt"))
+    parser.add_argument("--output", type=Path, default=Path("deployment_artifacts/terrain_64_2"))
     args = parser.parse_args()
 
     export_policy(args.checkpoint, args.output)

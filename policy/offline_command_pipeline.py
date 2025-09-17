@@ -83,10 +83,10 @@ def radians_to_servo_units(rad: np.ndarray) -> np.ndarray:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Offline policy command pipeline")
     parser.add_argument("--observations", type=Path, default=Path("simulation_logs/observations.log"))
-    parser.add_argument("--policy", type=Path, default=Path("deployment_artifacts/terrain_62/harold_policy.onnx"))
-    parser.add_argument("--metadata", type=Path, default=Path("deployment_artifacts/terrain_62/policy_metadata.json"))
+    parser.add_argument("--policy", type=Path, default=Path("deployment_artifacts/terrain_64_2/harold_policy.onnx"))
+    parser.add_argument("--metadata", type=Path, default=Path("deployment_artifacts/terrain_64_2/policy_metadata.json"))
     parser.add_argument("--samples", type=int, default=500, help="Number of observations to replay (None for all)")
-    parser.add_argument("--output", type=Path, default=Path("deployment_artifacts/terrain_62/offline_commands.csv"))
+    parser.add_argument("--output", type=Path, default=Path("deployment_artifacts/terrain_64_2/offline_commands.csv"))
     args = parser.parse_args()
 
     joint_order, default_pose, joint_range, joint_limits, joint_sign = load_metadata(args.metadata)

@@ -12,19 +12,19 @@ python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat
 Play back from checkpoint:
 python harold_isaac_lab/scripts/skrl/play.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 16 --checkpoint=/home/matteo/Desktop/code_projects/harold/logs/skrl/harold_direct/terrain_17/checkpoints/best_agent.pt 
 
+Record single-env trajectory with logging (JSONL at policy rate):
+HAROLD_POLICY_LOG_DIR=deployment_artifacts/terrain_64_2/sim_logs python harold_isaac_lab/scripts/skrl/play.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1 --checkpoint=/home/matteo/Desktop/code_projects/harold/logs/skrl/harold_direct/terrain_64_2/checkpoints/best_agent.pt
 
+
+"""
+
+
+"""
 Start Tensorboard:
 source ~/Desktop/env_isaaclab/bin/activate
 python3 -m tensorboard.main --logdir logs/skrl/harold_direct/ --bind_all
-
-Export trained model (MY CUSTOM VERSION) Note: You may need to run this with sudo for it to get write priveleges)
-./isaaclab.sh -p source/standalone/environments/run_harold_v3.py --task Isaac-Harold-Direct-v3 --num_envs 1 --use_last_checkpoint --export_policy
 """
 
-"""
-# To edit USD files:
-usdedit Harold_V4_STABLE_V2.usd
-"""
 
 # Isaac Lab Imports
 import isaaclab.sim as sim_utils
@@ -46,7 +46,7 @@ except:
     exit(1)
 
 # Construct the USD file path
-USD_FILE_PATH = HAROLD_ROOT / "part_files" / "V4" / "harold_7.usd"
+USD_FILE_PATH = HAROLD_ROOT / "part_files" / "V4" / "harold_8.usd"
 
 # Validate that the file exists
 if not USD_FILE_PATH.exists():
@@ -72,7 +72,7 @@ HAROLD_V4_CFG = ArticulationCfg(
             max_depenetration_velocity=2,
         ),
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-            enabled_self_collisions=False, solver_position_iteration_count=4, solver_velocity_iteration_count=0
+            enabled_self_collisions=False, solver_position_iteration_count=8, solver_velocity_iteration_count=2
         )
     ),
     init_state=ArticulationCfg.InitialStateCfg(
@@ -99,10 +99,9 @@ HAROLD_V4_CFG = ArticulationCfg(
     actuators={
         "all_joints": ImplicitActuatorCfg(
             joint_names_expr=[".*"],
-            effort_limit_sim=1.0,
-            stiffness=200.0, #100.0, #200.0,
-            damping=75.0,
+            effort_limit_sim=2.0, #1.0,  #2.5,
+            stiffness=200.0, #750,
+            damping=75.0, #100.0,
         ),
     },
 )
-

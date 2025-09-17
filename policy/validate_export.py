@@ -75,12 +75,12 @@ def compare_models(checkpoint: Path, ts_path: Path, onnx_path: Path, obs_path: P
 
 def main():
     parser = argparse.ArgumentParser(description="Validate exported policy against PyTorch reference")
-    parser.add_argument("--checkpoint", type=Path, default=Path("logs/skrl/harold_direct/terrain_62/checkpoints/best_agent.pt"))
-    parser.add_argument("--torchscript", type=Path, default=Path("deployment_artifacts/terrain_62/harold_policy.ts"))
-    parser.add_argument("--onnx", type=Path, default=Path("deployment_artifacts/terrain_62/harold_policy.onnx"))
+    parser.add_argument("--checkpoint", type=Path, default=Path("logs/skrl/harold_direct/terrain_64_2/checkpoints/best_agent.pt"))
+    parser.add_argument("--torchscript", type=Path, default=Path("deployment_artifacts/terrain_64_2/harold_policy.ts"))
+    parser.add_argument("--onnx", type=Path, default=Path("deployment_artifacts/terrain_64_2/harold_policy.onnx"))
     parser.add_argument("--observations", type=Path, default=Path("simulation_logs/observations.log"))
     parser.add_argument("--num-samples", type=int, default=200, help="Number of samples from log to compare")
-    parser.add_argument("--output", type=Path, default=Path("deployment_artifacts/terrain_62/export_validation.json"))
+    parser.add_argument("--output", type=Path, default=Path("deployment_artifacts/terrain_64_2/export_validation.json"))
     args = parser.parse_args()
 
     metrics = compare_models(args.checkpoint, args.torchscript, args.onnx, args.observations, args.num_samples)

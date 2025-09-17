@@ -108,11 +108,11 @@ class RewardsCfg:
                                         # Lateral drift penalized 3x more than along-track error
                                         # Formula: exp(-(e_par/0.25)² + (e_perp/0.08)²)
                                         
-    track_yaw_commands: float = 12.0       # Yaw velocity tracking weight (MEDIUM PRIORITY)  
+    track_yaw_commands: float = 12.0    # Yaw velocity tracking weight (MEDIUM PRIORITY)  
                                         # Gaussian reward: exp(-(error/0.4)²)
                                         # Enables turning and orientation control
                                        
-    height_reward: float = 0.75 #0.1 #0.75 #1.5    # Height maintenance reward (STABILITY)
+    height_reward: float = 0.75         # Height maintenance reward (STABILITY)
                                         # Tanh-based: tanh(3*exp(-5*|height_error|))
                                         # Maintains ~18cm target height above terrain
                                         # Critical for stable locomotion
@@ -123,7 +123,7 @@ class RewardsCfg:
                                         # Only active when moving (|v_cmd| > 0.03 m/s)
     
     # === SECONDARY OBJECTIVES AND PENALTIES (Negative Rewards) ===
-    torque_penalty: float = -0.16 #-0.12 #-0.08       # Temporarily eased to encourage exploration
+    torque_penalty: float = -0.2 #-0.16 #-0.12 #-0.08       # Temporarily eased to encourage exploration
                                         # Quadratic penalty: sum(torque²)
                                         # Encourages smooth, low-power movements
 
@@ -148,7 +148,7 @@ class GaitCfg:
                                 # Scaling relationship: f ∝ 1/√(leg_length)
                                 # Used in feet_air_time reward for optimal 0.15s air time
                                 
-    target_height: float = 0.20 #0.18  # m - Desired body height above terrain surface
+    target_height: float = 0.22 #0.20 #0.18  # m - Desired body height above terrain surface
                                 # Harold: 18cm (natural standing height)
                                 # ANYmal: 40cm, Spot: 35cm (proportional to leg length)
                                 # Critical for height_reward component calculation
@@ -328,7 +328,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     state_space = 0
 
     # Action filtering (EMA low-pass)
-    action_filter_beta: float = 0.4 #0.5 #0.4 #0.3 #0.2 #0.3 #0.2  # lower = smoother; 0.5 - 1s at 20 Hz when beta = 0.2
+    action_filter_beta: float = 0.4  # lower = smoother; 0.5 - 1s at 20 Hz when beta = 0.2
 
     # Reward configuration
     rewards = RewardsCfg()

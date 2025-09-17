@@ -1,5 +1,6 @@
 """
 # WHEN USING SKRL TRAINING LIBRARY
+
 Train model:
 python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-rough-terrain-v0 --num_envs 1024
 
@@ -12,19 +13,18 @@ python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-roug
 Play back from checkpoint:
 python harold_isaac_lab/scripts/skrl/play.py --task=Template-Harold-Direct-rough-terrain-v0 --num_envs 16 --checkpoint=/home/matteo/Desktop/code_projects/harold/logs/skrl/harold_direct/terrain_17/checkpoints/best_agent.pt 
 
+Record single-env trajectory with logging (JSONL at policy rate):
+HAROLD_POLICY_LOG_DIR=deployment_artifacts/terrain_64_2/sim_logs python harold_isaac_lab/scripts/skrl/play.py --task=Template-Harold-Direct-rough-terrain-v0 --num_envs 1 --checkpoint=/home/matteo/Desktop/code_projects/harold/logs/skrl/harold_direct/terrain_64_2/checkpoints/best_agent.pt
 
+"""
+
+
+"""
 Start Tensorboard:
 source ~/Desktop/env_isaaclab/bin/activate
 python3 -m tensorboard.main --logdir logs/skrl/harold_direct/ --bind_all
-
-Export trained model (MY CUSTOM VERSION) Note: You may need to run this with sudo for it to get write priveleges)
-./isaaclab.sh -p source/standalone/environments/run_harold_v3.py --task Isaac-Harold-Direct-v3 --num_envs 1 --use_last_checkpoint --export_policy
 """
 
-"""
-# To edit USD files:
-usdedit Harold_V4_STABLE_V2.usd
-"""
 
 # Isaac Lab Imports
 import isaaclab.sim as sim_utils

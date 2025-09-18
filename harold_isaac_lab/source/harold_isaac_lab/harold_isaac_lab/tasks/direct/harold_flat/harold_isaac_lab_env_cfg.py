@@ -52,29 +52,30 @@ class RewardsCfg:
     - torque_penalty: -0.15 (low penalty - energy efficiency)
     """
     # === PRIMARY LOCOMOTION OBJECTIVES (Positive Rewards) ===
-    track_xy_lin_commands: float = 80   # Linear velocity tracking weight (HIGHEST PRIORITY)
+    track_xy_lin_commands: float = 0.1 #0.5 #5 #20 #80   # Linear velocity tracking weight (HIGHEST PRIORITY)
                                         # Directional tracking with elliptical Gaussian
                                         # Lateral drift penalized 3x more than along-track error
                                         # Formula: exp(-(e_par/0.25)² + (e_perp/0.08)²)
                                         
-    track_yaw_commands: float = 12.0    # Yaw velocity tracking weight (MEDIUM PRIORITY)  
+    track_yaw_commands: float = 0 #12.0    # Yaw velocity tracking weight (MEDIUM PRIORITY)  
                                         # Gaussian reward: exp(-(error/0.4)²)
                                         # Enables turning and orientation control
                                        
-    height_reward: float = 0.75         # Height maintenance reward (STABILITY)
+    height_reward: float = 0.5 #2 #25 #75 #7.5 #0.75         # Height maintenance reward (STABILITY)
                                         # Tanh-based: tanh(3*exp(-5*|height_error|))
                                         # Maintains ~18cm target height above terrain
                                         # Critical for stable locomotion
-                                       
-    feet_air_time: float = 12           # Proper gait reward (HIGH PRIORITY)
+                                        
+    feet_air_time: float = 24 #12           # Proper gait reward (HIGH PRIORITY)
                                         # Rewards 0.15s optimal air time per foot (fixed for Harold's scale)
                                         # Uses exponential reward curve to encourage stepping
                                         # Only active when moving (|v_cmd| > 0.03 m/s)
     
     # === SECONDARY OBJECTIVES AND PENALTIES (Negative Rewards) ===
-    torque_penalty: float = -0.2 #-0.16 #-0.12 #-0.08       # Temporarily eased to encourage exploration
+    torque_penalty: float = -0.01 #-0.025 #1 #-0.2 #-0.16 #-0.12 #-0.08       # Temporarily eased to encourage exploration
                                         # Quadratic penalty: sum(torque²)
                                         # Encourages smooth, low-power movements
+    anti_spin_penalty: float = 0 #-1.5      # Penalize yaw drift during straight-line walking
 
 
 @configclass
@@ -170,9 +171,9 @@ class DomainRandomizationCfg:
     """
     
     # === MASTER SWITCHES ===
-    enable_randomization: bool = True         # Global on/off for all randomization
-    randomize_on_reset: bool = True           # Apply randomization at episode reset
-    randomize_per_step: bool = True           # Apply per-step randomization (noise)
+    enable_randomization: bool = False        # Global on/off for all randomization
+    randomize_on_reset: bool = False          # Apply randomization at episode reset
+    randomize_per_step: bool = False          # Apply per-step randomization (noise)
     
     # === PHYSICS RANDOMIZATION ===
     randomize_friction: bool = True           # Randomize ground/foot friction
@@ -293,7 +294,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
 
     # viewer configuration
     viewer = ViewerCfg(
-        eye     = (-40.0, 0.0, 2.0),   # camera XYZ in metres
+        eye     = (0.0, 10.0, 2.0),   # camera XYZ in metres
         lookat = (0.0, 0.0, 0.0),  # aim at robot base
     )
 

@@ -725,8 +725,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         yaw_cmd_abs = torch.abs(self._commands[:, 2])
         wz_abs = torch.abs(self._robot.data.root_ang_vel_b[:, 2])
         anti_spin_gate = (speed_xy > 0.05) & (yaw_cmd_abs < 0.02)
-        anti_spin_k = 1.5
-        anti_spin_penalty = -anti_spin_k * wz_abs * anti_spin_gate.float()
+        anti_spin_penalty = self.cfg.rewards.anti_spin_penalty * wz_abs * anti_spin_gate.float()
 
         # Diagnostic metric: absolute yaw rate when yaw_cmd≈0
         self._metric_sums["abs_wz_when_yaw_cmd_zero"] += wz_abs * anti_spin_gate.float()
@@ -903,25 +902,22 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._robot.reset(env_ids)
         super()._reset_idx(env_ids)
 
+        # Desynchronize episodes when all envs reset (e.g., at start of training)
+        # to avoid large synchronous reset spikes in reward/throughput.
+        if len(env_ids) == self.num_envs:
+            self.episode_length_buf[:] = torch.randint_like(
+                self.episode_length_buf, high=int(self.max_episode_length)
+            )
+
         # Reset action buffers
         self._actions[env_ids].zero_()
         self._previous_actions[env_ids].zero_()
 
-        # Sample velocity commands for reset environments
-        # Ensure non-trivial magnitude to avoid idle tasks: sample angle and magnitude
+        # Fixed deployment-focused velocity command (forward-only)
         num = len(env_ids)
-        angles = 2 * math.pi * torch.rand(num, device=self.device)
-        mags = 0.1 + 0.2 * torch.rand(num, device=self.device)  # [0.1, 0.3]
-        cmd_xy = torch.stack((mags * torch.cos(angles), mags * torch.sin(angles)), dim=1)
-
-        # Yaw command sampling: 50% episodes have random yaw rate in [-0.4, 0.4], others 0.0
-        yaw_mask = torch.rand(num, device=self.device) < 0.5
-        yaw_vals = (torch.rand(num, device=self.device) * 0.8 - 0.4) * yaw_mask.float()
-
-        sampled_commands = torch.zeros_like(self._commands[env_ids])
-        sampled_commands[:, :2] = cmd_xy
-        sampled_commands[:, 2] = yaw_vals
-        self._commands[env_ids] = sampled_commands
+        forward_cmd = torch.zeros(num, 3, device=self.device)
+        forward_cmd[:, 0] = 0.3
+        self._commands[env_ids] = forward_cmd
 
         if self._policy_log_dir is not None:
             # During logging runs, hold a fixed forward command to simplify replay analysis
@@ -953,6 +949,19 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             origins = self._terrain.env_origins
         else:
             origins = self.scene.env_origins
+
+        # Spread spawn locations for parallel environments while keeping env 0 at reference origin
+        if len(env_ids) > 0:
+            spacing = getattr(self.cfg.scene, "env_spacing", 2.0)
+            cols = max(int(math.sqrt(max(self.num_envs - 1, 1))) + 1, 1)
+            for env_id in env_ids:
+                env_idx = int(env_id)
+                if env_idx == 0:
+                    continue
+                row = (env_idx - 1) // cols
+                col = (env_idx - 1) % cols
+                origins[env_idx, 0] = row * spacing
+                origins[env_idx, 1] = col * spacing
 
         default_root_state[:, :3] += origins[env_ids]
 

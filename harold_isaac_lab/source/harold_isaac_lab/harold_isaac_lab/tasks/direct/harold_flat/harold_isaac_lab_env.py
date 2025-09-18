@@ -916,13 +916,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Fixed deployment-focused velocity command (forward-only)
         num = len(env_ids)
         forward_cmd = torch.zeros(num, 3, device=self.device)
-        forward_cmd[:, 0] = 0.3
+        forward_cmd[:, 0] = 0.25
         self._commands[env_ids] = forward_cmd
 
         if self._policy_log_dir is not None:
             # During logging runs, hold a fixed forward command to simplify replay analysis
             self._commands[env_ids] = 0.0
-            self._commands[env_ids, 0] = 0.4
+            self._commands[env_ids, 0] = 0.25
 
         # Reset robot state
         joint_pos = self._robot.data.default_joint_pos[env_ids]

@@ -36,46 +36,24 @@ HAROLD_FLAT_TERRAIN_CFG = TerrainGeneratorCfg(
 class RewardsCfg:
     """Reward function weights and scaling parameters.
     
-    Carefully tuned reward weights for stable quadruped locomotion training.
-    Each component addresses specific aspects of desired robot behavior:
-    
-    - Velocity tracking: Primary objective for locomotion control
-    - Energy efficiency: Encourages smooth, low-power movements  
-    - Gait quality: Promotes proper stepping patterns
-    - Stability: Maintains upright posture and consistent height
-        
-    Weight Magnitudes:
-    - track_xy_lin_commands: 300 (highest priority - locomotion objective)
-    - feet_air_time: 200 (high priority - proper gait patterns)
-    - track_yaw_commands: 20 (medium priority - turning ability)
-    - height_reward: 15 (low-medium priority - stability)
-    - torque_penalty: -0.15 (low penalty - energy efficiency)
+    Simplified for straight-line walking on flat terrain:
+    - track_forward_speed: primary objective (vx only)
+    - height_reward: stabilize body height
+    - torque_penalty: energy regularization
     """
     # === PRIMARY LOCOMOTION OBJECTIVES (Positive Rewards) ===
-    track_xy_lin_commands: float = 80.0   # Linear velocity tracking weight (PRIMARY)
-                                        # Directional tracking with elliptical Gaussian
-                                        # Lateral drift penalized 3x more than along-track error
-                                        # Formula: exp(-(e_par/0.25)² + (e_perp/0.08)²)
-                                        
-    track_yaw_commands: float = 0.0       # No turning for MVP forward gait
-                                        # Gaussian reward: exp(-(error/0.4)²)
-                                        # Enables turning and orientation control
-                                       
+    track_forward_speed: float = 80.0     # Forward speed tracking (vx only)
+
     height_reward: float = 0.75           # Height maintenance reward (STABILITY)
                                         # Tanh-based: tanh(3*exp(-5*|height_error|))
                                         # Maintains ~18cm target height above terrain
                                         # Critical for stable locomotion
                                         
-    feet_air_time: float = 12.0            # Proper gait reward (supports robust stepping)
-                                        # Rewards 0.15s optimal air time per foot (fixed for Harold's scale)
-                                        # Uses exponential reward curve to encourage stepping
-                                        # Only active when moving (|v_cmd| > 0.03 m/s)
-    
     # === SECONDARY OBJECTIVES AND PENALTIES (Negative Rewards) ===
     torque_penalty: float = -0.08          # Moderate energy penalty
                                         # Quadratic penalty: sum(torque²)
                                         # Encourages smooth, low-power movements
-    anti_spin_penalty: float = -0.6        # Penalize yaw drift during straight-line walking
+    # No yaw or lateral tracking terms in flat task
 
 
 @configclass
@@ -96,7 +74,6 @@ class GaitCfg:
                                 # Harold: 2.0Hz (smaller robots step faster)
                                 # ANYmal: 1.5Hz, Spot: 1.2Hz (larger robots slower)
                                 # Scaling relationship: f ∝ 1/√(leg_length)
-                                # Used in feet_air_time reward for optimal 0.15s air time
                                 
     target_height: float = 0.22 #0.20 #0.18  # m - Desired body height above terrain surface
                                 # Harold: 18cm (natural standing height)
@@ -104,45 +81,26 @@ class GaitCfg:
                                 # Critical for height_reward component calculation
                                 # Ray-casting scanner measures actual height vs target
 
+    # Minimum body height for forward-speed reward to apply (prevents belly-drag exploits)
+    forward_reward_min_height: float = 0.12
+
 
 @configclass
 class TerminationCfg:
-    """Episode termination conditions and safety thresholds.
-    
-    Defines conditions that trigger environment resets to prevent damage
-    to the physical robot and ensure training focuses on successful behaviors.
-    
-    Thresholds are scaled for Harold's lightweight (2kg) construction and
-    are intentionally conservative to prevent hardware damage during 
-    sim-to-real transfer.
-    
-    Force Scaling:
-    - Contact forces scale with robot mass (2kg vs 30kg+ for larger robots)
-    - Lower thresholds ensure safer operation for lightweight construction
-    - Conservative limits prevent servo damage from over-torque conditions
+    """Episode termination configuration.
+
+    Flat task uses only time-based termination; the fields below are kept for
+    compatibility and potential future use but are not referenced by the env.
     """
     # === CONTACT FORCE THRESHOLDS (Scaled for Harold's 2kg Mass) ===
     base_contact_force_threshold: float = 0.5       # Main body contact limit [N]
-                                                   # Harold: 0.5N (2kg robot)
-                                                   # ANYmal: ~5N (50kg robot) 
-                                                   # Force scaling: F ∝ robot_mass
-                                                   # Currently UNUSED - see undesired_contact instead
                                                    
-    undesired_contact_force_threshold: float = 0.05  # Limb contact termination limit [N] (flat task)
-                                                    # Extremely sensitive threshold
-                                                    # Applies to: body, shoulders, thighs
-                                                    # Only feet (calves) should contact ground
-                                                    # Conservative for hardware protection
-                                                    # Triggers immediate environment reset
+    undesired_contact_force_threshold: float = 3.0   # Limb contact termination limit [N]
+    contact_grace_period_s: float = 0.5             # Grace period before considering contact
+    undesired_contact_min_duration_s: float = 0.10  # Min duration before contact termination
                                                     
     # === ORIENTATION TERMINATION ===
-    orientation_threshold: float = -0.5             # Robot tilt termination limit
-                                                   # projected_gravity_b[2] threshold
-                                                   # -1.0 = perfectly upright
-                                                   #  0.0 = completely horizontal  
-                                                   # -0.5 = ~60° tilt before termination
-                                                   # TODO: Currently disabled - may be too permissive
-                                                   # Consider lowering to -0.7 for stricter control
+    orientation_threshold: float = -0.5             # Robot tilt termination limit (not used in flat)
 
 @configclass
 class DomainRandomizationCfg:
@@ -272,13 +230,32 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     decimation = 9
     action_scale = 1.0
     
+    # Fixed forward-speed command for simple straight-walk training
+    # Policy observes commands but they remain constant: [vx=fixed_forward_speed, vy=0, yaw=0]
+    fixed_forward_speed: float = 0.25
+
     # Space definitions
     observation_space = 48
     action_space = 12
     state_space = 0
 
     # Action filtering (EMA low-pass)
-    action_filter_beta: float = 0.4  # lower = smoother; 0.5 - 1s at 20 Hz when beta = 0.2
+    action_filter_beta: float = 0.25  # stronger smoothing to avoid initial flails
+
+    # Policy warmup: hold default pose for a few policy steps after reset
+    warmup_policy_steps: int = 5
+
+    # Control mode: "raw" (policy directly sets 12 joint deltas around default),
+    #                "cpg" (scripted gait ignores policy),
+    #                "residual_cpg" (default; policy adds small residual to scripted gait)
+    control_mode: str = "residual_cpg"
+    residual_scale: float = 0.2  # radians of max residual per joint after scaling
+
+    # Simple trot CPG parameters (used when control_mode is cpg or residual_cpg)
+    cpg_frequency_hz: float = 2.0
+    cpg_thigh_amp: float = 0.35
+    cpg_calf_amp: float = 0.45
+    cpg_knee_bias_delta: float = 0.10   # add to default calf angle (less negative -> more crouch)
 
     # Reward configuration
     rewards = RewardsCfg()
@@ -373,16 +350,16 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
         prim_path="/World/envs/env_.*/Robot/.*",
         history_length=3,
         update_period=0.005,            # 5ms update rate (much higher frequency than 0.05s)
-        track_air_time=True             # Keep enabled for gait analysis and feet air time rewards
+        track_air_time=False            # Disable air-time tracking in simplified flat task
     )
 
     # === Joint configuration (moved from env implementation) ===
     # Per-joint normalized action ranges (scaled later by action_scale)
     # Order: [shoulders(4), thighs(4), calves(4)]
     joint_range: tuple = (
-        0.30, 0.30, 0.30, 0.30,  # shoulders
-        0.90, 0.90, 0.90, 0.90,  # thighs
-        0.90, 0.90, 0.90, 0.90   # calves
+        0.15, 0.15, 0.15, 0.15,  # shoulders even narrower to reduce lateral drift/roll
+        0.50, 0.50, 0.50, 0.50,  # thighs
+        0.50, 0.50, 0.50, 0.50   # calves
     )
 
     # === Joint configuration for push-up routine ===

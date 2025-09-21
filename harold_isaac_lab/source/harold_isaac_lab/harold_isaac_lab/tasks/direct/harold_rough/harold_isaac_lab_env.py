@@ -695,11 +695,12 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # At v=0 -> Q0 = (|cmd|/c_par)^2, so exp(-Q) - exp(-Q0) = 0
         Q0 = (cmd_mag / c_par)**2
         base_dir_reward = torch.exp(-Q) - torch.exp(-Q0)
-        # Add underspeed penalty to discourage inaction and provide gradient when going the wrong way
-        # Use signed v_par without clamping so moving opposite to the command increases the penalty smoothly
+        # Add underspeed penalty but saturate to prevent extreme negatives
         k_under = 0.7
         under = torch.relu(cmd_mag - v_par)
-        lin_vel_reward = base_dir_reward - k_under * under
+        lin_vel_reward = base_dir_reward - k_under * torch.clamp(under, max=1.0)
+        # Bound the directional term for numerical safety before weighting
+        lin_vel_reward = torch.clamp(lin_vel_reward, -1.0, 1.0)
         
         # Gate reward when a non-trivial command is provided
         lin_vel_reward *= (cmd_mag > 0.03).float()

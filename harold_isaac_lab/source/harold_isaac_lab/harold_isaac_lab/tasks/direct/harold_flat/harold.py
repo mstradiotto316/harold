@@ -76,7 +76,7 @@ HAROLD_V4_CFG = ArticulationCfg(
         )
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 0.20),
+        pos=(0.0, 0.0, 0.22),
         rot=(1.0, 0.0, 0.0, 0.0), 
         joint_pos={
             'fl_shoulder_joint': 0.0,

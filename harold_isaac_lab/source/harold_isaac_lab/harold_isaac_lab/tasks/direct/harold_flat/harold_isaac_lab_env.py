@@ -93,9 +93,12 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # --- Contact Sensor Body ID Extraction (Isaac Lab Standard Pattern) ---
         # Get base body for termination detection
         self._base_id, _ = self._contact_sensor.find_bodies(".*body")
-        
-        # Keep base id for optional external force application; no other contact-based logic in flat task
-        self._feet_ids = None
+
+        # Get feet for gait analysis and air time rewards (Harold's feet are calf ends)
+        self._feet_ids, _ = self._contact_sensor.find_bodies(".*calf")
+
+        # Get undesired contact bodies (body, thighs, shoulders should not touch ground)
+        self._undesired_contact_body_ids, _ = self._contact_sensor.find_bodies(".*(body|thigh|shoulder)")
 
         # --- Observation & State Trackers ---
         self._time = torch.zeros(self.num_envs, device=self.device)
@@ -177,6 +180,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 "track_forward_speed",
                 "height_reward",
                 "torque_penalty",
+                "feet_air_time_reward",
             ]
         }
         
@@ -487,8 +491,30 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         return torch.clamp(q0 + d_all, self._JOINT_ANGLE_MIN, self._JOINT_ANGLE_MAX)
 
     def _get_contact_sensor_data(self) -> dict:
-        """Simplified flat task: no contact-derived rewards or terminations."""
-        return {}
+        """Extract and process contact sensor data for termination and gait rewards.
+
+        Returns a dict with selected contact metrics used by the flat task:
+            - undesired_contact_forces: max force over history on non-foot bodies
+            - first_contact: boolean mask of first foot contacts this step
+            - last_air_time: air time duration for each foot prior to contact
+        """
+        net_contact_forces = self._contact_sensor.data.net_forces_w_history
+
+        # Undesired contact detection (body/thighs/shoulders touching ground)
+        undesired_contact_forces = torch.max(
+            torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1
+        )[0]
+
+        # Feet air-time support data
+        first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._feet_ids]
+        last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
+
+        return {
+            "undesired_contact_forces": undesired_contact_forces,
+            "first_contact": first_contact,
+            "last_air_time": last_air_time,
+            "net_forces_w_history": net_contact_forces,
+        }
 
     def _get_observations(self) -> dict:
         """Construct the 48-dimensional observation vector for policy input.
@@ -631,12 +657,18 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # DIRECTIONAL: Decompose velocity into parallel and perpendicular components
         # relative to command direction. Penalize sideways drift much more than along-track error.
         
-        # Simplified forward speed tracking (vx only)
+        # Simplified forward speed tracking (vx only) with stronger incentive to move
         vx = self._robot.data.root_lin_vel_b[:, 0]
         vx_cmd = self._commands[:, 0]
         err_vx = vx - vx_cmd
-        sigma_vx = 0.25
-        lin_vel_reward = torch.exp(- (err_vx / sigma_vx) ** 2)
+        sigma_vx = 0.18  # tighter tolerance so idle policies score poorly
+        # Baseline subtraction so standing still at non-zero command yields ~0
+        lin_raw = torch.exp(- (err_vx / sigma_vx) ** 2)
+        lin_base = torch.exp(- (vx_cmd / sigma_vx) ** 2)
+        lin_vel_reward = lin_raw - lin_base
+        # Small underspeed penalty to discourage stalling when command is positive
+        k_under = 0.5
+        lin_vel_reward = lin_vel_reward - k_under * torch.clamp(vx_cmd - vx, min=0.0, max=1.0)
 
         # ==================== HEIGHT MAINTENANCE ====================
         # Get height data from scanner and compute mean height (NaN-safe)
@@ -661,6 +693,17 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Penalize large actuator efforts to encourage energy-efficient motions.
         joint_torques = torch.sum(torch.square(self._robot.data.applied_torque), dim=1)
 
+        # ==================== FEET AIR TIME REWARD ====================
+        # Encourage stepping behavior when the robot is moving forward
+        cs = self._get_contact_sensor_data()
+        first_contact = cs["first_contact"]
+        last_air_time = cs["last_air_time"]
+        speed_xy = torch.linalg.vector_norm(self._robot.data.root_lin_vel_b[:, :2], dim=1)
+        optimal_air_time = 0.4
+        air_time_error = torch.abs(last_air_time - optimal_air_time)
+        air_time_gate = (speed_xy > 0.05).float()
+        air_time_reward = torch.sum(torch.exp(-air_time_error * 10.0) * first_contact.float(), dim=1) * air_time_gate
+
         # ==================== REWARD ASSEMBLY ====================
         # Note: Rewards are NOT multiplied by step_dt here to avoid double normalization.
         # The episodic sum is already normalized by max_episode_length_s when logged.
@@ -668,6 +711,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "track_forward_speed": lin_vel_reward * self.cfg.rewards.track_forward_speed,
             "height_reward": height_reward * self.cfg.rewards.height_reward,
             "torque_penalty": joint_torques * self.cfg.rewards.torque_penalty,
+            "feet_air_time_reward": air_time_reward * self.cfg.rewards.feet_air_time,
         }
         
         # Sum all rewards
@@ -680,11 +724,26 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         return reward
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Apply orientation-based termination and time-out for flat task."""
+        """Determine episode termination and timeout using contact-based logic.
+
+        - Immediate reset on undesired contacts (body/thigh/shoulder contacting ground)
+        - Orientation termination disabled to allow recovery from moderate tilts
+        - Time-based episode limit respected
+        """
         time_out = self.episode_length_buf >= self.max_episode_length - 1
-        # Terminate if robot has tipped (gravity z in body frame above threshold)
-        orientation_terminated = self._robot.data.projected_gravity_b[:, 2] > self.cfg.termination.orientation_threshold
-        terminated = orientation_terminated
+
+        # Contact-based termination
+        cs = self._get_contact_sensor_data()
+        undesired_contact_forces = cs["undesired_contact_forces"]
+        contact_terminated = torch.any(
+            undesired_contact_forces > self.cfg.termination.undesired_contact_force_threshold,
+            dim=1,
+        )
+
+        # Orientation check (disabled in termination composition)
+        _orientation_terminated = self._robot.data.projected_gravity_b[:, 2] > self.cfg.termination.orientation_threshold
+
+        terminated = contact_terminated
         return terminated, time_out
 
     def _reset_idx(self, env_ids: Sequence[int] | None = None) -> None:

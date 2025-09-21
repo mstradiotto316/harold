@@ -49,6 +49,9 @@ class RewardsCfg:
                                         # Maintains ~18cm target height above terrain
                                         # Critical for stable locomotion
                                         
+    # Feet air-time reward (encourage stepping)
+    feet_air_time: float = 12.0            # Reward weight for feet air time (only when moving)
+
     # === SECONDARY OBJECTIVES AND PENALTIES (Negative Rewards) ===
     torque_penalty: float = -0.08          # Moderate energy penalty
                                         # Quadratic penalty: sum(torque²)
@@ -89,8 +92,9 @@ class GaitCfg:
 class TerminationCfg:
     """Episode termination configuration.
 
-    Flat task uses only time-based termination; the fields below are kept for
-    compatibility and potential future use but are not referenced by the env.
+    Flat task uses contact-based termination (undesired contacts) and timeout.
+    Orientation termination is available but disabled by default in the env
+    implementation to allow recovery from moderate tilts.
     """
     # === CONTACT FORCE THRESHOLDS (Scaled for Harold's 2kg Mass) ===
     base_contact_force_threshold: float = 0.5       # Main body contact limit [N]
@@ -100,7 +104,7 @@ class TerminationCfg:
     undesired_contact_min_duration_s: float = 0.10  # Min duration before contact termination
                                                     
     # === ORIENTATION TERMINATION ===
-    orientation_threshold: float = -0.5             # Robot tilt termination limit (not used in flat)
+    orientation_threshold: float = -0.5             # Robot tilt termination limit (disabled in env)
 
 @configclass
 class DomainRandomizationCfg:
@@ -129,9 +133,9 @@ class DomainRandomizationCfg:
     """
     
     # === MASTER SWITCHES ===
-    enable_randomization: bool = False        # Global on/off for all randomization
-    randomize_on_reset: bool = False          # Apply randomization at episode reset
-    randomize_per_step: bool = False          # Apply per-step randomization (noise)
+    enable_randomization: bool = True         # Global on/off for all randomization
+    randomize_on_reset: bool = True           # Apply randomization at episode reset
+    randomize_per_step: bool = True           # Apply per-step randomization (noise)
     
     # === PHYSICS RANDOMIZATION ===
     randomize_friction: bool = True           # Randomize ground/foot friction
@@ -240,15 +244,15 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     state_space = 0
 
     # Action filtering (EMA low-pass)
-    action_filter_beta: float = 0.25  # stronger smoothing to avoid initial flails
+    action_filter_beta: float = 0.35  # smoother actions to reduce jitter
 
     # Policy warmup: hold default pose for a few policy steps after reset
     warmup_policy_steps: int = 5
 
     # Control mode: "raw" (policy directly sets 12 joint deltas around default),
     #                "cpg" (scripted gait ignores policy),
-    #                "residual_cpg" (default; policy adds small residual to scripted gait)
-    control_mode: str = "residual_cpg"
+    #                "residual_cpg" (policy adds small residual to scripted gait)
+    control_mode: str = "raw"
     residual_scale: float = 0.2  # radians of max residual per joint after scaling
 
     # Simple trot CPG parameters (used when control_mode is cpg or residual_cpg)
@@ -350,7 +354,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
         prim_path="/World/envs/env_.*/Robot/.*",
         history_length=3,
         update_period=0.005,            # 5ms update rate (much higher frequency than 0.05s)
-        track_air_time=False            # Disable air-time tracking in simplified flat task
+        track_air_time=True             # Enable air-time tracking for feet_air_time reward
     )
 
     # === Joint configuration (moved from env implementation) ===

@@ -34,77 +34,33 @@ HAROLD_FLAT_TERRAIN_CFG = TerrainGeneratorCfg(
 
 @configclass
 class RewardsCfg:
-    """Reward function weights and scaling parameters.
-    
-    Simplified for straight-line walking on flat terrain:
-    - track_forward_speed: primary objective (vx only)
-    - height_reward: stabilize body height
-    - torque_penalty: energy regularization
-    """
+    """Reward function weights matching the rough-terrain task (flat terrain variant)."""
+
     # === PRIMARY LOCOMOTION OBJECTIVES (Positive Rewards) ===
-    track_forward_speed: float = 80.0     # Forward speed tracking (vx only)
+    track_xy_lin_commands: float = 2.5 #5 #20 #80.0    # Directional XY velocity tracking weight
+    track_yaw_commands: float = 6.0 #12.0       # Yaw velocity tracking weight
+    height_reward: float = 3.0 #1.5 #0.75            # Height maintenance reward
+    feet_air_time: float = 12.0            # Feet air-time reward
 
-    height_reward: float = 0.75           # Height maintenance reward (STABILITY)
-                                        # Tanh-based: tanh(3*exp(-5*|height_error|))
-                                        # Maintains ~18cm target height above terrain
-                                        # Critical for stable locomotion
-                                        
-    # Feet air-time reward (encourage stepping)
-    feet_air_time: float = 12.0            # Reward weight for feet air time (only when moving)
-
-    # === SECONDARY OBJECTIVES AND PENALTIES (Negative Rewards) ===
-    torque_penalty: float = -0.08          # Moderate energy penalty
-                                        # Quadratic penalty: sum(torque²)
-                                        # Encourages smooth, low-power movements
-    # No yaw or lateral tracking terms in flat task
+    # === SECONDARY OBJECTIVES (Penalties) ===
+    torque_penalty: float = -0.2           # Quadratic torque penalty
 
 
 @configclass
 class GaitCfg:
-    """Gait and locomotion parameters for Harold quadruped.
-    
-    These parameters define the desired locomotion characteristics and are
-    tuned specifically for Harold's physical dimensions and mass properties.
-    
-    Values are scaled appropriately for a small (40cm length, 2kg) quadruped
-    compared to larger research platforms like ANYmal (70cm, 50kg) or Spot (110cm, 32kg).
-    
-    Key Scaling Relationships:
-    - Gait frequency ∝ 1/√(leg_length) - smaller robots step faster
-    - Target height ∝ leg_length - proportional to robot size
-    """
-    frequency: float = 2.0       # Hz - Desired gait frequency for proper stepping
-                                # Harold: 2.0Hz (smaller robots step faster)
-                                # ANYmal: 1.5Hz, Spot: 1.2Hz (larger robots slower)
-                                # Scaling relationship: f ∝ 1/√(leg_length)
-                                
-    target_height: float = 0.22 #0.20 #0.18  # m - Desired body height above terrain surface
-                                # Harold: 18cm (natural standing height)
-                                # ANYmal: 40cm, Spot: 35cm (proportional to leg length)
-                                # Critical for height_reward component calculation
-                                # Ray-casting scanner measures actual height vs target
+    """Gait parameters matched to the rough-terrain setup."""
 
-    # Minimum body height for forward-speed reward to apply (prevents belly-drag exploits)
-    forward_reward_min_height: float = 0.12
+    frequency: float = 2.0
+    target_height: float = 0.22
 
 
 @configclass
 class TerminationCfg:
-    """Episode termination configuration.
+    """Episode termination thresholds (shared with rough terrain)."""
 
-    Flat task uses contact-based termination (undesired contacts) and timeout.
-    Orientation termination is available but disabled by default in the env
-    implementation to allow recovery from moderate tilts.
-    """
-    # === CONTACT FORCE THRESHOLDS (Scaled for Harold's 2kg Mass) ===
-    base_contact_force_threshold: float = 0.5       # Main body contact limit [N]
-                                                   
-    undesired_contact_force_threshold: float = 3.0   # Limb contact termination limit [N]
-    contact_grace_period_s: float = 0.5             # Grace period before considering contact
-    undesired_contact_min_duration_s: float = 0.10  # Min duration before contact termination
-                                                    
-    # === ORIENTATION TERMINATION ===
-    orientation_threshold: float = -0.5             # Robot tilt termination limit (disabled in env)
+    base_contact_force_threshold: float = 1.0  # user-adjusted threshold (was 0.5)
+    undesired_contact_force_threshold: float = 3.0
+    orientation_threshold: float = -0.5
 
 @configclass
 class DomainRandomizationCfg:
@@ -139,7 +95,7 @@ class DomainRandomizationCfg:
     
     # === PHYSICS RANDOMIZATION ===
     randomize_friction: bool = True           # Randomize ground/foot friction
-    friction_range: tuple = (0.4, 1.0)        # Range for static/dynamic friction
+    friction_range: tuple = (0.4, 1.0)        # Range for static/dynamic friction (match rough task)
                                               # Base: 0.7, Range allows slippery to grippy surfaces
     
     randomize_restitution: bool = False       # Randomize bounce characteristics
@@ -233,10 +189,6 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     episode_length_s = 30.0
     decimation = 9
     action_scale = 1.0
-    
-    # Fixed forward-speed command for simple straight-walk training
-    # Policy observes commands but they remain constant: [vx=fixed_forward_speed, vy=0, yaw=0]
-    fixed_forward_speed: float = 0.25
 
     # Space definitions
     observation_space = 48
@@ -244,22 +196,10 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     state_space = 0
 
     # Action filtering (EMA low-pass)
-    action_filter_beta: float = 0.35  # smoother actions to reduce jitter
+    action_filter_beta: float = 0.4  # smoother actions to reduce jitter
 
-    # Policy warmup: hold default pose for a few policy steps after reset
-    warmup_policy_steps: int = 5
-
-    # Control mode: "raw" (policy directly sets 12 joint deltas around default),
-    #                "cpg" (scripted gait ignores policy),
-    #                "residual_cpg" (policy adds small residual to scripted gait)
-    control_mode: str = "raw"
-    residual_scale: float = 0.2  # radians of max residual per joint after scaling
-
-    # Simple trot CPG parameters (used when control_mode is cpg or residual_cpg)
-    cpg_frequency_hz: float = 2.0
-    cpg_thigh_amp: float = 0.35
-    cpg_calf_amp: float = 0.45
-    cpg_knee_bias_delta: float = 0.10   # add to default calf angle (less negative -> more crouch)
+    # Command warmup (seconds) – linearly ramp sampled commands after reset
+    command_warmup_time: float = 1.0
 
     # Reward configuration
     rewards = RewardsCfg()
@@ -273,10 +213,10 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # Domain randomization configuration
     domain_randomization = DomainRandomizationCfg()
 
-    # viewer configuration
+    # viewer configuration (match original flat task view)
     viewer = ViewerCfg(
-        eye     = (0.0, 10.0, 2.0),   # camera XYZ in metres
-        lookat = (0.0, 0.0, 0.0),  # aim at robot base
+        eye=(0.0, 10.0, 2.0),
+        lookat=(0.0, 0.0, 0.0),
     )
 
     # simulation
@@ -361,9 +301,9 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # Per-joint normalized action ranges (scaled later by action_scale)
     # Order: [shoulders(4), thighs(4), calves(4)]
     joint_range: tuple = (
-        0.15, 0.15, 0.15, 0.15,  # shoulders even narrower to reduce lateral drift/roll
-        0.50, 0.50, 0.50, 0.50,  # thighs
-        0.50, 0.50, 0.50, 0.50   # calves
+        0.30, 0.30, 0.30, 0.30,
+        0.90, 0.90, 0.90, 0.90,
+        0.90, 0.90, 0.90, 0.90,
     )
 
     # === Joint configuration for push-up routine ===

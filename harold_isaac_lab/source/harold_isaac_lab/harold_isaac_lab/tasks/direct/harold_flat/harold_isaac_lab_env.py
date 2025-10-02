@@ -74,9 +74,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         
         # --- Command Tensor for Velocity Tracking (X, Y, Yaw) ---
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
-        self._command_targets = torch.zeros_like(self._commands)
-        self._command_ramp_t = torch.zeros(self.num_envs, device=self.device)
-        self._command_warmup_time = float(getattr(self.cfg, "command_warmup_time", 0.0))
 
         # --- Joint Angle Limits ---
         self._JOINT_ANGLE_MAX = torch.tensor(self.cfg.joint_angle_max, device=self.device)
@@ -182,20 +179,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 "height_reward",
                 "torque_penalty",
                 "feet_air_time_reward",
-                "anti_spin_penalty",
             ]
         }
-        # --- Additional alignment diagnostics (episodic sums) ---
-        self._metric_sums = {
-            key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
-            for key in [
-                "alignment_cos",      # cosine between cmd and actual velocity
-                "v_par_cmd_ratio",    # along-track speed / commanded speed
-                "lateral_speed",       # perpendicular speed magnitude
-                "abs_wz_when_yaw_cmd_zero",
-            ]
-        }
-        
         # --- Domain Randomization Buffers ---
         # Store randomized parameters per environment for consistency within episodes
         # Initialize with default values from configuration
@@ -303,21 +288,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             self._cmd_marker = None
             self._act_marker = None
 
-    def _update_command_ramp(self) -> None:
-        """Ramp commanded velocities after reset to avoid instantaneous targets."""
-        if self._command_warmup_time <= 0.0:
-            self._commands.copy_(self._command_targets)
-            return
-
-        # Increment ramp timer and clamp at warmup duration
-        self._command_ramp_t = torch.minimum(
-            self._command_ramp_t + self.step_dt,
-            torch.full_like(self._command_ramp_t, self._command_warmup_time),
-        )
-        ramp = (self._command_ramp_t / self._command_warmup_time).unsqueeze(-1)
-        self._commands = ramp * self._command_targets
-
-
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         """Process and validate policy actions before physics simulation.
         
@@ -341,7 +311,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             - Clamping ensures actions never exceed safe operating ranges
         """
         # --- Action copy ---
-        self._update_command_ramp()
         self._actions.copy_(actions)
 
         # --- Low-pass filter (EMA) on actions for stability and sim2real ---
@@ -724,46 +693,34 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Gate reward when a non-trivial command is provided
         lin_vel_reward *= (cmd_mag > 0.03).float()
 
-        # --- Alignment diagnostics (for logging) ---
-        v_norm = torch.linalg.vector_norm(v, dim=1)
-        denom = v_norm * cmd_mag + 1e-6
-        alignment_cos = torch.sum(v * cmd, dim=1) / denom
-        v_par_cmd_ratio = torch.clamp(v_par / (cmd_mag + 1e-6), 0.0, 1.5)
-        lateral_speed = torch.linalg.vector_norm(v_perp, dim=1)
-        self._metric_sums["alignment_cos"] += alignment_cos
-        self._metric_sums["v_par_cmd_ratio"] += v_par_cmd_ratio
-        self._metric_sums["lateral_speed"] += lateral_speed
-
         # ==================== YAW VELOCITY TRACKING ====================
         # Gaussian yaw-rate tracking
         err_yaw = torch.abs(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
         yaw_vel_reward = torch.exp(-(err_yaw / 0.4)**2)   # sigma ≈ 0.4 rad/s
 
-        # ==================== ANTI-SPIN PENALTY (for straight-walk commands) ====================
-        # Penalize unintended spinning when commanded yaw is ~0 and robot is moving.
-        speed_xy = torch.linalg.vector_norm(v, dim=1)
-        yaw_cmd_abs = torch.abs(self._commands[:, 2])
-        wz_abs = torch.abs(self._robot.data.root_ang_vel_b[:, 2])
-        anti_spin_gate = (speed_xy > 0.05) & (yaw_cmd_abs < 0.02)
-        anti_spin_k = 1.5
-        anti_spin_penalty = -anti_spin_k * wz_abs * anti_spin_gate.float()
-
-        # Diagnostic metric: absolute yaw rate when yaw_cmd≈0
-        self._metric_sums["abs_wz_when_yaw_cmd_zero"] += wz_abs * anti_spin_gate.float()
-
         # ==================== HEIGHT MAINTENANCE ====================
+        # Compute XY speed for use in feet air time gating
+        speed_xy = torch.linalg.vector_norm(v, dim=1)
         # Get height data from scanner and compute mean height (NaN-safe)
         pos_z = self._height_scanner.data.pos_w[:, 2].unsqueeze(1)
         ray_z = self._height_scanner.data.ray_hits_w[..., 2]
-        # Replace missing hits (NaNs or Infs) with base position to yield zero diff.
-        ray_z = torch.where(torch.isfinite(ray_z), ray_z, pos_z)
-        height_data = pos_z - ray_z
-        current_height = torch.mean(height_data, dim=1)
-        
-        # Calculate height error and convert to reward
+        valid_mask = torch.isfinite(ray_z)
+        height_samples = torch.where(valid_mask, pos_z - ray_z, torch.zeros_like(ray_z))
+        valid_counts = valid_mask.sum(dim=1)
+        current_height = torch.zeros(pos_z.shape[0], device=pos_z.device)
+        valid_envs = valid_counts > 0
+        if torch.any(valid_envs):
+            current_height[valid_envs] = (
+                height_samples[valid_envs].sum(dim=1) / valid_counts[valid_envs].float()
+            )
+
+        # Calculate height error and convert to reward with tighter shaping
         target_height = self.cfg.gait.target_height
         height_error = torch.abs(current_height - target_height)
-        height_reward = torch.tanh(3.0 * torch.exp(-5.0 * height_error))
+        tolerance = max(self.cfg.rewards.height_tolerance, 0.0)
+        sigma = max(self.cfg.rewards.height_sigma, 1e-6)
+        adjusted_error = torch.relu(height_error - tolerance)
+        height_reward = 2.0 * torch.exp(-torch.square(adjusted_error / sigma)) - 1.0
 
         # ==================== TORQUE PENALTY ====================
         # Penalize large actuator efforts to encourage energy-efficient motions.
@@ -790,7 +747,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "height_reward": height_reward * self.cfg.rewards.height_reward,
             "torque_penalty": joint_torques * self.cfg.rewards.torque_penalty,
             "feet_air_time_reward": air_time_reward * self.cfg.rewards.feet_air_time,
-            "anti_spin_penalty": anti_spin_penalty,
         }
         
         # Sum all rewards
@@ -951,16 +907,12 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         yaw_samples[zero_mask] = 0.0
         sampled_commands[:, 2] = yaw_samples
 
-        self._command_targets[env_ids] = sampled_commands
-        self._command_ramp_t[env_ids] = 0.0
-        self._commands[env_ids] = 0.0
-
         if self._policy_log_dir is not None:
             # During logging runs, hold a fixed forward command to simplify replay analysis
-            self._command_targets[env_ids] = 0.0
-            self._command_targets[env_ids, 0] = 0.4
-            self._command_ramp_t[env_ids] = self._command_warmup_time
-            self._commands[env_ids] = self._command_targets[env_ids]
+            sampled_commands.zero_()
+            sampled_commands[:, 0] = 0.4
+
+        self._commands[env_ids] = sampled_commands
 
         # Reset robot state
         joint_pos = self._robot.data.default_joint_pos[env_ids]
@@ -1025,14 +977,15 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         # Logging and analytics
         log = {}
-        # Episode reward summaries (normalized by episode length)
-        for key, buf in self._episode_sums.items():
-            log[f"Episode_Reward/{key}"] = torch.mean(buf[env_ids]) / self.max_episode_length_s
-            buf[env_ids] = 0.0
-        # Alignment diagnostics
-        for key, buf in self._metric_sums.items():
-            log[f"Episode_Metric/{key}"] = torch.mean(buf[env_ids]) / self.max_episode_length_s
-            buf[env_ids] = 0.0
+        if len(env_ids) > 0:
+            # Episode reward summaries (normalized by episode length)
+            for key, buf in self._episode_sums.items():
+                values = buf[env_ids] / self.max_episode_length_s
+                log[f"Episode_Reward/{key} (mean)"] = torch.mean(values)
+                log[f"Episode_Reward/{key} (min)"] = torch.min(values)
+                log[f"Episode_Reward/{key} (max)"] = torch.max(values)
+                buf[env_ids] = 0.0
+
         self.extras["log"] = {}
         self.extras["log"].update(log)
 

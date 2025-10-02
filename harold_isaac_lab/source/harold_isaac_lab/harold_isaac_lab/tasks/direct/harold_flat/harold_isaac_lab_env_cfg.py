@@ -37,13 +37,16 @@ class RewardsCfg:
     """Reward function weights matching the rough-terrain task (flat terrain variant)."""
 
     # === PRIMARY LOCOMOTION OBJECTIVES (Positive Rewards) ===
-    track_xy_lin_commands: float = 2.5 #5 #20 #80.0    # Directional XY velocity tracking weight
-    track_yaw_commands: float = 6.0 #12.0       # Yaw velocity tracking weight
-    height_reward: float = 3.0 #1.5 #0.75            # Height maintenance reward
-    feet_air_time: float = 12.0            # Feet air-time reward
+    track_xy_lin_commands: float = 2 #1.5 #2.5 #5 #20 #80.0    # Directional XY velocity tracking weight
+    track_yaw_commands: float = 0.5 #1 #2 #4 #6 #12       # Yaw velocity tracking weight
+    height_reward: float = 1 #1.5 #3 #5 #3 #1.5 #0.75            # Height maintenance reward
+                                          # Reward shape: 2*exp(-((max(|err|-tol,0)/sigma)^2)) - 1
+    height_tolerance: float = 0.02               # |height_error| tolerated before penalty (m)
+    height_sigma: float = 0.05                   # Controls falloff beyond tolerance (m)
+    feet_air_time: float = 36 #48 #24 #12            # Feet air-time reward
 
     # === SECONDARY OBJECTIVES (Penalties) ===
-    torque_penalty: float = -0.2           # Quadratic torque penalty
+    torque_penalty: float = -0.005 #-0.05 #-0.1 #-0.2           # Quadratic torque penalty
 
 
 @configclass
@@ -197,9 +200,6 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
 
     # Action filtering (EMA low-pass)
     action_filter_beta: float = 0.4  # smoother actions to reduce jitter
-
-    # Command warmup (seconds) – linearly ramp sampled commands after reset
-    command_warmup_time: float = 1.0
 
     # Reward configuration
     rewards = RewardsCfg()

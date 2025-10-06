@@ -37,16 +37,18 @@ class RewardsCfg:
     """Reward function weights matching the rough-terrain task (flat terrain variant)."""
 
     # === PRIMARY LOCOMOTION OBJECTIVES (Positive Rewards) ===
-    track_xy_lin_commands: float = 2 #1.5 #2.5 #5 #20 #80.0    # Directional XY velocity tracking weight
-    track_yaw_commands: float = 0.5 #1 #2 #4 #6 #12       # Yaw velocity tracking weight
-    height_reward: float = 1 #1.5 #3 #5 #3 #1.5 #0.75            # Height maintenance reward
-                                          # Reward shape: 2*exp(-((max(|err|-tol,0)/sigma)^2)) - 1
+    track_xy_lin_commands: float = 20  # Primary: forward/lateral velocity tracking
+    track_yaw_commands: float = 2      # Turning ability; suppress spin drift
+    height_reward: float = 3           # Maintain target body height
+                                          # Reward shape: exp(-((max(|err|-tol,0)/sigma)^2))
     height_tolerance: float = 0.02               # |height_error| tolerated before penalty (m)
     height_sigma: float = 0.05                   # Controls falloff beyond tolerance (m)
-    feet_air_time: float = 36 #48 #24 #12            # Feet air-time reward
+    feet_air_time: float = 12            # Gait rhythm; reduced to avoid spiky dominance
+    alive_bonus: float = 0.1             # Per-step survival bonus to discourage early resets
+    termination_penalty: float = -25.0   # Applied on failure termination (not on timeout)
 
     # === SECONDARY OBJECTIVES (Penalties) ===
-    torque_penalty: float = -0.005 #-0.05 #-0.1 #-0.2           # Quadratic torque penalty
+    torque_penalty: float = -0.01            # Quadratic torque penalty (gentle regularizer)
 
 
 @configclass
@@ -62,7 +64,7 @@ class TerminationCfg:
     """Episode termination thresholds (shared with rough terrain)."""
 
     base_contact_force_threshold: float = 1.0  # user-adjusted threshold (was 0.5)
-    undesired_contact_force_threshold: float = 3.0
+    undesired_contact_force_threshold: float = 10.0
     orientation_threshold: float = -0.5
 
 @configclass

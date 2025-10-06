@@ -179,6 +179,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 "height_reward",
                 "torque_penalty",
                 "feet_air_time_reward",
+                "alive_bonus",
+                "termination_penalty",
             ]
         }
         # --- Domain Randomization Buffers ---
@@ -668,30 +670,37 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Compute unit command direction
         eps = 1e-6
         cmd_mag = torch.linalg.vector_norm(cmd, dim=1)                    # (N,)
-        u = torch.where(cmd_mag[:, None] > eps, cmd / cmd_mag[:, None], torch.zeros_like(cmd))  # unit cmd dir
-        
+        cmd_active = cmd_mag > 0.03
+        u = torch.zeros_like(cmd)
+        if torch.any(cmd_active):
+            u[cmd_active] = cmd[cmd_active] / (cmd_mag[cmd_active].unsqueeze(1) + eps)
+
         # Decompose velocity into parallel and perpendicular components
         v_par = (v * u).sum(dim=1)                                       # scalar component along u
         v_perp = v - v_par[:, None] * u                                  # vector perpendicular to u
         e_par = v_par - cmd_mag                                          # signed along-track error
         e_perp = torch.linalg.vector_norm(v_perp, dim=1)                 # sideways speed magnitude
-        
-        # Elliptical Gaussian: much tighter on lateral drift
-        c_par, c_perp = 0.25, 0.08  # lateral 3x stricter
+
+        # Elliptical Gaussian: tighter on lateral drift
+        c_par, c_perp = 0.25, 0.08
         Q = (e_par / c_par)**2 + (e_perp / c_perp)**2
-        # Subtract zero-motion baseline so stationary when commanded yields zero reward
-        # At v=0 -> Q0 = (|cmd|/c_par)^2, so exp(-Q) - exp(-Q0) = 0
-        Q0 = (cmd_mag / c_par)**2
-        base_dir_reward = torch.exp(-Q) - torch.exp(-Q0)
-        # Add underspeed penalty but saturate to prevent extreme negatives
-        k_under = 0.7
-        under = torch.relu(cmd_mag - v_par)
-        lin_vel_reward = base_dir_reward - k_under * torch.clamp(under, max=1.0)
-        # Bound the directional term for numerical safety before weighting
-        lin_vel_reward = torch.clamp(lin_vel_reward, -1.0, 1.0)
-        
-        # Gate reward when a non-trivial command is provided
-        lin_vel_reward *= (cmd_mag > 0.03).float()
+        tracking = torch.exp(-Q)
+
+        speed_alignment = torch.zeros_like(cmd_mag)
+        if torch.any(cmd_active):
+            speed_alignment[cmd_active] = torch.clamp(
+                v_par[cmd_active] / (cmd_mag[cmd_active] + eps), min=0.0, max=1.2
+            )
+
+        under_penalty = torch.zeros_like(cmd_mag)
+        if torch.any(cmd_active):
+            under_penalty[cmd_active] = torch.clamp(
+                torch.relu(cmd_mag[cmd_active] - v_par[cmd_active]), max=1.0
+            )
+
+        lin_vel_reward = tracking * speed_alignment - 0.2 * under_penalty
+        lin_vel_reward = lin_vel_reward * cmd_active.float()
+        lin_vel_reward = torch.clamp(lin_vel_reward, -0.5, 1.0)
 
         # ==================== YAW VELOCITY TRACKING ====================
         # Gaussian yaw-rate tracking
@@ -720,7 +729,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         tolerance = max(self.cfg.rewards.height_tolerance, 0.0)
         sigma = max(self.cfg.rewards.height_sigma, 1e-6)
         adjusted_error = torch.relu(height_error - tolerance)
-        height_reward = 2.0 * torch.exp(-torch.square(adjusted_error / sigma)) - 1.0
+        height_reward = torch.exp(-torch.square(adjusted_error / sigma))
 
         # ==================== TORQUE PENALTY ====================
         # Penalize large actuator efforts to encourage energy-efficient motions.
@@ -737,6 +746,24 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Gate the reward on actual robot speed
         air_time_gate = (speed_xy > 0.05).float()
         air_time_reward = torch.sum(torch.exp(-air_time_error * 10.0) * first_contact.float(), dim=1) * air_time_gate
+        num_feet = len(self._feet_ids)
+        if num_feet > 0:
+            air_time_reward = air_time_reward / float(num_feet)
+
+        # ==================== FAILURE PENALTY AND ALIVE BONUS ====================
+        # Discourage the degenerate strategy of immediate failure to avoid per-step costs.
+        # Compute the same failure masks used in _get_dones for this step and apply a one-shot penalty.
+        net_contact_forces = self._contact_sensor.data.net_forces_w_history
+        failure_contact = torch.any(
+            torch.max(
+                torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1
+            )[0] > self.cfg.termination.undesired_contact_force_threshold,
+            dim=1,
+        )
+        failure_orientation = self._robot.data.projected_gravity_b[:, 2] > self.cfg.termination.orientation_threshold
+        failure_mask = failure_contact | failure_orientation
+        termination_penalty = failure_mask.float() * self.cfg.rewards.termination_penalty
+        alive_bonus = torch.full_like(termination_penalty, self.cfg.rewards.alive_bonus)
 
         # ==================== REWARD ASSEMBLY ====================
         # Note: Rewards are NOT multiplied by step_dt here to avoid double normalization.
@@ -747,6 +774,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "height_reward": height_reward * self.cfg.rewards.height_reward,
             "torque_penalty": joint_torques * self.cfg.rewards.torque_penalty,
             "feet_air_time_reward": air_time_reward * self.cfg.rewards.feet_air_time,
+            "alive_bonus": alive_bonus,
+            "termination_penalty": termination_penalty,
         }
         
         # Sum all rewards
@@ -821,7 +850,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         orientation_terminated = self._robot.data.projected_gravity_b[:, 2] > self.cfg.termination.orientation_threshold
 
         # Combine all failure conditions
-        terminated = contact_terminated #| orientation_terminated
+        terminated = contact_terminated | orientation_terminated
 
         return terminated, time_out
 
@@ -897,12 +926,12 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         # XY velocity: sample magnitude up to 0.3 m/s with uniform heading
         angles = 2 * math.pi * torch.rand(num, device=self.device)
-        mags = torch.empty(num, device=self.device).uniform_(0.0, 0.3)
+        mags = torch.empty(num, device=self.device).uniform_(0.0, 0.2)
         sampled_commands[:, 0] = mags * torch.cos(angles)
         sampled_commands[:, 1] = mags * torch.sin(angles)
 
         # Yaw: still uniform, but optionally zero for 20% of episodes to reduce constant turning pressure
-        yaw_samples = torch.empty(num, device=self.device).uniform_(-1.0, 1.0)
+        yaw_samples = torch.empty(num, device=self.device).uniform_(-0.6, 0.6)
         zero_mask = torch.rand(num, device=self.device) < 0.2
         yaw_samples[zero_mask] = 0.0
         sampled_commands[:, 2] = yaw_samples

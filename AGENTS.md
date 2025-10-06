@@ -28,9 +28,9 @@ Robot Assets and Actuators
 12-DOF quadruped (shoulder, thigh, calf per leg). Assets and actuator limits differ per task:
 
 - Flat (tasks/direct/harold_flat/harold.py)
-  - USD: part_files/V4/harold_7.usd
-  - Init pose: body z=0.20; thighs 0.3 rad; calves -0.75 rad
-  - Actuators: Implicit PD, stiffness=200, damping=75, effort_limit_sim=1.0
+  - USD: part_files/V4/harold_8.usd
+  - Init pose: body z=0.22; thighs 0.3 rad; calves -0.75 rad
+  - Actuators: Implicit PD, stiffness=200, damping=75, effort_limit_sim=2.0
 
 - Rough (tasks/direct/harold_rough/harold.py)
   - USD: part_files/V4/harold_8.usd
@@ -58,10 +58,10 @@ Files: harold_flat/harold_isaac_lab_env.py, harold_rough/harold_isaac_lab_env.py
   - commands [vx, vy, yaw] (3)
   - prev_target_delta (12)
 - Actions (12D): joint position targets around default pose
-  - Flat: per-joint ranges hard-coded in env: shoulders 0.35, thighs 0.5, calves 0.5
+  - Flat: per-joint ranges come from config: shoulders 0.30, thighs 0.90, calves 0.90
   - Rough: per-joint ranges come from config: shoulders 0.30, thighs 0.90, calves 0.90
 - Safety clamps (task-specific):
-  - Flat: shoulders ±20° (0.3491 rad); thighs/calves ±45° (0.7853 rad)
+  - Flat: shoulders ±30° (0.5236 rad); thighs/calves ±90° (1.5708 rad)
   - Rough: shoulders ±30° (0.5236 rad); thighs/calves ±90° (1.5708 rad)
 - Sensors:
   - ContactSensor: history_length=3, update_period=0.005 s
@@ -85,29 +85,29 @@ Shared structure with small differences per task.
   - Feet air time: exponential reward toward ~0.4 s optimal; gated by actual speed > 0.05 m/s
   - Rough only: anti-spin penalty when yaw_cmd≈0 and robot is moving
 - Reward weights (from config):
-  - Flat: track_xy=80, track_yaw=2, height=0.75, torque=-0.08, feet_air_time=12
+  - Flat: track_xy=20, track_yaw=2, height=3.0, torque=-0.01, feet_air_time=12, plus alive_bonus=0.1 and termination_penalty=-25.0
   - Rough: track_xy=80, track_yaw=12, height=0.75, torque=-0.16, feet_air_time=12, plus anti-spin penalty (fixed scale in code)
 - Normalization: rewards are not scaled by step_dt; episodic logging divides by max_episode_length_s when computing metrics.
 - Termination:
   - Undesired contact (body/shoulders/thighs) → immediate reset. Thresholds:
-    - Flat: 0.05 N
+    - Flat: 10.0 N
     - Rough: 3.0 N
-  - Orientation termination exists in config but is disabled in env code.
+  - Orientation termination is active in flat env (projected_gravity_b[:,2] > -0.5).
 - Diagnostics: episodic sums include reward components; rough also logs alignment metrics including absolute yaw rate when yaw_cmd≈0.
 
 Domain Randomization (configs)
 
-Enabled by default at both reset and per-step in both RL configs (with selective features active):
+Enabled by default at both reset and per-step in both RL configs (with selective features active). In flat:
 
 - Active by default:
-  - Friction randomization (physics material)
+  - Friction randomization (physics material; range 0.4–1.0)
   - Observation noise (IMU ang vel and gravity, joint pos/vel)
 - Available but disabled by default:
   - Action noise and action delays
   - External forces/torques, gravity magnitude/tilt variation
   - Mass/inertia and actuator stiffness/damping variations
 
-Rough env additionally low-pass filters actions via EMA (action_filter_beta, default 0.4).
+Flat env low-pass filters actions via EMA too (action_filter_beta, default 0.4).
 
 Pushup Playback Task
 
@@ -126,7 +126,8 @@ ui_extension_example.py provides a minimal Omniverse UI window with a counter. I
 Notes and Gotchas
 
 - Some env docstrings mention 360 Hz / decimation 18; the code uses dt=1/180 and decimation=9 (20 Hz control).
-- Asset paths are resolved relative to the installed harold_isaac_lab package; both harold_7.usd and harold_8.usd are referenced by task variants.
+- Flat env docstrings may reference older clamps (±20°/±45°) and contact thresholds (0.05 N); current config uses ±30°/±90° and 10.0 N.
+- Asset paths are resolved relative to the installed harold_isaac_lab package; harold_8.usd is used across all current task variants.
 - Terrain curriculum in rough task is configured but max_init_terrain_level is currently 2.
 - Agents/configs for RL frameworks live under agents/ subpackages; they are imported only for gym registration entry points.
 
@@ -135,7 +136,7 @@ Quick Start (examples from comments)
 - Train flat: python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1024
 - Train rough: python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-rough-terrain-v0 --num_envs 1024
 - Pushup playback (1 env): python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-pushup-v0 --num_envs 1
-- Log single-env replay for hardware tests: `HAROLD_POLICY_LOG_DIR=deployment_artifacts/terrain_64_2/sim_logs python harold_isaac_lab/scripts/skrl/play.py --task=Template-Harold-Direct-rough-terrain-v0 --num_envs 1 --checkpoint=logs/skrl/harold_direct/terrain_64_2/checkpoints/best_agent.pt --max_steps 200` (rough env forces 0.4 m/s forward command when logging variable is set, producing JSONL observations/actions).
+- Log single-env replay for hardware tests: `HAROLD_POLICY_LOG_DIR=deployment_artifacts/terrain_64_2/sim_logs python harold_isaac_lab/scripts/skrl/play.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1 --checkpoint=logs/skrl/harold_direct/terrain_64_2/checkpoints/best_agent.pt --max_steps 200` (flat env holds 0.4 m/s forward command when logging variable is set, producing JSONL observations/actions).
 
 Isaac Lab Documentation Links
 

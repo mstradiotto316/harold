@@ -37,18 +37,18 @@ class RewardsCfg:
     """Reward function weights matching the rough-terrain task (flat terrain variant)."""
 
     # === PRIMARY LOCOMOTION OBJECTIVES (Positive Rewards) ===
-    track_xy_lin_commands: float = 20  # Primary: forward/lateral velocity tracking
-    track_yaw_commands: float = 2      # Turning ability; suppress spin drift
-    height_reward: float = 3           # Maintain target body height
-                                          # Reward shape: exp(-((max(|err|-tol,0)/sigma)^2))
-    height_tolerance: float = 0.02               # |height_error| tolerated before penalty (m)
-    height_sigma: float = 0.05                   # Controls falloff beyond tolerance (m)
-    feet_air_time: float = 12            # Gait rhythm; reduced to avoid spiky dominance
-    alive_bonus: float = 0.1             # Per-step survival bonus to discourage early resets
-    termination_penalty: float = -25.0   # Applied on failure termination (not on timeout)
+    track_xy_lin_commands: float = 80   # Primary: forward/lateral velocity tracking
+    track_yaw_commands: float = 2       # Turning ability; suppress spin drift
+    height_reward: float = 1            # Maintain target body height
+                                        # Reward shape: exp(-((max(|err|-tol,0)/sigma)^2))
+    height_tolerance: float = 0.02      # |height_error| tolerated before penalty (m)
+    height_sigma: float = 0.05          # Controls falloff beyond tolerance (m)
+    feet_air_time: float = 8            # Gait rhythm; reduced to avoid spiky dominance
+    alive_bonus: float = 0.0            # Per-step survival bonus to discourage early resets
+    termination_penalty: float = -15.0  # Applied on failure termination (not on timeout)
 
     # === SECONDARY OBJECTIVES (Penalties) ===
-    torque_penalty: float = -0.01            # Quadratic torque penalty (gentle regularizer)
+    torque_penalty: float = -0.005      # Quadratic torque penalty (gentle regularizer)
 
 
 @configclass

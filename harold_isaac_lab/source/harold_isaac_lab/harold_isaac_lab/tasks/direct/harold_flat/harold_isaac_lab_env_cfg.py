@@ -44,6 +44,7 @@ class RewardsCfg:
     height_tolerance: float = 0.02      # |height_error| tolerated before penalty (m)
     height_sigma: float = 0.05          # Controls falloff beyond tolerance (m)
     feet_air_time: float = 8            # Gait rhythm; reduced to avoid spiky dominance
+    optimal_air_time: float = 0.25      # s - target time a foot should stay in air before contact
     alive_bonus: float = 0.0            # Per-step survival bonus to discourage early resets
     termination_penalty: float = -15.0  # Applied on failure termination (not on timeout)
 

@@ -647,7 +647,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
            - Prevents aggressive actuator usage
            
         5. Feet Air Time Reward:
-           - Rewards proper stepping patterns (0.4s optimal air time)
+           - Rewards proper stepping patterns (optimal air time from cfg)
            - Uses exponential reward curve to encourage stepping
            - Only active when robot speed > 0.05 m/s
            - Reduces sliding and shuffling behaviors
@@ -739,9 +739,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Reward proper stepping patterns to reduce sliding and shuffling (Fixed implementation)
         first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._feet_ids]
         last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
-        # Reward feet that achieve optimal air time (0.15 seconds for 40cm robot) when they land
+        # Reward feet that achieve optimal air time when they land
         # Uses exponential reward curve to encourage proper stepping patterns instead of penalizing them
-        optimal_air_time = 0.4  # Appropriate for Harold's 40cm scale
+        optimal_air_time = float(self.cfg.rewards.optimal_air_time)
         air_time_error = torch.abs(last_air_time - optimal_air_time)
         # Gate the reward on actual robot speed
         air_time_gate = (speed_xy > 0.05).float()

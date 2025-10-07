@@ -82,10 +82,10 @@ Shared structure with small differences per task.
   - Yaw rate tracking: Gaussian on yaw rate error
   - Height maintenance: tanh(exp) shaping vs target height
   - Torque penalty: sum of torque²
-  - Feet air time: exponential reward toward ~0.4 s optimal; gated by actual speed > 0.05 m/s
+  - Feet air time: exponential reward toward optimal (flat: 0.25 s); gated by actual speed > 0.05 m/s
   - Rough only: anti-spin penalty when yaw_cmd≈0 and robot is moving
 - Reward weights (from config):
-  - Flat: track_xy=20, track_yaw=2, height=3.0, torque=-0.01, feet_air_time=12, plus alive_bonus=0.1 and termination_penalty=-25.0
+  - Flat: track_xy=80, track_yaw=2, height=1.0, torque=-0.005, feet_air_time=8, alive_bonus=0.0, termination_penalty=-15.0
   - Rough: track_xy=80, track_yaw=12, height=0.75, torque=-0.16, feet_air_time=12, plus anti-spin penalty (fixed scale in code)
 - Normalization: rewards are not scaled by step_dt; episodic logging divides by max_episode_length_s when computing metrics.
 - Termination:

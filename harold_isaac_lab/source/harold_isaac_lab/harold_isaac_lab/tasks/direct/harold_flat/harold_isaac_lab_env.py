@@ -179,6 +179,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 "height_reward",
                 "torque_penalty",
                 "feet_air_time_reward",
+                "no_backpedal",
                 "alive_bonus",
                 "termination_penalty",
             ]
@@ -649,7 +650,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         5. Feet Air Time Reward:
            - Rewards proper stepping patterns (optimal air time from cfg)
            - Uses exponential reward curve to encourage stepping
-           - Only active when robot speed > 0.05 m/s
+           - Only active when speed_xy > 0.02 m/s and |cmd| > 0.02 m/s
            - Reduces sliding and shuffling behaviors
            
         Mathematical Formulation:
@@ -743,8 +744,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Uses exponential reward curve to encourage proper stepping patterns instead of penalizing them
         optimal_air_time = float(self.cfg.rewards.optimal_air_time)
         air_time_error = torch.abs(last_air_time - optimal_air_time)
-        # Gate the reward on actual robot speed
-        air_time_gate = (speed_xy > 0.05).float()
+        # Gate the reward for low-speed exploration and only when a command is active
+        air_time_gate = ((speed_xy > 0.02) & (cmd_mag > 0.02)).float()
         air_time_reward = torch.sum(torch.exp(-air_time_error * 10.0) * first_contact.float(), dim=1) * air_time_gate
         num_feet = len(self._feet_ids)
         if num_feet > 0:
@@ -765,6 +766,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         termination_penalty = failure_mask.float() * self.cfg.rewards.termination_penalty
         alive_bonus = torch.full_like(termination_penalty, self.cfg.rewards.alive_bonus)
 
+        # ==================== NO-BACKPEDAL GUARD ====================
+        # Cheap guard to discourage moving opposite to commanded direction.
+        r_back = -6.0 * torch.relu(-v_par)
+
         # ==================== REWARD ASSEMBLY ====================
         # Note: Rewards are NOT multiplied by step_dt here to avoid double normalization.
         # The episodic sum is already normalized by max_episode_length_s when logged.
@@ -774,6 +779,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "height_reward": height_reward * self.cfg.rewards.height_reward,
             "torque_penalty": joint_torques * self.cfg.rewards.torque_penalty,
             "feet_air_time_reward": air_time_reward * self.cfg.rewards.feet_air_time,
+            "no_backpedal": r_back,
             "alive_bonus": alive_bonus,
             "termination_penalty": termination_penalty,
         }

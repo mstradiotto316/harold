@@ -8,10 +8,14 @@ from isaaclab.sim import SimulationCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.envs.common import ViewerCfg
 from isaaclab.utils.noise import GaussianNoiseCfg
+import os
 
 from .harold import HAROLD_V4_CFG
 from isaaclab.terrains import TerrainGeneratorCfg
 from isaaclab.terrains.trimesh import MeshPlaneTerrainCfg
+
+# Phase-0 gating (forward-only curriculum and simplified dynamics)
+PHASE0_FORWARD = os.getenv("HAROLD_PHASE0_FORWARD", "0") == "1"
 
 
 # Flat terrain configuration for Harold's locomotion training
@@ -65,7 +69,7 @@ class TerminationCfg:
     """Episode termination thresholds (shared with rough terrain)."""
 
     base_contact_force_threshold: float = 1.0  # user-adjusted threshold (was 0.5)
-    undesired_contact_force_threshold: float = 10.0
+    undesired_contact_force_threshold: float = 3.0 if PHASE0_FORWARD else 10.0
     orientation_threshold: float = -0.5
 
 @configclass
@@ -95,12 +99,12 @@ class DomainRandomizationCfg:
     """
     
     # === MASTER SWITCHES ===
-    enable_randomization: bool = True         # Global on/off for all randomization
+    enable_randomization: bool = False if PHASE0_FORWARD else True  # Simpler dynamics during Phase-0
     randomize_on_reset: bool = True           # Apply randomization at episode reset
     randomize_per_step: bool = True           # Apply per-step randomization (noise)
     
     # === PHYSICS RANDOMIZATION ===
-    randomize_friction: bool = True           # Randomize ground/foot friction
+    randomize_friction: bool = False if PHASE0_FORWARD else True  # Keep friction stable in Phase-0
     friction_range: tuple = (0.4, 1.0)        # Range for static/dynamic friction (match rough task)
                                               # Base: 0.7, Range allows slippery to grippy surfaces
     
@@ -202,7 +206,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     state_space = 0
 
     # Action filtering (EMA low-pass)
-    action_filter_beta: float = 0.4  # smoother actions to reduce jitter
+    action_filter_beta: float = 0.25 if PHASE0_FORWARD else 0.4  # smoother actions to reduce jitter
 
     # Reward configuration
     rewards = RewardsCfg()

@@ -920,21 +920,31 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._previous_actions[env_ids].zero_()
 
         # Sample velocity commands for reset environments.
-        # Allow near-zero magnitudes so the policy practices stabilizing as well as moving.
+        # Phase 0 curriculum (optional): forward-only walking when HAROLD_PHASE0_FORWARD=1.
+        # Otherwise, use the original randomized commands.
         num = len(env_ids)
         sampled_commands = torch.zeros_like(self._commands[env_ids])
 
-        # XY velocity: sample magnitude up to 0.3 m/s with uniform heading
-        angles = 2 * math.pi * torch.rand(num, device=self.device)
-        mags = torch.empty(num, device=self.device).uniform_(0.0, 0.2)
-        sampled_commands[:, 0] = mags * torch.cos(angles)
-        sampled_commands[:, 1] = mags * torch.sin(angles)
+        phase0_forward = os.getenv("HAROLD_PHASE0_FORWARD", "0") == "1"
+        if phase0_forward and self._policy_log_dir is None:
+            # Phase 0: forward-only walking curriculum
+            # vx ∈ [0.20, 0.35], vy = 0, yaw = 0
+            sampled_commands[:, 0] = torch.empty(num, device=self.device).uniform_(0.20, 0.35)  # vx
+            sampled_commands[:, 1] = 0.0  # vy
+            sampled_commands[:, 2] = 0.0  # yaw
+        else:
+            # Allow near-zero magnitudes so the policy practices stabilizing as well as moving.
+            # XY velocity: sample magnitude up to 0.3 m/s with uniform heading
+            angles = 2 * math.pi * torch.rand(num, device=self.device)
+            mags = torch.empty(num, device=self.device).uniform_(0.0, 0.2)
+            sampled_commands[:, 0] = mags * torch.cos(angles)
+            sampled_commands[:, 1] = mags * torch.sin(angles)
 
-        # Yaw: still uniform, but optionally zero for 20% of episodes to reduce constant turning pressure
-        yaw_samples = torch.empty(num, device=self.device).uniform_(-0.6, 0.6)
-        zero_mask = torch.rand(num, device=self.device) < 0.2
-        yaw_samples[zero_mask] = 0.0
-        sampled_commands[:, 2] = yaw_samples
+            # Yaw: still uniform, but optionally zero for 20% of episodes to reduce constant turning pressure
+            yaw_samples = torch.empty(num, device=self.device).uniform_(-0.6, 0.6)
+            zero_mask = torch.rand(num, device=self.device) < 0.2
+            yaw_samples[zero_mask] = 0.0
+            sampled_commands[:, 2] = yaw_samples
 
         if self._policy_log_dir is not None:
             # During logging runs, hold a fixed forward command to simplify replay analysis

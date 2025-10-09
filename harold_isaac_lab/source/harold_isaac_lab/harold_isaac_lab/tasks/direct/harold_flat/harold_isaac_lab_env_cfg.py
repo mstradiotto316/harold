@@ -9,6 +9,7 @@ from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.envs.common import ViewerCfg
 from isaaclab.utils.noise import GaussianNoiseCfg
 import os
+import math
 
 from .harold import HAROLD_V4_CFG
 from isaaclab.terrains import TerrainGeneratorCfg
@@ -68,8 +69,8 @@ class GaitCfg:
 class TerminationCfg:
     """Episode termination thresholds (shared with rough terrain)."""
 
-    base_contact_force_threshold: float = 1.0  # user-adjusted threshold (was 0.5)
-    undesired_contact_force_threshold: float = 3.0 if PHASE0_FORWARD else 10.0
+    base_contact_force_threshold: float = math.inf if PHASE0_FORWARD else 1.0
+    undesired_contact_force_threshold: float = math.inf if PHASE0_FORWARD else 10.0
     orientation_threshold: float = -0.5
 
 @configclass

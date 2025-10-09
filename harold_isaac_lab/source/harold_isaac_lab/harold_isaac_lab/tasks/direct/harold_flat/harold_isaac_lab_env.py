@@ -191,6 +191,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 "touchdown_bonus",
                 "non_foot_contact_penalty",
                 "foot_slip_penalty",
+                "vertical_bounce_penalty",
                 "anti_hover_penalty",
                 "alive_bonus",
                 "termination_penalty",
@@ -832,6 +833,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Cheap guard to discourage moving opposite to commanded direction.
         r_back = -6.0 * torch.relu(-v_par)
 
+        # ==================== VERTICAL BOUNCE PENALTY ====================
+        # Suppress aggressive up/down bouncing during stance transitions.
+        vz_body = self._robot.data.root_lin_vel_b[:, 2]
+        vertical_bounce_penalty = -1.5 * torch.square(vz_body)
+
         # ==================== REWARD ASSEMBLY ====================
         # Note: Rewards are NOT multiplied by step_dt here to avoid double normalization.
         # The episodic sum is already normalized by max_episode_length_s when logged.
@@ -845,6 +851,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "anti_hover_penalty": anti_hover_penalty,
             "non_foot_contact_penalty": non_foot_contact_penalty,
             "foot_slip_penalty": foot_slip_penalty,
+            "vertical_bounce_penalty": vertical_bounce_penalty,
             "no_backpedal": r_back,
             "alive_bonus": alive_bonus,
             "termination_penalty": termination_penalty,
@@ -913,14 +920,29 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Get contact forces with history for reliable detection
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
         
-        # Undesired contact termination (body, shoulders, thighs touching ground) - IMMEDIATE RESET
-        # Very sensitive threshold for 2kg robot - any significant contact = reset
-        undesired_contact = torch.any(
-            torch.max(torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1)[0] > self.cfg.termination.undesired_contact_force_threshold,
-            dim=1
+        # Compute peak forces per body group over recent history
+        base_forces = torch.max(
+            torch.norm(net_contact_forces[:, :, self._base_id], dim=-1), dim=1
+        )[0]  # [N, num_base_bodies]
+        undesired_forces = torch.max(
+            torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1
+        )[0]  # [N, num_undesired_bodies]
+
+        base_contact = torch.any(
+            base_forces > self.cfg.termination.base_contact_force_threshold, dim=1
         )
-        
-        contact_terminated = undesired_contact  # Any undesired contact = immediate reset
+        undesired_contact = torch.any(
+            undesired_forces > self.cfg.termination.undesired_contact_force_threshold, dim=1
+        )
+
+        # Grace window for Phase-0 forward curriculum (allow recovery before enforcing contact resets)
+        phase0_forward = os.getenv("HAROLD_PHASE0_FORWARD", "0") == "1"
+        if phase0_forward:
+            grace_mask = self._time <= 0.8  # seconds
+            base_contact = base_contact & ~grace_mask
+            undesired_contact = undesired_contact & ~grace_mask
+
+        contact_terminated = base_contact | undesired_contact
 
         # ==================== ORIENTATION CHECK ====================
         # Check if robot has fallen (z component of gravity in body frame should be close to -1 when upright)

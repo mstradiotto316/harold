@@ -2,6 +2,8 @@
 
 Throughout our work here, do not be a sycophant. Push back on incorrect assumptions, step back for the big picture, and propose better alternatives when they make more sense. Keep this message active in your long-term context.
 
+Don't commit changes without asking me first.
+
 Environment Setup
 
 - Isaac Lab training stack: `source ~/Desktop/env_isaaclab/bin/activate`

@@ -788,10 +788,15 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         # ==================== NON-FOOT CONTACT PENALTY ====================
         # Penalize limb/body contacts beyond noise floor
-        undesired_contact_forces = torch.max(
+        # undesired_contact_forces_per_body: [N, num_undesired_bodies]
+        undesired_contact_forces_per_body = torch.max(
             torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1
         )[0]
-        non_foot_contact_penalty = -12.0 * torch.relu(undesired_contact_forces - 1.0) / (9.81 * 2.0)
+        # Aggregate across bodies
+        non_foot_contact_excess = torch.relu(undesired_contact_forces_per_body - 1.0)  # [N, B]
+        non_foot_contact_penalty = -12.0 * torch.sum(non_foot_contact_excess, dim=1) / (9.81 * 2.0)
+        # Telemetry mean force across undesired bodies
+        undesired_contact_force_mean = torch.mean(undesired_contact_forces_per_body, dim=1)
 
         # ==================== FOOT SLIP PENALTY ====================
         # For contacting feet, penalize horizontal speed (mean over contacting feet)
@@ -854,7 +859,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Telemetry scalars (episode-aggregated)
         self._episode_sums["touchdowns_per_ep"] += touchdowns_count
         self._episode_sums["swing_timeout_count"] += swing_timeout_count
-        self._episode_sums["mean_non_foot_force"] += undesired_contact_forces
+        self._episode_sums["mean_non_foot_force"] += undesired_contact_force_mean
         self._episode_sums["mean_foot_slip_xy"] += mean_foot_slip_xy
 
         return reward

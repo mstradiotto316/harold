@@ -100,6 +100,14 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Get undesired contact bodies (body, thighs, shoulders should not touch ground)
         self._undesired_contact_body_ids, _ = self._contact_sensor.find_bodies(".*(body|thigh|shoulder)")
 
+        # Detect available field for per-body linear velocities (for slip penalty)
+        self._foot_vel_field = None
+        for _name in ("body_lin_vel_w", "link_lin_vel_w", "rigid_body_lin_vel_w"):
+            if hasattr(self._robot.data, _name):
+                self._foot_vel_field = _name
+                break
+        self._foot_vel_warned = False
+
         # --- Observation & State Trackers ---
         self._time = torch.zeros(self.num_envs, device=self.device)
         self._decimation_counter = 0
@@ -180,8 +188,17 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 "torque_penalty",
                 "feet_air_time_reward",
                 "no_backpedal",
+                "touchdown_bonus",
+                "non_foot_contact_penalty",
+                "foot_slip_penalty",
+                "anti_hover_penalty",
                 "alive_bonus",
                 "termination_penalty",
+                # telemetry-only (not part of reward sum)
+                "touchdowns_per_ep",
+                "swing_timeout_count",
+                "mean_non_foot_force",
+                "mean_foot_slip_xy",
             ]
         }
         # --- Domain Randomization Buffers ---
@@ -751,6 +768,46 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         if num_feet > 0:
             air_time_reward = air_time_reward / float(num_feet)
 
+        # ==================== STEP COMPLETION BONUS (TOUCHDOWN) ====================
+        # Pay for finishing swing with reasonable timing (Phase-0 cadence ~2 Hz)
+        touchdown_window = (last_air_time >= 0.18) & (last_air_time <= 0.35)
+        touchdown_events = (first_contact & touchdown_window)
+        touchdowns_count = touchdown_events.sum(dim=1).float()
+        touchdown_bonus = 4.0 * touchdowns_count
+
+        # ==================== ANTI-HOVER (SWING TIMEOUT PENALTY) ====================
+        # Penalize feet hovering too long in swing (kid-raising-hand behavior)
+        net_contact_forces = self._contact_sensor.data.net_forces_w_history
+        # Current-step contact estimate for feet (1 N floor)
+        curr_feet_forces = torch.norm(net_contact_forces[:, -1, self._feet_ids], dim=-1)
+        feet_in_contact = curr_feet_forces > 1.0
+        hover_mask = (~feet_in_contact) & (last_air_time > 0.45)
+        hover_excess = torch.where(hover_mask, last_air_time - 0.45, torch.zeros_like(last_air_time))
+        anti_hover_penalty = -6.0 * torch.sum(hover_excess, dim=1)
+        swing_timeout_count = hover_mask.sum(dim=1).float()
+
+        # ==================== NON-FOOT CONTACT PENALTY ====================
+        # Penalize limb/body contacts beyond noise floor
+        undesired_contact_forces = torch.max(
+            torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1
+        )[0]
+        non_foot_contact_penalty = -12.0 * torch.relu(undesired_contact_forces - 1.0) / (9.81 * 2.0)
+
+        # ==================== FOOT SLIP PENALTY ====================
+        # For contacting feet, penalize horizontal speed (mean over contacting feet)
+        foot_slip_penalty = torch.zeros(self.num_envs, device=self.device)
+        mean_foot_slip_xy = torch.zeros(self.num_envs, device=self.device)
+        if self._foot_vel_field is not None:
+            foot_vel_all = getattr(self._robot.data, self._foot_vel_field)
+            # Expect shape (N, B, 3) in world frame; take XY on calf links
+            foot_vel_xy = foot_vel_all[:, self._feet_ids, :2]
+            slip_speed = torch.norm(foot_vel_xy, dim=-1)
+            # Only penalize while in contact
+            slip_speed_in_contact = torch.where(feet_in_contact, slip_speed, torch.zeros_like(slip_speed))
+            contact_counts = feet_in_contact.sum(dim=1).clamp(min=1)
+            mean_foot_slip_xy = slip_speed_in_contact.sum(dim=1) / contact_counts
+            foot_slip_penalty = -6.0 * mean_foot_slip_xy
+
         # ==================== FAILURE PENALTY AND ALIVE BONUS ====================
         # Discourage the degenerate strategy of immediate failure to avoid per-step costs.
         # Compute the same failure masks used in _get_dones for this step and apply a one-shot penalty.
@@ -779,6 +836,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "height_reward": height_reward * self.cfg.rewards.height_reward,
             "torque_penalty": joint_torques * self.cfg.rewards.torque_penalty,
             "feet_air_time_reward": air_time_reward * self.cfg.rewards.feet_air_time,
+            "touchdown_bonus": touchdown_bonus,
+            "anti_hover_penalty": anti_hover_penalty,
+            "non_foot_contact_penalty": non_foot_contact_penalty,
+            "foot_slip_penalty": foot_slip_penalty,
             "no_backpedal": r_back,
             "alive_bonus": alive_bonus,
             "termination_penalty": termination_penalty,
@@ -790,6 +851,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Update episode sums for logging
         for key, value in rewards.items():
             self._episode_sums[key] += value
+        # Telemetry scalars (episode-aggregated)
+        self._episode_sums["touchdowns_per_ep"] += touchdowns_count
+        self._episode_sums["swing_timeout_count"] += swing_timeout_count
+        self._episode_sums["mean_non_foot_force"] += undesired_contact_forces
+        self._episode_sums["mean_foot_slip_xy"] += mean_foot_slip_xy
 
         return reward
 

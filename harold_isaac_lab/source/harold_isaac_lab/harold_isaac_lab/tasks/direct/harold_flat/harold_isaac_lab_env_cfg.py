@@ -43,7 +43,7 @@ class RewardsCfg:
     # === PRIMARY LOCOMOTION OBJECTIVES (Positive Rewards) ===
     track_xy_lin_commands: float = 80   # Primary: forward/lateral velocity tracking
     track_yaw_commands: float = 2       # Turning ability; suppress spin drift
-    height_reward: float = 1            # Maintain target body height
+    height_reward: float = 1.5          # Maintain target body height
                                         # Reward shape: exp(-((max(|err|-tol,0)/sigma)^2))
     height_tolerance: float = 0.02      # |height_error| tolerated before penalty (m)
     height_sigma: float = 0.05          # Controls falloff beyond tolerance (m)
@@ -206,7 +206,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     state_space = 0
 
     # Action filtering (EMA low-pass)
-    action_filter_beta: float = 0.25 if PHASE0_FORWARD else 0.4  # smoother actions to reduce jitter
+    action_filter_beta: float = 0.15 if PHASE0_FORWARD else 0.4  # smoother actions to reduce jitter
 
     # Reward configuration
     rewards = RewardsCfg()

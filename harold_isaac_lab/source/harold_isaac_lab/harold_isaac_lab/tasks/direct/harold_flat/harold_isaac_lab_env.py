@@ -182,7 +182,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._metric_keys = [
             "vx_w_mean",
             "vy_w_mean",
-            "gz_mean",
+            "upright_mean",
             "height_err_abs",
         ]
         self._episode_sums = {
@@ -577,7 +577,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         vx_w = self._robot.data.root_lin_vel_w[:, 0]
         vy_w = self._robot.data.root_lin_vel_w[:, 1]
         wz_b = self._robot.data.root_ang_vel_b[:, 2]
-        gz = self._robot.data.projected_gravity_b[:, 2].clamp(0.0, 1.0)
+        gz_raw = self._robot.data.projected_gravity_b[:, 2]
+        gz = (-gz_raw).clamp(0.0, 1.0)
 
         # Height above terrain from ray caster, with a body-height fallback.
         pos_z = self._height_scanner.data.pos_w[:, 2].unsqueeze(1)
@@ -616,7 +617,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Telemetry accumulators for episode logging.
         self._episode_sums["vx_w_mean"] += vx_w
         self._episode_sums["vy_w_mean"] += vy_w
-        self._episode_sums["gz_mean"] += gz
+        self._episode_sums["upright_mean"] += gz
         self._episode_sums["height_err_abs"] += torch.abs(height_error)
 
         return total_reward
@@ -662,6 +663,29 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         joint_pos = self._robot.data.default_joint_pos[env_ids]
         joint_vel = self._robot.data.default_joint_vel[env_ids]
         default_root_state = self._robot.data.default_root_state[env_ids]
+
+        num_reset_envs = len(env_ids)
+        if num_reset_envs > 0:
+            athletic_pose = torch.tensor(
+                [
+                    0.20,
+                    -0.20,
+                    0.20,
+                    -0.20,
+                    0.70,
+                    0.70,
+                    0.70,
+                    0.70,
+                    -1.40,
+                    -1.40,
+                    -1.40,
+                    -1.40,
+                ],
+                device=self.device,
+                dtype=joint_pos.dtype,
+            ).unsqueeze(0).repeat(num_reset_envs, 1)
+            joint_pos = athletic_pose
+            self._robot.data.default_joint_pos[env_ids] = athletic_pose
 
         if hasattr(self._terrain, 'env_origins'):
             if self.cfg.terrain.terrain_type == 'generator' and hasattr(self._terrain, 'terrain_origins'):

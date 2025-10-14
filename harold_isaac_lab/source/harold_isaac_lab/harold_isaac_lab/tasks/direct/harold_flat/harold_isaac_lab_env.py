@@ -100,14 +100,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Get undesired contact bodies (body, thighs, shoulders should not touch ground)
         self._undesired_contact_body_ids, _ = self._contact_sensor.find_bodies(".*(body|thigh|shoulder)")
 
-        # Detect available field for per-body linear velocities (for slip penalty)
-        self._foot_vel_field = None
-        for _name in ("body_lin_vel_w", "link_lin_vel_w", "rigid_body_lin_vel_w"):
-            if hasattr(self._robot.data, _name):
-                self._foot_vel_field = _name
-                break
-        self._foot_vel_warned = False
-
         # --- Observation & State Trackers ---
         self._time = torch.zeros(self.num_envs, device=self.device)
         self._decimation_counter = 0
@@ -179,28 +171,23 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._arrow_offset_act = torch.tensor((0.0, 0.0, 0.40), device=self.device)
 
         # --- Episode Reward Logging Buffers ---
+        self._reward_keys = [
+            "progress_forward",
+            "upright_reward",
+            "height_reward",
+            "torque_penalty",
+            "lat_vel_penalty",
+            "yaw_rate_penalty",
+        ]
+        self._metric_keys = [
+            "vx_w_mean",
+            "vy_w_mean",
+            "gz_mean",
+            "height_err_abs",
+        ]
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
-            for key in [
-                "track_xy_lin_commands",
-                "track_yaw_commands",
-                "height_reward",
-                "torque_penalty",
-                "feet_air_time_reward",
-                "no_backpedal",
-                "touchdown_bonus",
-                "non_foot_contact_penalty",
-                "foot_slip_penalty",
-                "vertical_bounce_penalty",
-                "anti_hover_penalty",
-                "alive_bonus",
-                "termination_penalty",
-                # telemetry-only (not part of reward sum)
-                "touchdowns_per_ep",
-                "swing_timeout_count",
-                "mean_non_foot_force",
-                "mean_foot_slip_xy",
-            ]
+            for key in [*self._reward_keys, *self._metric_keys]
         }
         # --- Domain Randomization Buffers ---
         # Store randomized parameters per environment for consistency within episodes
@@ -449,55 +436,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._act_scale_buffer[:, 2] = self._arrow_width
         self._act_marker.visualize(marker_pos_act, marker_ori_act, marker_indices=marker_idx, scales=self._act_scale_buffer)
 
-    def _get_contact_sensor_data(self) -> dict:
-        """Extract and process contact sensor data for rewards and termination logic.
-        
-        Processes contact forces from all robot bodies and computes derived metrics
-        for gait analysis, termination detection, and reward calculation. Uses force
-        history to ensure reliable contact detection despite simulation noise.
-        
-        Returns:
-            Dict containing processed contact data:
-                - base_contact_forces: Forces on main body (for termination)
-                - undesired_contact_forces: Forces on body/thighs/shoulders (penalties)
-                - feet_contact_forces: Forces on feet (for gait analysis)
-                - first_contact: Boolean mask of feet making first contact this step
-                - last_air_time: Duration each foot was airborne before contact
-                - net_forces_w_history: Raw force history for advanced analysis
-                
-        Body Groups:
-            - Base: Main robot body (contact triggers termination)
-            - Feet: Calf endpoints (desired contact points for locomotion)
-            - Undesired: Body, thighs, shoulders (contact penalized)
-            
-        Force Processing:
-            - Uses maximum over force history window for noise robustness
-            - Computes L2 norm of 3D contact forces for scalar metrics
-            - Tracks air time for stepping pattern analysis
-        """
-        # Get contact forces with history
-        net_contact_forces = self._contact_sensor.data.net_forces_w_history
-        
-        # Base contact detection (for termination)
-        base_contact_forces = torch.max(torch.norm(net_contact_forces[:, :, self._base_id], dim=-1), dim=1)[0]
-        
-        # Undesired contact detection (for rewards)
-        undesired_contact_forces = torch.max(torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1)[0]
-        
-        # Feet contact and air time data (for gait rewards)
-        feet_contact_forces = torch.max(torch.norm(net_contact_forces[:, :, self._feet_ids], dim=-1), dim=1)[0]
-        first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._feet_ids]
-        last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
-        
-        return {
-            "base_contact_forces": base_contact_forces,
-            "undesired_contact_forces": undesired_contact_forces,
-            "feet_contact_forces": feet_contact_forces,
-            "first_contact": first_contact,
-            "last_air_time": last_air_time,
-            "net_forces_w_history": net_contact_forces
-        }
-
     def _get_observations(self) -> dict:
         """Construct the 48-dimensional observation vector for policy input.
         
@@ -632,456 +570,117 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         return observations
 
     def _get_rewards(self) -> torch.Tensor:
-        """Compute multi-component reward signal for reinforcement learning.
-        
-        Implements a sophisticated reward function combining velocity tracking,
-        height maintenance, energy efficiency, and gait quality metrics. Each
-        component is carefully tuned for stable quadruped locomotion training.
-        
-        Returns:
-            Total reward tensor [num_envs] combining all reward components
-            
-        Reward Components:
-        
-        1. Linear Velocity Tracking (Directional):
-           - Decomposes velocity into parallel and perpendicular components
-           - Elliptical Gaussian: exp(-(e_par/0.25)² + (e_perp/0.08)²)
-           - Lateral drift penalized 3x more strictly than along-track error
-           - Signed underspeed hinge uses v_par (no clamp) for a corrective gradient when moving opposite to the command
-           
-        2. Yaw Velocity Tracking:
-           - Exponential reward for matching commanded yaw rate
-           - Gaussian penalty: exp(-(error/0.4)²)
-           - Prevents stationary spinning behaviors
-           
-        3. Height Maintenance:
-           - Maintains target height above terrain using ray-casting
-           - Tanh-based reward: tanh(3*exp(-5*|height_error|))
-           - NaN-safe terrain height computation
-           - Critical for stable locomotion
-           
-        4. Torque Penalty:
-           - Quadratic penalty on joint torques: sum(torque²)
-           - Encourages energy-efficient movements
-           - Prevents aggressive actuator usage
-           
-        5. Feet Air Time Reward:
-           - Rewards proper stepping patterns (optimal air time from cfg)
-           - Uses exponential reward curve to encourage stepping
-           - Only active when speed_xy > 0.02 m/s and |cmd| > 0.02 m/s
-           - Reduces sliding and shuffling behaviors
-           
-        Mathematical Formulation:
-           Total = Σ(component_value * weight)
-           Note: Rewards are not multiplied by step_dt to avoid double normalization
-           with the episodic logging that divides by max_episode_length_s
-           
-        """
-        
-        # ==================== LINEAR VELOCITY TRACKING ====================
-        # DIRECTIONAL: Decompose velocity into parallel and perpendicular components
-        # relative to command direction. Penalize sideways drift much more than along-track error.
-        
-        # Get velocity and command vectors (N,2) in body frame
-        v = self._robot.data.root_lin_vel_b[:, :2]
-        cmd = self._commands[:, :2]
-        
-        # Compute unit command direction
-        eps = 1e-6
-        cmd_mag = torch.linalg.vector_norm(cmd, dim=1)                    # (N,)
-        cmd_active = cmd_mag > 0.03
-        u = torch.zeros_like(cmd)
-        if torch.any(cmd_active):
-            u[cmd_active] = cmd[cmd_active] / (cmd_mag[cmd_active].unsqueeze(1) + eps)
+        """Minimal Phase-0 reward: forward progress, posture, height, and effort."""
 
-        # Decompose velocity into parallel and perpendicular components
-        v_par = (v * u).sum(dim=1)                                       # scalar component along u
-        v_perp = v - v_par[:, None] * u                                  # vector perpendicular to u
-        e_par = v_par - cmd_mag                                          # signed along-track error
-        e_perp = torch.linalg.vector_norm(v_perp, dim=1)                 # sideways speed magnitude
+        rewards_cfg = self.cfg.rewards
 
-        # Elliptical Gaussian: tighter on lateral drift
-        c_par, c_perp = 0.25, 0.08
-        Q = (e_par / c_par)**2 + (e_perp / c_perp)**2
-        tracking = torch.exp(-Q)
+        vx_w = self._robot.data.root_lin_vel_w[:, 0]
+        vy_w = self._robot.data.root_lin_vel_w[:, 1]
+        wz_b = self._robot.data.root_ang_vel_b[:, 2]
+        gz = self._robot.data.projected_gravity_b[:, 2].clamp(0.0, 1.0)
 
-        speed_alignment = torch.zeros_like(cmd_mag)
-        if torch.any(cmd_active):
-            speed_alignment[cmd_active] = torch.clamp(
-                v_par[cmd_active] / (cmd_mag[cmd_active] + eps), min=0.0, max=1.2
-            )
-
-        under_penalty = torch.zeros_like(cmd_mag)
-        if torch.any(cmd_active):
-            under_penalty[cmd_active] = torch.clamp(
-                torch.relu(cmd_mag[cmd_active] - v_par[cmd_active]), max=1.0
-            )
-
-        lin_vel_reward = tracking * speed_alignment - 0.2 * under_penalty
-        lin_vel_reward = lin_vel_reward * cmd_active.float()
-        lin_vel_reward = torch.clamp(lin_vel_reward, -0.5, 1.0)
-
-        # ==================== YAW VELOCITY TRACKING ====================
-        # Gaussian yaw-rate tracking
-        err_yaw = torch.abs(self._commands[:, 2] - self._robot.data.root_ang_vel_b[:, 2])
-        yaw_vel_reward = torch.exp(-(err_yaw / 0.4)**2)   # sigma ≈ 0.4 rad/s
-
-        # ==================== HEIGHT MAINTENANCE ====================
-        # Compute XY speed for use in feet air time gating
-        speed_xy = torch.linalg.vector_norm(v, dim=1)
-        # Get height data from scanner and compute mean height (NaN-safe)
+        # Height above terrain from ray caster, with a body-height fallback.
         pos_z = self._height_scanner.data.pos_w[:, 2].unsqueeze(1)
         ray_z = self._height_scanner.data.ray_hits_w[..., 2]
         valid_mask = torch.isfinite(ray_z)
         height_samples = torch.where(valid_mask, pos_z - ray_z, torch.zeros_like(ray_z))
         valid_counts = valid_mask.sum(dim=1)
-        current_height = torch.zeros(pos_z.shape[0], device=pos_z.device)
+        current_height = self._robot.data.root_pos_w[:, 2].clone()
         valid_envs = valid_counts > 0
         if torch.any(valid_envs):
             current_height[valid_envs] = (
                 height_samples[valid_envs].sum(dim=1) / valid_counts[valid_envs].float()
             )
 
-        # Calculate height error and convert to reward with tighter shaping
         target_height = self.cfg.gait.target_height
-        height_error = torch.abs(current_height - target_height)
-        tolerance = max(self.cfg.rewards.height_tolerance, 0.0)
-        sigma = max(self.cfg.rewards.height_sigma, 1e-6)
-        adjusted_error = torch.relu(height_error - tolerance)
-        height_reward = torch.exp(-torch.square(adjusted_error / sigma))
+        height_error = current_height - target_height
+        tolerance = max(rewards_cfg.height_tolerance, 0.0)
+        sigma = max(rewards_cfg.height_sigma, 1e-6)
+        adjusted_error = torch.relu(torch.abs(height_error) - tolerance)
 
-        # ==================== TORQUE PENALTY ====================
-        # Penalize large actuator efforts to encourage energy-efficient motions.
-        joint_torques = torch.sum(torch.square(self._robot.data.applied_torque), dim=1)
-
-        # ==================== FEET AIR TIME REWARD ====================
-        # Reward proper stepping patterns to reduce sliding and shuffling (Fixed implementation)
-        first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._feet_ids]
-        last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
-        # Reward feet that achieve optimal air time when they land
-        # Uses exponential reward curve to encourage proper stepping patterns instead of penalizing them
-        optimal_air_time = float(self.cfg.rewards.optimal_air_time)
-        air_time_error = torch.abs(last_air_time - optimal_air_time)
-        # Gate the reward for low-speed exploration and only when a command is active
-        air_time_gate = ((speed_xy > 0.02) & (cmd_mag > 0.02)).float()
-        air_time_reward = torch.sum(torch.exp(-air_time_error * 10.0) * first_contact.float(), dim=1) * air_time_gate
-        num_feet = len(self._feet_ids)
-        if num_feet > 0:
-            air_time_reward = air_time_reward / float(num_feet)
-
-        # ==================== STEP COMPLETION BONUS (TOUCHDOWN) ====================
-        # Pay for finishing swing with reasonable timing (Phase-0 cadence ~2 Hz)
-        touchdown_window = (last_air_time >= 0.18) & (last_air_time <= 0.35)
-        touchdown_events = (first_contact & touchdown_window)
-        touchdowns_count = touchdown_events.sum(dim=1).float()
-        touchdown_bonus = 4.0 * touchdowns_count
-
-        # ==================== ANTI-HOVER (SWING TIMEOUT PENALTY) ====================
-        # Penalize feet hovering too long in swing (kid-raising-hand behavior)
-        net_contact_forces = self._contact_sensor.data.net_forces_w_history
-        # Current-step contact estimate for feet (1 N floor)
-        curr_feet_forces = torch.norm(net_contact_forces[:, -1, self._feet_ids], dim=-1)
-        feet_in_contact = curr_feet_forces > 1.0
-        hover_mask = (~feet_in_contact) & (last_air_time > 0.45)
-        hover_excess = torch.where(hover_mask, last_air_time - 0.45, torch.zeros_like(last_air_time))
-        anti_hover_penalty = -6.0 * torch.sum(hover_excess, dim=1)
-        swing_timeout_count = hover_mask.sum(dim=1).float()
-
-        # ==================== NON-FOOT CONTACT PENALTY ====================
-        # Penalize limb/body contacts beyond noise floor
-        # undesired_contact_forces_per_body: [N, num_undesired_bodies]
-        undesired_contact_forces_per_body = torch.max(
-            torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1
-        )[0]
-        # Aggregate across bodies
-        non_foot_contact_excess = torch.relu(undesired_contact_forces_per_body - 1.0)  # [N, B]
-        non_foot_contact_penalty = -12.0 * torch.sum(non_foot_contact_excess, dim=1) / (9.81 * 2.0)
-        # Telemetry mean force across undesired bodies
-        undesired_contact_force_mean = torch.mean(undesired_contact_forces_per_body, dim=1)
-
-        # ==================== FOOT SLIP PENALTY ====================
-        # For contacting feet, penalize horizontal speed (mean over contacting feet)
-        foot_slip_penalty = torch.zeros(self.num_envs, device=self.device)
-        mean_foot_slip_xy = torch.zeros(self.num_envs, device=self.device)
-        if self._foot_vel_field is not None:
-            foot_vel_all = getattr(self._robot.data, self._foot_vel_field)
-            # Expect shape (N, B, 3) in world frame; take XY on calf links
-            foot_vel_xy = foot_vel_all[:, self._feet_ids, :2]
-            slip_speed = torch.norm(foot_vel_xy, dim=-1)
-            # Only penalize while in contact
-            slip_speed_in_contact = torch.where(feet_in_contact, slip_speed, torch.zeros_like(slip_speed))
-            contact_counts = feet_in_contact.sum(dim=1).clamp(min=1)
-            mean_foot_slip_xy = slip_speed_in_contact.sum(dim=1) / contact_counts
-            foot_slip_penalty = -6.0 * mean_foot_slip_xy
-
-        # ==================== FAILURE PENALTY AND ALIVE BONUS ====================
-        # Discourage the degenerate strategy of immediate failure to avoid per-step costs.
-        # Compute the same failure masks used in _get_dones for this step and apply a one-shot penalty.
-        net_contact_forces = self._contact_sensor.data.net_forces_w_history
-        failure_contact = torch.any(
-            torch.max(
-                torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1
-            )[0] > self.cfg.termination.undesired_contact_force_threshold,
-            dim=1,
-        )
-        failure_orientation = self._robot.data.projected_gravity_b[:, 2] > self.cfg.termination.orientation_threshold
-        failure_mask = failure_contact | failure_orientation
-        termination_penalty = failure_mask.float() * self.cfg.rewards.termination_penalty
-        alive_bonus = torch.full_like(termination_penalty, self.cfg.rewards.alive_bonus)
-
-        # ==================== NO-BACKPEDAL GUARD ====================
-        # Cheap guard to discourage moving opposite to commanded direction.
-        r_back = -6.0 * torch.relu(-v_par)
-
-        # ==================== VERTICAL BOUNCE PENALTY ====================
-        # Suppress aggressive up/down bouncing during stance transitions.
-        vz_body = self._robot.data.root_lin_vel_b[:, 2]
-        vertical_bounce_penalty = -1.5 * torch.square(vz_body)
-
-        # ==================== REWARD ASSEMBLY ====================
-        # Note: Rewards are NOT multiplied by step_dt here to avoid double normalization.
-        # The episodic sum is already normalized by max_episode_length_s when logged.
         rewards = {
-            "track_xy_lin_commands": lin_vel_reward * self.cfg.rewards.track_xy_lin_commands,
-            "track_yaw_commands": yaw_vel_reward * self.cfg.rewards.track_yaw_commands,
-            "height_reward": height_reward * self.cfg.rewards.height_reward,
-            "torque_penalty": joint_torques * self.cfg.rewards.torque_penalty,
-            "feet_air_time_reward": air_time_reward * self.cfg.rewards.feet_air_time,
-            "touchdown_bonus": touchdown_bonus,
-            "anti_hover_penalty": anti_hover_penalty,
-            "non_foot_contact_penalty": non_foot_contact_penalty,
-            "foot_slip_penalty": foot_slip_penalty,
-            "vertical_bounce_penalty": vertical_bounce_penalty,
-            "no_backpedal": r_back,
-            "alive_bonus": alive_bonus,
-            "termination_penalty": termination_penalty,
+            "progress_forward": torch.clamp(vx_w, min=0.0) * rewards_cfg.progress_forward,
+            "upright_reward": gz * rewards_cfg.upright_reward,
+            "height_reward": torch.exp(-torch.square(adjusted_error / sigma)) * rewards_cfg.height_reward,
+            "torque_penalty": torch.sum(torch.square(self._robot.data.applied_torque), dim=1)
+            * rewards_cfg.torque_penalty,
+            "lat_vel_penalty": -torch.square(vy_w) * rewards_cfg.lat_vel_penalty,
+            "yaw_rate_penalty": -torch.square(wz_b) * rewards_cfg.yaw_rate_penalty,
         }
-        
-        # Sum all rewards
-        reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
 
-        # Update episode sums for logging
+        total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
+
         for key, value in rewards.items():
             self._episode_sums[key] += value
-        # Telemetry scalars (episode-aggregated)
-        self._episode_sums["touchdowns_per_ep"] += touchdowns_count
-        self._episode_sums["swing_timeout_count"] += swing_timeout_count
-        self._episode_sums["mean_non_foot_force"] += undesired_contact_force_mean
-        self._episode_sums["mean_foot_slip_xy"] += mean_foot_slip_xy
 
-        return reward
+        # Telemetry accumulators for episode logging.
+        self._episode_sums["vx_w_mean"] += vx_w
+        self._episode_sums["vy_w_mean"] += vy_w
+        self._episode_sums["gz_mean"] += gz
+        self._episode_sums["height_err_abs"] += torch.abs(height_error)
+
+        return total_reward
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Determine episode termination and timeout conditions.
-        
-        Evaluates various failure modes and episode length limits to decide when
-        to reset environments. Uses contact forces and robot orientation to detect
-        falls, collisions, and other undesirable states.
-        
-        Returns:
-            Tuple of (terminated, timed_out) boolean tensors:
-                - terminated: Environments that failed and need immediate reset
-                - timed_out: Environments that reached maximum episode length
-                
-        Termination Conditions:
-        
-        1. Undesired Contact (Immediate Reset):
-           - Body, shoulders, or thighs touching ground
-           - Contact force threshold: 0.05N (scaled for 2kg robot)
-           - Prevents damage and encourages proper gait
-           - Uses force history for reliable detection
-           
-        2. Orientation Failure (Currently Disabled):
-           - Robot tipped over (gravity_z > threshold)
-           - Threshold: -0.5 (allows some tilt tolerance)
-           - Commented out pending threshold calibration
-           
-        3. Episode Timeout:
-           - Maximum episode length reached (time-based cutoff)
-           - Prevents infinite episodes during exploration
-           - Separate from failure-based termination
-           
-        Contact Force Analysis:
-           - Uses net_forces_w_history for noise robustness
-           - Computes L2 norm of 3D contact forces
-           - Per-body contact detection with body-specific IDs
-           - Thresholds tuned for 2kg Harold robot mass
-           
-        Safety Features:
-           - Conservative contact thresholds prevent hardware damage
-           - Force history smoothing reduces false positives
-           - Immediate reset on any undesired body contact
-        """
+        """Terminate only on orientation failure; keep episode timeouts."""
 
-        # Terminate if episode length exceeds max episode length
         time_out = self.episode_length_buf >= self.max_episode_length - 1
-
-        # ==================== CONTACT CHECK (Harold 2kg Robot - Scaled Thresholds) ====================
-        # Get contact forces with history for reliable detection
-        net_contact_forces = self._contact_sensor.data.net_forces_w_history
-        
-        # Compute peak forces per body group over recent history
-        base_forces = torch.max(
-            torch.norm(net_contact_forces[:, :, self._base_id], dim=-1), dim=1
-        )[0]  # [N, num_base_bodies]
-        undesired_forces = torch.max(
-            torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1
-        )[0]  # [N, num_undesired_bodies]
-
-        base_contact = torch.any(
-            base_forces > self.cfg.termination.base_contact_force_threshold, dim=1
+        orientation_terminated = (
+            self._robot.data.projected_gravity_b[:, 2]
+            > self.cfg.termination.orientation_threshold
         )
-        undesired_contact = torch.any(
-            undesired_forces > self.cfg.termination.undesired_contact_force_threshold, dim=1
-        )
-
-        # Grace window for Phase-0 forward curriculum (allow recovery before enforcing contact resets)
-        phase0_forward = os.getenv("HAROLD_PHASE0_FORWARD", "0") == "1"
-        if phase0_forward:
-            grace_mask = self._time <= 0.8  # seconds
-            base_contact = base_contact & ~grace_mask
-            undesired_contact = undesired_contact & ~grace_mask
-
-        contact_terminated = base_contact | undesired_contact
-
-        # ==================== ORIENTATION CHECK ====================
-        # Check if robot has fallen (z component of gravity in body frame should be close to -1 when upright)
-        orientation_terminated = self._robot.data.projected_gravity_b[:, 2] > self.cfg.termination.orientation_threshold
-
-        # Combine all failure conditions
-        terminated = contact_terminated | orientation_terminated
+        terminated = orientation_terminated
 
         return terminated, time_out
 
     def _reset_idx(self, env_ids: Sequence[int] | None = None) -> None:
-        """Reset specified environments to initial state with terrain selection.
-        
-        Resets robot pose, joint states, command generation, and terrain assignment based
-        Implements sophisticated terrain system where
-        environments are assigned progressively harder terrain patches during training.
-        
-        Args:
-            env_ids: Sequence of environment indices to reset. If None, resets all environments.
-            
-        Reset Operations:
-        
-        1. Robot State Reset:
-           - Joint positions: Return to neutral pose
-           - Joint velocities: Zero initial velocity
-           - Root pose: Default position + terrain offset
-           - Root velocity: Zero initial velocity
-           
-        2. Command Generation:
-           - X/Y velocity: Uniform random [-0.3, 0.3] m/s
-           - Yaw rate: Uniform random [-1.0, 1.0] rad/s
-           
-        3. Terrain Assignment:
-           - Select terrain level randomly from available levels
-           - Random terrain within allowed difficulty range
-           - Update environment-specific terrain tracking
-           - Set spawn position to selected terrain patch
-           
-        4. State Buffer Reset:
-           - Action buffers: Zero previous actions
-           - Velocity tracking: Reset for jitter calculation
-           - Time buffers: Reset temporal observations
-           - Reward tracking: Clear episode accumulations
-           
-        5. Logging and Analytics:
-           - Episode reward summaries (normalized by episode length)
-           - Termination reason categorization
-           - Training progress tracking
-           
-        Terrain Grid Structure:
-           - Level 0: Flat terrain, Level 9: Maximum difficulty
-           - Random selection from all terrain levels
-           
-        Performance Optimizations:
-           - Batch processing of multiple environment resets
-           - Staggered episode lengths prevent synchronized resets
-           - Efficient tensor operations for state updates
-        """
+        """Reset specified environments to the simplified Phase-0 start state."""
 
         if env_ids is None or len(env_ids) == self.num_envs:
             env_ids = self._robot._ALL_INDICES
+
+        prev_episode_steps = self.episode_length_buf[env_ids].clone()
+
         self._robot.reset(env_ids)
         super()._reset_idx(env_ids)
 
-        # Desynchronize episodes when all envs reset together to avoid large
-        # synchronous spikes in reward throughput during early training.
         if len(env_ids) == self.num_envs:
             self.episode_length_buf[:] = torch.randint_like(
                 self.episode_length_buf, high=int(self.max_episode_length)
             )
 
-        # Reset action buffers
         self._actions[env_ids].zero_()
         self._previous_actions[env_ids].zero_()
 
-        # Sample velocity commands for reset environments.
-        # Phase 0 curriculum (optional): forward-only walking when HAROLD_PHASE0_FORWARD=1.
-        # Otherwise, use the original randomized commands.
         num = len(env_ids)
         sampled_commands = torch.zeros_like(self._commands[env_ids])
-
-        phase0_forward = os.getenv("HAROLD_PHASE0_FORWARD", "0") == "1"
-        if phase0_forward and self._policy_log_dir is None:
-            # Phase 0: forward-only walking curriculum
-            # vx ∈ [0.20, 0.35], vy = 0, yaw = 0
-            sampled_commands[:, 0] = torch.empty(num, device=self.device).uniform_(0.20, 0.35)  # vx
-            sampled_commands[:, 1] = 0.0  # vy
-            sampled_commands[:, 2] = 0.0  # yaw
-        else:
-            # Allow near-zero magnitudes so the policy practices stabilizing as well as moving.
-            # XY velocity: sample magnitude up to 0.3 m/s with uniform heading
-            angles = 2 * math.pi * torch.rand(num, device=self.device)
-            mags = torch.empty(num, device=self.device).uniform_(0.0, 0.2)
-            sampled_commands[:, 0] = mags * torch.cos(angles)
-            sampled_commands[:, 1] = mags * torch.sin(angles)
-
-            # Yaw: still uniform, but optionally zero for 20% of episodes to reduce constant turning pressure
-            yaw_samples = torch.empty(num, device=self.device).uniform_(-0.6, 0.6)
-            zero_mask = torch.rand(num, device=self.device) < 0.2
-            yaw_samples[zero_mask] = 0.0
-            sampled_commands[:, 2] = yaw_samples
-
+        sampled_commands[:, 0] = torch.empty(num, device=self.device).uniform_(0.25, 0.35)
         if self._policy_log_dir is not None:
-            # During logging runs, hold a fixed forward command to simplify replay analysis
-            sampled_commands.zero_()
             sampled_commands[:, 0] = 0.4
-
         self._commands[env_ids] = sampled_commands
 
-        # Reset robot state
         joint_pos = self._robot.data.default_joint_pos[env_ids]
         joint_vel = self._robot.data.default_joint_vel[env_ids]
         default_root_state = self._robot.data.default_root_state[env_ids]
 
-        # Use terrain origins if available, otherwise use scene origins
-        if hasattr(self._terrain, "env_origins"):
-            # Implement terrain selection
-            if self.cfg.terrain.terrain_type == "generator" and hasattr(self._terrain, "terrain_origins"):
-                num_cols = self.cfg.terrain.terrain_generator.num_cols  # 20 variations per level
-                # For each resetting environment, assign a terrain level randomly
+        if hasattr(self._terrain, 'env_origins'):
+            if self.cfg.terrain.terrain_type == 'generator' and hasattr(self._terrain, 'terrain_origins'):
+                num_cols = self.cfg.terrain.terrain_generator.num_cols
                 for env_id in env_ids:
                     env_idx = int(env_id)
-                    # Randomly select a terrain level from allowed initial range
-                    terrain_level = torch.randint(0, self.cfg.terrain.max_init_terrain_level, (1,), device=self.device).item()
-                    # Randomly select a column within that terrain level
+                    terrain_level = torch.randint(
+                        0, self.cfg.terrain.max_init_terrain_level, (1,), device=self.device
+                    ).item()
                     terrain_col = torch.randint(0, num_cols, (1,), device=self.device).item()
-                    # Update environment's terrain level tracking
                     self._env_terrain_levels[env_idx] = terrain_level
-                    # Set the environment origin to the selected terrain patch
                     self._terrain.env_origins[env_idx, :] = self._terrain.terrain_origins[terrain_level, terrain_col, :]
 
             origins = self._terrain.env_origins
         else:
             origins = self.scene.env_origins
 
-        # Re-apply simple grid spacing used in the original flat task so environments
-        # remain evenly distributed when training without a terrain curriculum.
         if len(env_ids) > 0:
-            spacing = getattr(self.cfg.scene, "env_spacing", 2.0)
+            spacing = getattr(self.cfg.scene, 'env_spacing', 2.0)
             cols = max(int(math.sqrt(max(self.num_envs - 1, 1))) + 1, 1)
             for env_id in env_ids:
                 env_idx = int(env_id)
@@ -1098,59 +697,36 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
 
-        # Apply domain randomization on reset
         dr = self.cfg.domain_randomization
         if dr.enable_randomization and dr.randomize_on_reset:
             self._randomize_robot_properties(env_ids)
             self._randomize_physics_materials(env_ids)
-            # Randomize action delays if enabled
             if dr.add_action_delay:
                 delay_min, delay_max = dr.action_delay_steps
                 self._action_delays[env_ids] = torch.randint(
                     delay_min, delay_max + 1, (len(env_ids),), device=self.device
                 )
 
-        # Reset time for sinusoidal observation
         self._time[env_ids] = 0
 
-        # Logging and analytics
         log = {}
         if len(env_ids) > 0:
-            # Episode reward summaries (normalized by episode length)
-            for key, buf in self._episode_sums.items():
-                values = buf[env_ids] / self.max_episode_length_s
-                log[f"Episode_Reward/{key} (mean)"] = torch.mean(values)
-                log[f"Episode_Reward/{key} (min)"] = torch.min(values)
-                log[f"Episode_Reward/{key} (max)"] = torch.max(values)
-                buf[env_ids] = 0.0
+            valid = prev_episode_steps > 0
+            if torch.any(valid):
+                step_counts = prev_episode_steps[valid].float().clamp(min=1.0)
+                for key in self._reward_keys:
+                    values = self._episode_sums[key][env_ids][valid] / step_counts
+                    log[f'Episode_Reward/{key}'] = torch.mean(values)
+                for key in self._metric_keys:
+                    values = self._episode_sums[key][env_ids][valid] / step_counts
+                    log[f'Episode_Metric/{key}'] = torch.mean(values)
+            for key in [*self._reward_keys, *self._metric_keys]:
+                self._episode_sums[key][env_ids] = 0.0
 
-        self.extras["log"] = {}
-        self.extras["log"].update(log)
+        log['Episode_Termination/orientation'] = int(torch.sum(self.reset_terminated[env_ids]).item())
+        log['Episode_Termination/time_out'] = int(torch.count_nonzero(self.reset_time_outs[env_ids]).item())
 
-        # Log termination reasons
-        log_terms = {}
-        # Check termination types for environments that actually terminated (not timed out)
-        if torch.any(self.reset_terminated[env_ids]):
-            # Get contact forces and orientation for terminated envs
-            net_contact_forces = self._contact_sensor.data.net_forces_w_history
-            body_contact = torch.any(
-                torch.max(torch.norm(net_contact_forces[:, :, self._base_id], dim=-1), dim=1)[0] > 0.2,
-                dim=1,
-            )
-            orientation_fallen = self._robot.data.projected_gravity_b[:, 2] > -0.5
-
-            # Count different termination types
-            log_terms["Episode_Termination/contact"] = int(
-                torch.sum(body_contact[env_ids] & self.reset_terminated[env_ids]).item()
-            )
-            log_terms["Episode_Termination/orientation"] = int(
-                torch.sum(orientation_fallen[env_ids] & self.reset_terminated[env_ids]).item()
-            )
-        else:
-            log_terms["Episode_Termination/contact"] = 0
-            log_terms["Episode_Termination/orientation"] = 0
-        log_terms["Episode_Termination/time_out"] = int(torch.count_nonzero(self.reset_time_outs[env_ids]).item())
-        self.extras["log"].update(log_terms)
+        self.extras['log'] = log
 
     # ==========================================
     # Domain Randomization Methods

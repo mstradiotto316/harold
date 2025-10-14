@@ -77,23 +77,23 @@ HAROLD_V4_CFG = ArticulationCfg(
         )
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 0.22),
+        pos=(0.0, 0.0, 0.24),
         rot=(1.0, 0.0, 0.0, 0.0), 
         joint_pos={
-            'fl_shoulder_joint': 0.0,
-            'fr_shoulder_joint': 0.0,
-            'bl_shoulder_joint': 0.0,
-            'br_shoulder_joint': 0.0,
-            
-            'fl_thigh_joint': 0.3,
-            'fr_thigh_joint': 0.3,
-            'bl_thigh_joint': 0.3,
-            'br_thigh_joint': 0.3,
+            'fl_shoulder_joint': 0.20,
+            'fr_shoulder_joint': -0.20,
+            'bl_shoulder_joint': 0.20,
+            'br_shoulder_joint': -0.20,
 
-            'fl_calf_joint': -0.75,
-            'fr_calf_joint': -0.75,
-            'bl_calf_joint': -0.75,
-            'br_calf_joint': -0.75,
+            'fl_thigh_joint': 0.70,
+            'fr_thigh_joint': 0.70,
+            'bl_thigh_joint': 0.70,
+            'br_thigh_joint': 0.70,
+
+            'fl_calf_joint': -1.40,
+            'fr_calf_joint': -1.40,
+            'bl_calf_joint': -1.40,
+            'br_calf_joint': -1.40,
         }
     ),
 

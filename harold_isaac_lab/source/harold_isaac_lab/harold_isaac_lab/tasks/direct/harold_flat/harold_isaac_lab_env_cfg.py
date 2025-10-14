@@ -8,16 +8,11 @@ from isaaclab.sim import SimulationCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.envs.common import ViewerCfg
 from isaaclab.utils.noise import GaussianNoiseCfg
-import os
 import math
 
 from .harold import HAROLD_V4_CFG
 from isaaclab.terrains import TerrainGeneratorCfg
 from isaaclab.terrains.trimesh import MeshPlaneTerrainCfg
-
-# Phase-0 gating (forward-only curriculum and simplified dynamics)
-PHASE0_FORWARD = os.getenv("HAROLD_PHASE0_FORWARD", "0") == "1"
-
 
 # Flat terrain configuration for Harold's locomotion training
 HAROLD_FLAT_TERRAIN_CFG = TerrainGeneratorCfg(
@@ -39,22 +34,17 @@ HAROLD_FLAT_TERRAIN_CFG = TerrainGeneratorCfg(
 
 @configclass
 class RewardsCfg:
-    """Reward function weights matching the rough-terrain task (flat terrain variant)."""
+    """Minimal reward structure for Phase-0 straight walking."""
 
-    # === PRIMARY LOCOMOTION OBJECTIVES (Positive Rewards) ===
-    track_xy_lin_commands: float = 80   # Primary: forward/lateral velocity tracking
-    track_yaw_commands: float = 2       # Turning ability; suppress spin drift
-    height_reward: float = 1.5          # Maintain target body height
-                                        # Reward shape: exp(-((max(|err|-tol,0)/sigma)^2))
+    progress_forward: float = 60.0      # Pay only for forward progress
+    upright_reward: float = 8.0         # Keep gravity vector aligned with body Z
+    height_reward: float = 3.0          # Maintain nominal body height
+    torque_penalty: float = -0.005      # Gentle energy regularizer
+    lat_vel_penalty: float = 0.0        # Optional: discourage lateral skating
+    yaw_rate_penalty: float = 0.0       # Optional: discourage spinning
+
     height_tolerance: float = 0.02      # |height_error| tolerated before penalty (m)
     height_sigma: float = 0.05          # Controls falloff beyond tolerance (m)
-    feet_air_time: float = 8            # Gait rhythm; reduced to avoid spiky dominance
-    optimal_air_time: float = 0.25      # s - target time a foot should stay in air before contact
-    alive_bonus: float = 0.0            # Per-step survival bonus to discourage early resets
-    termination_penalty: float = -15.0  # Applied on failure termination (not on timeout)
-
-    # === SECONDARY OBJECTIVES (Penalties) ===
-    torque_penalty: float = -0.005      # Quadratic torque penalty (gentle regularizer)
 
 
 @configclass
@@ -62,15 +52,15 @@ class GaitCfg:
     """Gait parameters matched to the rough-terrain setup."""
 
     frequency: float = 2.0
-    target_height: float = 0.22
+    target_height: float = 0.24
 
 
 @configclass
 class TerminationCfg:
     """Episode termination thresholds (shared with rough terrain)."""
 
-    base_contact_force_threshold: float = math.inf if PHASE0_FORWARD else 1.0
-    undesired_contact_force_threshold: float = math.inf if PHASE0_FORWARD else 10.0
+    base_contact_force_threshold: float = math.inf
+    undesired_contact_force_threshold: float = math.inf
     orientation_threshold: float = -0.5
 
 @configclass
@@ -100,12 +90,12 @@ class DomainRandomizationCfg:
     """
     
     # === MASTER SWITCHES ===
-    enable_randomization: bool = False if PHASE0_FORWARD else True  # Simpler dynamics during Phase-0
-    randomize_on_reset: bool = True           # Apply randomization at episode reset
-    randomize_per_step: bool = True           # Apply per-step randomization (noise)
+    enable_randomization: bool = False
+    randomize_on_reset: bool = False
+    randomize_per_step: bool = False
     
     # === PHYSICS RANDOMIZATION ===
-    randomize_friction: bool = False if PHASE0_FORWARD else True  # Keep friction stable in Phase-0
+    randomize_friction: bool = False  # Keep friction stable in Phase-0
     friction_range: tuple = (0.4, 1.0)        # Range for static/dynamic friction (match rough task)
                                               # Base: 0.7, Range allows slippery to grippy surfaces
     
@@ -199,7 +189,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
     episode_length_s = 30.0
     decimation = 9
-    action_scale = 1.0
+    action_scale = 0.5
 
     # Space definitions
     observation_space = 48
@@ -207,7 +197,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     state_space = 0
 
     # Action filtering (EMA low-pass)
-    action_filter_beta: float = 0.15 if PHASE0_FORWARD else 0.4  # smoother actions to reduce jitter
+    action_filter_beta: float = 0.18  # smoother actions to reduce jitter
 
     # Reward configuration
     rewards = RewardsCfg()
@@ -302,7 +292,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
         prim_path="/World/envs/env_.*/Robot/.*",
         history_length=3,
         update_period=0.005,            # 5ms update rate (much higher frequency than 0.05s)
-        track_air_time=True             # Enable air-time tracking for feet_air_time reward
+        track_air_time=False            # Disabled for minimal reward setup
     )
 
     # === Joint configuration (moved from env implementation) ===

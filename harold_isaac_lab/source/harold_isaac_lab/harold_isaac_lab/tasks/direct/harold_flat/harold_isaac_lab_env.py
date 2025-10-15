@@ -578,7 +578,23 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         vy_w = self._robot.data.root_lin_vel_w[:, 1]
         wz_b = self._robot.data.root_ang_vel_b[:, 2]
         gz_raw = self._robot.data.projected_gravity_b[:, 2]
-        gz = (-gz_raw).clamp(0.0, 1.0)
+        upright = (-gz_raw).clamp(0.0, 1.0)
+
+        progress_forward = (
+            rewards_cfg.progress_forward
+            * torch.clamp(vx_w, min=0.0)
+            * torch.square(upright)
+        )
+
+        net_contact_forces = getattr(self._contact_sensor.data, "net_forces_w", None)
+        if net_contact_forces is None:
+            net_contact_forces = self._contact_sensor.data.net_forces_w_history[:, 0]
+        undesired_contact_forces = torch.abs(
+            net_contact_forces[:, self._undesired_contact_body_ids, 2]
+        )
+        nonfoot_F = undesired_contact_forces.sum(dim=1)
+        foot_only = (nonfoot_F < 5.0).float()
+        progress_forward = progress_forward * foot_only
 
         # Height above terrain from ray caster, with a body-height fallback.
         pos_z = self._height_scanner.data.pos_w[:, 2].unsqueeze(1)
@@ -600,13 +616,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         adjusted_error = torch.relu(torch.abs(height_error) - tolerance)
 
         rewards = {
-            "progress_forward": torch.clamp(vx_w, min=0.0) * rewards_cfg.progress_forward,
-            "upright_reward": gz * rewards_cfg.upright_reward,
+            "progress_forward": progress_forward,
+            "upright_reward": upright * rewards_cfg.upright_reward,
             "height_reward": torch.exp(-torch.square(adjusted_error / sigma)) * rewards_cfg.height_reward,
             "torque_penalty": torch.sum(torch.square(self._robot.data.applied_torque), dim=1)
             * rewards_cfg.torque_penalty,
-            "lat_vel_penalty": -torch.square(vy_w) * rewards_cfg.lat_vel_penalty,
-            "yaw_rate_penalty": -torch.square(wz_b) * rewards_cfg.yaw_rate_penalty,
+            "lat_vel_penalty": -rewards_cfg.lat_vel_penalty * torch.square(vy_w),
+            "yaw_rate_penalty": -rewards_cfg.yaw_rate_penalty * torch.square(wz_b),
         }
 
         total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
@@ -616,8 +632,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         # Telemetry accumulators for episode logging.
         self._episode_sums["vx_w_mean"] += vx_w
-        self._episode_sums["vy_w_mean"] += vy_w
-        self._episode_sums["upright_mean"] += gz
+        self._episode_sums["vy_w_mean"] += torch.abs(vy_w)
+        self._episode_sums["upright_mean"] += upright
         self._episode_sums["height_err_abs"] += torch.abs(height_error)
 
         return total_reward

@@ -2,6 +2,7 @@
 # WHEN USING SKRL TRAINING LIBRARY
 Train model:
 python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1024
+HAROLD_PHASE0_FORWARD=1 python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1024
 
 Train model in headless mode with video recording:
 python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 4096 --headless --video --video_length 250 --video_interval 6400

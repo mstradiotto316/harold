@@ -40,8 +40,8 @@ class RewardsCfg:
     upright_reward: float = 8.0         # Keep gravity vector aligned with body Z
     height_reward: float = 3.0          # Maintain nominal body height
     torque_penalty: float = -0.005      # Gentle energy regularizer
-    lat_vel_penalty: float = 40.0       # Penalize sideways skating
-    yaw_rate_penalty: float = 1.0       # Dampen gratuitous spinning
+    lat_vel_penalty: float = 80.0       # Penalize sideways skating
+    yaw_rate_penalty: float = 2.0       # Dampen gratuitous spinning
 
     height_tolerance: float = 0.02      # |height_error| tolerated before penalty (m)
     height_sigma: float = 0.05          # Controls falloff beyond tolerance (m)

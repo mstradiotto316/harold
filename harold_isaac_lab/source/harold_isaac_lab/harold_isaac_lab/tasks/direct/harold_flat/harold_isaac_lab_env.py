@@ -195,6 +195,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "torque_penalty",
             "lat_vel_penalty",
             "yaw_rate_penalty",
+            "front_slip_penalty",
         ]
         self._metric_keys = [
             "vx_w_mean",
@@ -203,6 +204,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "height_err_abs",
             "front_slip_mean",
             "rear_contact_frac",
+            "f_slip_mean",
+            "f_rear_mean",
         ]
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
@@ -611,19 +614,20 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         feet_contact_forces = torch.linalg.norm(net_contact_forces[:, self._feet_ids], dim=-1)
         feet_contact = feet_contact_forces > 2.0
 
-        front_contact = torch.any(feet_contact[:, self._front_foot_slots], dim=1)
-        rear_contact = torch.any(feet_contact[:, self._rear_foot_slots], dim=1)
+        front_contact_bool = torch.any(feet_contact[:, self._front_foot_slots], dim=1)
+        rear_contact_bool = torch.any(feet_contact[:, self._rear_foot_slots], dim=1)
 
         v_feet_xy = self._robot.data.body_lin_vel_w[:, self._feet_ids, :2]
         slip_xy = torch.linalg.norm(v_feet_xy, dim=-1)
         front_mask = feet_contact[:, self._front_foot_slots].float()
         front_cnt = front_mask.sum(dim=1).clamp_min(1e-6)
         front_slip = (slip_xy[:, self._front_foot_slots] * front_mask).sum(dim=1) / front_cnt
+        front_contact = front_contact_bool.float()
 
-        SLIP_THR = 0.04
-        gate_rear = rear_contact.float()
-        gate_slip_front = (front_slip < SLIP_THR).float()
-        progress_forward = progress_forward * gate_rear * gate_slip_front
+        SLIP_THR = 0.03
+        f_slip = 1.0 / (1.0 + torch.square(front_slip / SLIP_THR))
+        f_rear = 0.3 + 0.7 * rear_contact_bool.float()
+        progress_forward = progress_forward * f_slip * f_rear
 
         undesired_contact_forces = torch.abs(
             net_contact_forces[:, self._undesired_contact_body_ids, 2]
@@ -659,6 +663,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             * rewards_cfg.torque_penalty,
             "lat_vel_penalty": -rewards_cfg.lat_vel_penalty * torch.square(vy_w),
             "yaw_rate_penalty": -rewards_cfg.yaw_rate_penalty * torch.square(wz_b),
+            "front_slip_penalty": -4.0 * torch.square(front_slip) * front_contact,
         }
 
         total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
@@ -672,7 +677,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._episode_sums["upright_mean"] += upright
         self._episode_sums["height_err_abs"] += torch.abs(height_error)
         self._episode_sums["front_slip_mean"] += front_slip
-        self._episode_sums["rear_contact_frac"] += gate_rear
+        self._episode_sums["rear_contact_frac"] += rear_contact_bool.float()
+        self._episode_sums["f_slip_mean"] += f_slip
+        self._episode_sums["f_rear_mean"] += f_rear
 
         return total_reward
 

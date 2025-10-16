@@ -37,10 +37,10 @@ class RewardsCfg:
     """Minimal reward structure for Phase-0 straight walking."""
 
     progress_forward: float = 60.0      # Pay only for forward progress
-    upright_reward: float = 8.0         # Keep gravity vector aligned with body Z
+    upright_reward: float = 3.0         # Keep gravity vector aligned with body Z
     height_reward: float = 3.0          # Maintain nominal body height
     torque_penalty: float = -0.005      # Gentle energy regularizer
-    lat_vel_penalty: float = 80.0       # Penalize sideways skating
+    lat_vel_penalty: float = 30.0       # Penalize sideways skating
     yaw_rate_penalty: float = 2.0       # Dampen gratuitous spinning
 
     height_tolerance: float = 0.02      # |height_error| tolerated before penalty (m)

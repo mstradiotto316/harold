@@ -95,7 +95,24 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._base_id, _ = self._contact_sensor.find_bodies(".*body")
         
         # Get feet for gait analysis and air time rewards (Harold's feet are calf ends)
-        self._feet_ids, _ = self._contact_sensor.find_bodies(".*calf")
+        self._feet_ids, foot_names = self._contact_sensor.find_bodies(".*calf")
+        foot_names_lower = [str(name).lower() for name in foot_names]
+        desired_order = ("fl_calf", "fr_calf", "bl_calf", "br_calf")
+        reorder_slots: list[int] = []
+        for expected in desired_order:
+            matches = [i for i, name in enumerate(foot_names_lower) if expected in name]
+            if len(matches) != 1:
+                raise RuntimeError(
+                    f"Expected exactly one '{expected}' calf in contact sensor results, found {matches} from {foot_names}."
+                )
+            reorder_slots.append(matches[0])
+        if isinstance(self._feet_ids, torch.Tensor):
+            index_tensor = torch.tensor(reorder_slots, device=self._feet_ids.device, dtype=torch.long)
+            self._feet_ids = self._feet_ids.index_select(0, index_tensor)
+        else:
+            self._feet_ids = [self._feet_ids[i] for i in reorder_slots]
+        self._front_foot_slots = torch.tensor((0, 1), device=self.device, dtype=torch.long)
+        self._rear_foot_slots = torch.tensor((2, 3), device=self.device, dtype=torch.long)
         
         # Get undesired contact bodies (body, thighs, shoulders should not touch ground)
         self._undesired_contact_body_ids, _ = self._contact_sensor.find_bodies(".*(body|thigh|shoulder)")
@@ -184,6 +201,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "vy_w_mean",
             "upright_mean",
             "height_err_abs",
+            "front_slip_mean",
+            "rear_contact_frac",
         ]
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
@@ -589,6 +608,23 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         net_contact_forces = getattr(self._contact_sensor.data, "net_forces_w", None)
         if net_contact_forces is None:
             net_contact_forces = self._contact_sensor.data.net_forces_w_history[:, 0]
+        feet_contact_forces = torch.linalg.norm(net_contact_forces[:, self._feet_ids], dim=-1)
+        feet_contact = feet_contact_forces > 2.0
+
+        front_contact = torch.any(feet_contact[:, self._front_foot_slots], dim=1)
+        rear_contact = torch.any(feet_contact[:, self._rear_foot_slots], dim=1)
+
+        v_feet_xy = self._robot.data.body_lin_vel_w[:, self._feet_ids, :2]
+        slip_xy = torch.linalg.norm(v_feet_xy, dim=-1)
+        front_mask = feet_contact[:, self._front_foot_slots].float()
+        front_cnt = front_mask.sum(dim=1).clamp_min(1e-6)
+        front_slip = (slip_xy[:, self._front_foot_slots] * front_mask).sum(dim=1) / front_cnt
+
+        SLIP_THR = 0.04
+        gate_rear = rear_contact.float()
+        gate_slip_front = (front_slip < SLIP_THR).float()
+        progress_forward = progress_forward * gate_rear * gate_slip_front
+
         undesired_contact_forces = torch.abs(
             net_contact_forces[:, self._undesired_contact_body_ids, 2]
         )
@@ -635,6 +671,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._episode_sums["vy_w_mean"] += torch.abs(vy_w)
         self._episode_sums["upright_mean"] += upright
         self._episode_sums["height_err_abs"] += torch.abs(height_error)
+        self._episode_sums["front_slip_mean"] += front_slip
+        self._episode_sums["rear_contact_frac"] += gate_rear
 
         return total_reward
 

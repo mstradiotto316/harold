@@ -6,7 +6,7 @@ models:
     class: GaussianMixin
     clip_actions: False
     clip_log_std: True
-    min_log_std: -20.0
+    min_log_std: -0.43   # floor std ≈ 0.65 to preserve exploration during Phase-0
     max_log_std: 2.0
     initial_log_std: 0.0
     network:

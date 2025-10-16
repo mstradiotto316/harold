@@ -205,7 +205,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "front_slip_mean",
             "rear_contact_frac",
             "f_slip_mean",
-            "f_rear_mean",
+            "stance_rear_frac_loose",
         ]
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
@@ -616,6 +616,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         front_contact_bool = torch.any(feet_contact[:, self._front_foot_slots], dim=1)
         rear_contact_bool = torch.any(feet_contact[:, self._rear_foot_slots], dim=1)
+        rear_contact_loose = torch.any(
+            (feet_contact_forces[:, self._rear_foot_slots] > 0.5), dim=1
+        )
 
         v_feet_xy = self._robot.data.body_lin_vel_w[:, self._feet_ids, :2]
         slip_xy = torch.linalg.norm(v_feet_xy, dim=-1)
@@ -626,8 +629,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         SLIP_THR = 0.03
         f_slip = 1.0 / (1.0 + torch.square(front_slip / SLIP_THR))
-        f_rear = 0.3 + 0.7 * rear_contact_bool.float()
-        progress_forward = progress_forward * f_slip * f_rear
+        progress_forward = progress_forward * f_slip
 
         undesired_contact_forces = torch.abs(
             net_contact_forces[:, self._undesired_contact_body_ids, 2]
@@ -679,7 +681,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._episode_sums["front_slip_mean"] += front_slip
         self._episode_sums["rear_contact_frac"] += rear_contact_bool.float()
         self._episode_sums["f_slip_mean"] += f_slip
-        self._episode_sums["f_rear_mean"] += f_rear
+        self._episode_sums["stance_rear_frac_loose"] += rear_contact_loose.float()
 
         return total_reward
 

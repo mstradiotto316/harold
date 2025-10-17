@@ -90,6 +90,20 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         print("Joint Positions: ", torch.round(self._robot.data.joint_pos[0] * 100) / 100)
         print()
 
+        default_mass_tensor = self._robot.data.default_mass
+        if default_mass_tensor.ndim == 2:
+            total_mass = default_mass_tensor.sum(dim=1)
+        else:
+            scalar_mass = default_mass_tensor.flatten().sum()
+            total_mass = torch.full(
+                (self.num_envs,),
+                float(scalar_mass.item() if isinstance(scalar_mass, torch.Tensor) else scalar_mass),
+                device=self.device,
+            )
+        if total_mass.numel() == 1 and self.num_envs > 1:
+            total_mass = total_mass.repeat(self.num_envs)
+        self._robot_total_mass = total_mass.detach().clone().to(self.device)
+
         # --- Contact Sensor Body ID Extraction (Isaac Lab Standard Pattern) ---
         # Get base body for termination detection
         self._base_id, _ = self._contact_sensor.find_bodies(".*body")
@@ -196,6 +210,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "lat_vel_penalty",
             "yaw_rate_penalty",
             "front_slip_penalty",
+            "body_contact_penalty",
         ]
         self._metric_keys = [
             "vx_w_mean",
@@ -206,6 +221,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "rear_contact_frac",
             "f_slip_mean",
             "stance_rear_frac_loose",
+            "progress_pos",
+            "progress_neg",
         ]
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
@@ -596,17 +613,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         rewards_cfg = self.cfg.rewards
 
-        vx_w = self._robot.data.root_lin_vel_w[:, 0]
+        vx = self._robot.data.root_lin_vel_w[:, 0]
         vy_w = self._robot.data.root_lin_vel_w[:, 1]
         wz_b = self._robot.data.root_ang_vel_b[:, 2]
         gz_raw = self._robot.data.projected_gravity_b[:, 2]
         upright = (-gz_raw).clamp(0.0, 1.0)
-
-        progress_forward = (
-            rewards_cfg.progress_forward
-            * torch.clamp(vx_w, min=0.0)
-            * torch.square(upright)
-        )
 
         net_contact_forces = getattr(self._contact_sensor.data, "net_forces_w", None)
         if net_contact_forces is None:
@@ -629,14 +640,19 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         SLIP_THR = 0.03
         f_slip = 1.0 / (1.0 + torch.square(front_slip / SLIP_THR))
-        progress_forward = progress_forward * f_slip
+        upright_sq = torch.square(upright)
+        vx_forward = torch.relu(vx)
+        vx_backward = torch.relu(-vx)
+        progress_pos = rewards_cfg.progress_forward_pos * vx_forward * upright_sq * f_slip
+        progress_neg = rewards_cfg.progress_forward_neg * vx_backward * upright_sq * f_slip
+        progress_forward = progress_pos - progress_neg
 
         undesired_contact_forces = torch.abs(
             net_contact_forces[:, self._undesired_contact_body_ids, 2]
         )
         nonfoot_F = undesired_contact_forces.sum(dim=1)
-        foot_only = (nonfoot_F < 5.0).float()
-        progress_forward = progress_forward * foot_only
+        denom_body = 9.81 * torch.clamp(self._robot_total_mass, min=1e-6)
+        body_contact_penalty = -0.5 * torch.relu(nonfoot_F - 8.0) / denom_body
 
         # Height above terrain from ray caster, with a body-height fallback.
         pos_z = self._height_scanner.data.pos_w[:, 2].unsqueeze(1)
@@ -666,6 +682,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "lat_vel_penalty": -rewards_cfg.lat_vel_penalty * torch.square(vy_w),
             "yaw_rate_penalty": -rewards_cfg.yaw_rate_penalty * torch.square(wz_b),
             "front_slip_penalty": -4.0 * torch.square(front_slip) * front_contact,
+            "body_contact_penalty": body_contact_penalty,
         }
 
         total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
@@ -674,7 +691,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             self._episode_sums[key] += value
 
         # Telemetry accumulators for episode logging.
-        self._episode_sums["vx_w_mean"] += vx_w
+        self._episode_sums["vx_w_mean"] += vx
         self._episode_sums["vy_w_mean"] += torch.abs(vy_w)
         self._episode_sums["upright_mean"] += upright
         self._episode_sums["height_err_abs"] += torch.abs(height_error)
@@ -682,6 +699,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._episode_sums["rear_contact_frac"] += rear_contact_bool.float()
         self._episode_sums["f_slip_mean"] += f_slip
         self._episode_sums["stance_rear_frac_loose"] += rear_contact_loose.float()
+        self._episode_sums["progress_pos"] += progress_pos
+        self._episode_sums["progress_neg"] += progress_neg
 
         return total_reward
 

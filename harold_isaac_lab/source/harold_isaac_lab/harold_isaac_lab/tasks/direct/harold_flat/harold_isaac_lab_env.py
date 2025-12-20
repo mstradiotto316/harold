@@ -211,6 +211,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "yaw_rate_penalty",
             "front_slip_penalty",
             "body_contact_penalty",
+            "rear_support_bonus",
         ]
         self._metric_keys = [
             "vx_w_mean",
@@ -223,6 +224,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "stance_rear_frac_loose",
             "progress_pos",
             "progress_neg",
+            "rear_support_bonus_mean",
         ]
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
@@ -652,7 +654,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         )
         nonfoot_F = undesired_contact_forces.sum(dim=1)
         denom_body = 9.81 * torch.clamp(self._robot_total_mass, min=1e-6)
-        body_contact_penalty = -0.5 * torch.relu(nonfoot_F - 8.0) / denom_body
+        body_contact_penalty = -1.0 * torch.relu(nonfoot_F - 10.0) / denom_body
+
+        support_gate = (upright > 0.85).float()
+        rear_support = rear_contact_bool.float()
+        rear_support_bonus = rewards_cfg.rear_support_bonus * rear_support * support_gate
 
         # Height above terrain from ray caster, with a body-height fallback.
         pos_z = self._height_scanner.data.pos_w[:, 2].unsqueeze(1)
@@ -683,6 +689,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "yaw_rate_penalty": -rewards_cfg.yaw_rate_penalty * torch.square(wz_b),
             "front_slip_penalty": -4.0 * torch.square(front_slip) * front_contact,
             "body_contact_penalty": body_contact_penalty,
+            "rear_support_bonus": rear_support_bonus,
         }
 
         total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
@@ -701,6 +708,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._episode_sums["stance_rear_frac_loose"] += rear_contact_loose.float()
         self._episode_sums["progress_pos"] += progress_pos
         self._episode_sums["progress_neg"] += progress_neg
+        self._episode_sums["rear_support_bonus_mean"] += rear_support_bonus
 
         return total_reward
 

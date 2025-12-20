@@ -36,13 +36,14 @@ HAROLD_FLAT_TERRAIN_CFG = TerrainGeneratorCfg(
 class RewardsCfg:
     """Minimal reward structure for Phase-0 straight walking."""
 
-    progress_forward_pos: float = 60.0  # Reward forward velocity bursts
-    progress_forward_neg: float = 60.0  # Penalize backward velocity
-    upright_reward: float = 2.0         # Keep gravity vector aligned with body Z
-    height_reward: float = 4.5          # Maintain nominal body height
+    progress_forward_pos: float = 80.0  # Reward forward velocity bursts
+    progress_forward_neg: float = 80.0  # Penalize backward velocity
+    upright_reward: float = 1.8         # Keep gravity vector aligned with body Z
+    height_reward: float = 5.0          # Maintain nominal body height
     torque_penalty: float = -0.005      # Gentle energy regularizer
-    lat_vel_penalty: float = 15.0       # Penalize sideways skating
+    lat_vel_penalty: float = 12.0       # Penalize sideways skating
     yaw_rate_penalty: float = 1.0       # Dampen gratuitous spinning
+    rear_support_bonus: float = 0.6     # Encourage rear stance during progress
 
     height_tolerance: float = 0.02      # |height_error| tolerated before penalty (m)
     height_sigma: float = 0.045         # Controls falloff beyond tolerance (m)
@@ -53,7 +54,7 @@ class GaitCfg:
     """Gait parameters matched to the rough-terrain setup."""
 
     frequency: float = 2.0
-    target_height: float = 0.26
+    target_height: float = 0.275
 
 
 @configclass

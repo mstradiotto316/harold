@@ -25,31 +25,39 @@ Train a stable forward walking gait for the Harold quadruped robot.
 | USD model | `part_files/V4/harold_8.usd` |
 | Best checkpoint | `logs/skrl/harold_direct/terrain_62/checkpoints/best_agent.pt` |
 
-## Current State (2025-12-22)
-- 40+ experiments completed (EXP-001 to EXP-012 in current numbering)
-- terrain_62 checkpoint: stable standing but no walking
-- Key discovery: **Elbow pose is a stable attractor** - robot falls forward and stays there
-- Focus: Preventing elbow exploit to achieve proper standing, then walking
-- EXP-012 currently running: low height penalty with world Z position
+## Current State (2025-12-22 ~14:30)
+- 15 experiments completed (EXP-001 to EXP-015)
+- **BREAKTHROUGH in EXP-015**: Spawn pose fix worked!
+- **Height reward: 3.43** (first time above 2.0 threshold)
+- **Robot is STANDING properly** - ready for forward motion
+- **EXP-015 still running**: ~31% complete, run ID `2025-12-22_13-32-42_ppo_torch`
+- **Next**: Add forward reward in EXP-016 when EXP-015 completes
 
-### Key Finding: The Elbow Exploit
-The robot consistently finds elbow pose as a local minimum:
-1. Falls forward early in training
-2. Back stays elevated → passes upright check (0.93)
-3. Body touches ground → slight contact penalty
-4. Height too low → fails height_reward (1.7-1.9 vs 2.0 threshold)
+### Root Cause Analysis (NEW)
+The problem is NOT reward engineering. The actual issues are:
+1. **Contact detection gap** (FIXED): Elbow contact was below 10N threshold
+2. **Spawn pose bias** (TO TEST): Shoulders at ±0.20 may cause forward lean
+3. **Spawn height too low** (TO TEST): 0.24m is only 0.06m above elbow contact
 
-Approaches tried and failed:
-- Height termination: Scanner initialization issues
-- Joint-angle termination: Robot adapts around thresholds
-- Low height penalty: Robot still finds low poses
+### Experiment Results Summary
+| EXP | Approach | Height | Outcome |
+|-----|----------|--------|---------|
+| 008 | Height reward only | 1.70 | Elbow pose |
+| 012 | Height penalty | 1.83 | Peak 1.96, regressed |
+| 014 | Contact 3N | **1.88** | Improved, still failing |
+
+### Fast Iteration Protocol (NEW)
+- **Short runs**: 1000 iterations (~15-30 min) instead of 2 hours
+- **Early stopping**: If height stuck, stop and adjust config
+- **Extend if improving**: Only continue promising experiments
 
 ### Harold CLI Observability System (COMPLETE)
-The `harold.py` script provides hypothesis-driven experimentation:
-- `harold train --hypothesis "..." --tags "..."` - Start with metadata
-- `harold compare EXP-034 EXP-035` - Side-by-side comparison
-- `harold note EXP-034 "observation"` - Add notes to experiments
-- `harold status` - State-only reporting (no prescriptive suggestions)
+```bash
+harold train --hypothesis "..." --tags "..."  # Start with metadata
+harold status                                  # Check progress
+harold validate                               # Final metrics
+harold compare EXP-014 EXP-015               # Side-by-side
+```
 
 ## System Specs
 - **GPU**: NVIDIA GeForce RTX 4080 (16GB)

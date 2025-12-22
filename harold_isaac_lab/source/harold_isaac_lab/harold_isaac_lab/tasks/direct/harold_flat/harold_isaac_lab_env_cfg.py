@@ -41,13 +41,15 @@ class RewardsCfg:
     Now terminating episodes when height < 0.165m (60% of target).
     """
 
-    # Forward motion rewards (moderate - don't overwhelm stability)
-    progress_forward_pos: float = 5.0   # Start low, increase if stable
-    progress_forward_neg: float = 5.0   # Symmetric for now
+    # Forward motion rewards - EXP-019: Stronger forward incentive
+    # EXP-018 achieved vx=0.065, need to push over 0.1
+    progress_forward_pos: float = 40.0  # Increased from 25 to push vx over 0.1
+    progress_forward_neg: float = 5.0   # Moderate backward penalty
+    standing_penalty: float = -5.0      # Penalize near-zero velocity
 
-    # Stability rewards (HEIGHT DOMINANT to prevent elbow exploit)
-    upright_reward: float = 10.0        # Strong upright incentive
-    height_reward: float = 30.0         # DOMINANT - EXP-008: increased to 30 to incentivize standing
+    # Stability rewards (REDUCED - athletic crouch is acceptable)
+    upright_reward: float = 10.0        # Keep upright incentive
+    height_reward: float = 15.0         # Reduced from 30 - crouch is OK
 
     # Penalties
     torque_penalty: float = -0.005      # Gentle energy regularizer
@@ -89,7 +91,9 @@ class TerminationCfg:
     height_termination_warmup_steps: int = 20
     # Body contact termination: terminate if body/thigh/shoulder contact > threshold (N)
     # EXP-002: 10N kept body contact low (-0.04) but didn't prevent elbow pose
-    body_contact_threshold: float = 10.0
+    # EXP-013: Root cause - elbow contact ~5N per point, below 10N threshold = undetected
+    # Lowering to 3N should make elbow contact visible to the reward system
+    body_contact_threshold: float = 3.0
 
     # Joint-angle termination: detect elbow pose via front leg joint angles
     # EXP-009: thigh>1.0, calf>-0.8 too loose - robot still found elbow pose (height=1.50)
@@ -249,7 +253,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
 
     # viewer configuration - follow single robot for clear screenshots
     viewer = ViewerCfg(
-        eye=(2.0, 1.5, 0.3),      # Low side-angle view at robot height
+        eye=(1.0, 0.75, 0.45),    # Close-up view, elevated
         lookat=(0.0, 0.0, 0.12),  # Look at robot center
         origin_type="asset_root", # Follow robot's root position
         asset_name="robot",       # Matches prim_path ".../Robot"
@@ -283,9 +287,8 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
             dynamic_friction=1.0,
             restitution=0.0,
         ),
-        visual_material=sim_utils.MdlFileCfg(
-            mdl_path="{NVIDIA_NUCLEUS_DIR}/Materials/Base/Architecture/Shingles_01.mdl",
-            project_uvw=True,
+        visual_material=sim_utils.PreviewSurfaceCfg(
+            diffuse_color=(0.15, 0.2, 0.25),  # Dark blue-gray for contrast with white robot
         ),
         debug_vis=False,
     )

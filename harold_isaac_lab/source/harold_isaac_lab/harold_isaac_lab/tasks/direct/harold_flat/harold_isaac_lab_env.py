@@ -213,6 +213,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "body_contact_penalty",
             "rear_support_bonus",
             "low_height_penalty",
+            "standing_penalty",
         ]
         self._metric_keys = [
             "vx_w_mean",
@@ -299,7 +300,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         # --- Lighting Setup ---
         # Add a dome light to illuminate the scene
-        light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
+        light_cfg = sim_utils.DomeLightCfg(intensity=1000.0, color=(0.8, 0.85, 0.9))  # Softer light for better contrast
         light_cfg.func("/World/Light", light_cfg)
 
         # --- Visualization Markers Setup ---
@@ -650,6 +651,16 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         progress_neg = rewards_cfg.progress_forward_neg * vx_backward * upright_sq * f_slip
         progress_forward = progress_pos - progress_neg
 
+        # Standing penalty: penalize near-zero forward velocity to break standing equilibrium
+        # Only apply when upright (so robot doesn't get penalized while fallen)
+        standing_penalty_weight = getattr(rewards_cfg, 'standing_penalty', 0.0)
+        if standing_penalty_weight < 0.0:
+            # Penalty scales with how close to zero velocity (max at vx=0, decays as |vx| increases)
+            velocity_threshold = 0.05  # m/s - below this, apply penalty
+            standing_penalty = standing_penalty_weight * torch.exp(-torch.square(vx / velocity_threshold)) * upright_sq
+        else:
+            standing_penalty = torch.zeros_like(vx)
+
         undesired_contact_forces = torch.abs(
             net_contact_forces[:, self._undesired_contact_body_ids, 2]
         )
@@ -705,6 +716,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "body_contact_penalty": body_contact_penalty,
             "rear_support_bonus": rear_support_bonus,
             "low_height_penalty": low_height_penalty,
+            "standing_penalty": standing_penalty,
         }
 
         total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

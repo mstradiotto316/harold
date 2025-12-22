@@ -31,9 +31,9 @@ memory:
 
 agent:
   class: PPO
-  rollouts: 24               # (recently changed from 32) keep 32-step horizon for GAE; 32×4096≈131k samples/update
-  learning_epochs: 5         # increased for more passes per rollout
-  mini_batches: 4            # (recently changed from 16) keeps ~8k samples/mini-batch (same as original)
+  rollouts: 24               # 24×8192≈196k samples/update
+  learning_epochs: 5         # passes per rollout
+  mini_batches: 8            # 196k/8 ≈ 24k samples/mini-batch (adjusted for 8192 envs)
   discount_factor: 0.99      # gamma
   lambda: 0.95               # tau
   learning_rate: 1.0e-3      # higher LR for faster initial convergence
@@ -63,5 +63,5 @@ agent:
 
 trainer:
   class: SequentialTrainer
-  timesteps: 20000           # Short experiments (~30 min) for fast iteration
+  timesteps: 25000           # ~30 min experiments with 8192 envs at 15 it/s
   environment_info: log

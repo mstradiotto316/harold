@@ -452,14 +452,28 @@ def cmd_train(args):
         return 1
 
     # Build command
-    iterations = args.iterations or 4167  # ~100k timesteps
+    # Benchmark results (2025-12-22):
+    #   2048 envs: 20.9 it/s, 1.03M samples/s, GPU 4.0GB, RAM 7GB
+    #   4096 envs: 19.6 it/s, 1.93M samples/s, GPU 4.5GB, RAM 8GB
+    #   6144 envs: 16.6 it/s, 2.45M samples/s, GPU 5.0GB, RAM 8GB  <- RECOMMENDED
+    #   8192 envs: 14.7 it/s, 2.88M samples/s, GPU 5.5GB, RAM 9GB  <- Use when system is clean
+    # Note: Parallel experiments are 43% as efficient as single large runs
+    #
+    # Time calculation: timesteps = max_iterations × rollouts (24)
+    #   Example: 4167 iterations × 24 = 100k timesteps
+    #   At 16.6 it/s: 100k timesteps / 16.6 = ~100 min
+    num_envs = 6144
+    # Default: 1250 iterations × 24 rollouts = 30k timesteps (~30 min at 16.6 it/s)
+    # For longer experiments: --iterations 2500 (60 min), --iterations 4167 (100 min)
+    iterations = args.iterations or 1250
 
     cmd = [
         'python', str(PROJECT_ROOT / 'harold_isaac_lab' / 'scripts' / 'skrl' / 'train.py'),
         '--task=Template-Harold-Direct-flat-terrain-v0',
-        '--num_envs', '4096',
+        '--num_envs', str(num_envs),
         '--max_iterations', str(iterations),
         '--headless',
+        '--rendering_mode', 'performance',  # Optimize rendering for headless training
         '--video',
         '--video_interval', '6400',
         '--video_length', '250',
@@ -480,7 +494,7 @@ def cmd_train(args):
     # Run in background with nohup
     print(f"Starting Harold training in background...")
     print(f"  Iterations: {iterations}")
-    print(f"  Environments: 4096")
+    print(f"  Environments: {num_envs} (~{16.6 if num_envs == 6144 else 14.7 if num_envs == 8192 else 19.6} it/s)")
     print(f"  Video recording: enabled")
     if args.checkpoint:
         print(f"  Checkpoint: {args.checkpoint}")
@@ -853,7 +867,7 @@ def main():
 
     # train
     train_parser = subparsers.add_parser('train', help='Start training in background')
-    train_parser.add_argument('--iterations', type=int, help='Max iterations (default: 4167 = ~100k timesteps)')
+    train_parser.add_argument('--iterations', type=int, help='Max iterations (default: 1250 = ~30 min)')
     train_parser.add_argument('--checkpoint', type=str, help='Resume from checkpoint')
     train_parser.add_argument('--hypothesis', type=str, help='Hypothesis being tested (stored with experiment)')
     train_parser.add_argument('--tags', type=str, help='Comma-separated tags for categorization')

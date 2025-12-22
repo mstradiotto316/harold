@@ -1093,7 +1093,7 @@ The reward gradient from height is insufficient to overcome the stable local min
 
 ---
 
-### EXP-012: Low Height Penalty (Clamped, World Z) - IN PROGRESS
+### EXP-012: Low Height Penalty (Clamped, World Z) - COMPLETED (FAILED)
 - **Date**: 2025-12-22
 - **ID**: `2025-12-22_11-02-29_ppo_torch`
 - **Config**:
@@ -1101,18 +1101,88 @@ The reward gradient from height is insufficient to overcome the stable local min
   - `low_height_threshold: 0.20m`
   - Uses world Z position instead of height scanner
   - Height deficit clamped to max 0.10m (max penalty -5 per step)
+- **Duration**: ~1h 40min (100% of 4167 iterations)
 
-**Progress at 20 min:**
-| Metric | Value | Status |
-|--------|-------|--------|
-| episode_length | 354 | PASS |
-| height_reward | 1.68 | FAIL (< 2.0) |
-| body_contact | -0.01 | PASS |
-| vx_w_mean | 0.003 | FAIL |
-| reward_total | 1791 | Reasonable |
+**Final Results:**
+| Metric | Value | Threshold | Status |
+|--------|-------|-----------|--------|
+| episode_length | 358.5 | > 100 | PASS |
+| upright_mean | 0.938 | > 0.9 | PASS |
+| height_reward | 1.83 | > 2.0 | FAIL |
+| body_contact | -0.07 | > -0.1 | PASS |
+| vx_w_mean | -0.016 | > 0.1 | FAIL |
 
-**Observation**: Height stable at ~1.68, penalty not pushing higher.
-Training still in progress.
+**Height Progression During Training:**
+- 20 min (20%): 1.68
+- 30 min (27%): 1.90-1.96 (peak - nearly reached threshold!)
+- 76 min (76%): 1.74 (regressed)
+- 82 min (83%): 1.47-1.48 (settled into elbow pose)
+- 93 min (94%): 1.85 (oscillating)
+- Final: 1.83
+
+**Key Finding**: Low height penalty showed temporary improvement (peak ~1.96) but robot
+eventually settled back into elbow pose. The penalty creates a gradient but is not
+strong enough to escape the local minimum.
+
+**VERDICT**: FAILED - Robot in elbow pose (height 1.83 < 2.0)
+
+---
+
+### EXP-014: Lower Contact Threshold (3N) - COMPLETED (PARTIAL)
+- **Date**: 2025-12-22
+- **ID**: `2025-12-22_12-57-41_ppo_torch`
+- **Config**:
+  - `body_contact_threshold: 3.0` (lowered from 10.0)
+  - All other settings unchanged from EXP-012
+- **Duration**: ~28 min (1000 iterations)
+
+**Hypothesis**: Elbow contact (~5N per point) was below 10N threshold. Lower to 3N to make it detectable.
+
+**Final Results:**
+| Metric | EXP-012 (10N) | EXP-014 (3N) | Status |
+|--------|---------------|--------------|--------|
+| height_reward | 1.83 | **1.88** | FAIL (< 2.0) |
+| body_contact | -0.07 | **-0.09** | Improved detection |
+| episode_length | 358.5 | 358.2 | PASS |
+
+**Key Finding**: Contact detection improved (penalty more negative), height slightly better (+2.7%), but still not enough to prevent elbow pose. **Contact threshold alone is insufficient.**
+
+**VERDICT**: PARTIAL - Contact detection improved but robot still finds elbow pose
+
+---
+
+## Session 8 Summary (2025-12-22 Afternoon) - Root Cause Analysis
+
+### Meta-Learning: Process Was Flawed
+
+**12 experiments tried reward engineering** when the actual problem was:
+1. Body contact threshold too high (10N) - elbow contact undetected
+2. Spawn pose may bias forward lean
+3. We weren't monitoring learning dynamics (loss curves, trends)
+
+### What We Changed
+- Lowered `body_contact_threshold` from 10N to 3N
+- Shortened experiments to ~15-30 min (was 2 hours)
+- Now tracking height and contact trends during training
+
+### EXP-015: Spawn Pose Fix - IN PROGRESS (BREAKTHROUGH!)
+- **Date**: 2025-12-22
+- **ID**: `2025-12-22_13-32-42_ppo_torch`
+- **Config**:
+  - Spawn height: 0.24m → **0.30m**
+  - Shoulders: ±0.20 → **0.0** (neutral)
+  - Contact threshold: 3N (kept from EXP-014)
+
+**Progress at 31%:**
+| Metric | EXP-014 | EXP-015 | Status |
+|--------|---------|---------|--------|
+| height_reward | 1.88 | **3.43** | **PASS!** |
+| body_contact | -0.09 | -0.02 | PASS |
+| episode_length | 358 | 392 | PASS |
+| vx_w_mean | -0.04 | 0.00 | Need forward reward |
+
+**THIS IS THE BREAKTHROUGH** - Robot standing properly for first time!
+**Next**: Add forward reward in EXP-016
 
 ---
 

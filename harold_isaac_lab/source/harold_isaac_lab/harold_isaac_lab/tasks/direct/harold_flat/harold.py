@@ -78,13 +78,16 @@ HAROLD_V4_CFG = ArticulationCfg(
         )
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        pos=(0.0, 0.0, 0.24),
-        rot=(1.0, 0.0, 0.0, 0.0), 
+        # EXP-015: Raised spawn height (0.24 -> 0.30) and neutral shoulders (±0.20 -> 0.0)
+        # to test hypothesis that spawn pose causes forward lean
+        pos=(0.0, 0.0, 0.30),
+        rot=(1.0, 0.0, 0.0, 0.0),
         joint_pos={
-            'fl_shoulder_joint': 0.20,
-            'fr_shoulder_joint': -0.20,
-            'bl_shoulder_joint': 0.20,
-            'br_shoulder_joint': -0.20,
+            # Neutral shoulders - no lateral bias
+            'fl_shoulder_joint': 0.0,
+            'fr_shoulder_joint': 0.0,
+            'bl_shoulder_joint': 0.0,
+            'br_shoulder_joint': 0.0,
 
             'fl_thigh_joint': 0.70,
             'fr_thigh_joint': 0.70,

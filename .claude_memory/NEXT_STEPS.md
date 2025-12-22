@@ -12,113 +12,86 @@ python scripts/harold.py compare   # Compare recent experiments
 
 ---
 
-## Current Status (2025-12-22 ~12:00)
+## Current Status (2025-12-22 ~17:50)
 
-### EXP-012: IN PROGRESS - Low Height Penalty (Clamped)
+### EXP-021: IN PROGRESS
+- **Run ID**: `2025-12-22_17-48-06_ppo_torch`
+- **Config**: forward=40, standing_penalty=-5.0, height=15, upright=10
+- **Duration**: ~30 min (1250 iterations)
+- **Started**: 17:48
 
-**Run ID**: `2025-12-22_11-02-29_ppo_torch`
-**Approach**: Low height penalty with world Z position and clamp
+### Previous Session Progress (EXP-015 to EXP-019)
 
-**Config**:
-- `low_height_penalty: -50.0` per meter below threshold
-- `low_height_threshold: 0.20m`
-- Uses world Z position (not height scanner)
-- Deficit clamped to max 0.10m
+| EXP | Key Change | vx_w_mean | Height | Outcome |
+|-----|------------|-----------|--------|---------|
+| 015 | Spawn pose fix (0.30m, neutral) | ~0 | 4.08 | STANDING! |
+| 016 | forward=15 | ~0 | ~6.0 | Standing, no motion |
+| 017 | forward=25, height=15 | ~0 | ~1.5 | Height dominated |
+| 018 | standing_penalty=-5.0 | **0.065** | 1.13 | Motion emerging! |
+| 019 | forward=40 | **0.033** | 1.13 | Incomplete (wrong duration) |
 
-**Progress at 30 min (27%):**
-| Metric | Value | Status |
-|--------|-------|--------|
-| episode_length | 353 | PASS |
-| height_reward | 1.90 | FAIL (< 2.0) |
-| body_contact | -0.11 | FAIL (< -0.1) |
-| reward_total | 1792 | Reasonable |
-
-**Trend**: Height dropping (1.94 → 1.90), robot settling into elbow pose.
+**Key Finding**: Standing penalty (-5.0) successfully breaks standing equilibrium.
 
 ---
 
-## Summary of Approaches Tried
+## Experiment Queue (Current Session)
 
-| Approach | EXP | Result | Issue |
-|----------|-----|--------|-------|
-| Height termination | 003-007 | SANITY_FAIL | Height scanner init issues |
-| Height reward only | 008 | Height 1.70 | Local minimum (elbow) |
-| Joint-angle termination | 009-010 | Height 1.44-1.50 | Robot adapts around thresholds |
-| Height penalty (unclamped) | 011 | Reward -25M | Height scanner bad values |
-| Height penalty (clamped) | 012 | Height ~1.68 | IN PROGRESS |
+### EXP-021: Baseline with Correct Duration ← IN PROGRESS
+**Hypothesis**: Full 30-min run will reach vx > 0.1
+**Config**: Same as EXP-019
 
----
+### EXP-022: Stronger Standing Penalty
+**If**: EXP-021 vx < 0.1
+**Change**: `standing_penalty: -10.0` (was -5.0)
 
-## Key Insight: Elbow Pose is a Stable Attractor
+### EXP-023: Lower Height Reward
+**If**: Height dropping or vx stagnant
+**Change**: `height_reward: 10.0` (was 15.0)
 
-The robot consistently finds the elbow pose as a stable local minimum:
-1. Falls forward early in training
-2. Back stays elevated → passes upright check
-3. Body touches ground → slight contact penalty
-4. Height too low → fails height threshold
+### EXP-024: Higher Forward Reward
+**If**: Stable but slow motion
+**Change**: `progress_forward_pos: 50.0` (was 40.0)
 
-**Why it's hard to escape**:
-- Standing requires lifting body (energy cost + risk of falling)
-- Elbow pose is stable and avoids most termination conditions
-- Reward gradient from height_reward alone is insufficient
+### EXP-025-028: Iterate based on results
 
 ---
 
-## Recommended Next Approach: Curriculum from terrain_62
+## Benchmark Configuration
 
-**Hypothesis**: Start from a checkpoint that already knows how to stand, then add forward motion.
+| Duration | Iterations | Timesteps |
+|----------|------------|-----------|
+| 30 min   | 1250       | 30k       |
+| 60 min   | 2500       | 60k       |
+| 100 min  | 4167       | 100k      |
 
-**Config**:
+**harold.py defaults**: 6144 envs, 1250 iterations (30 min)
+
+---
+
+## Current Reward Configuration
+
 ```python
-checkpoint = "terrain_62/checkpoints/agent_128000.pt"
-height_threshold = 0.0  # No height termination
-body_contact_threshold = 5.0  # Aggressive
-forward_reward = 0.0  # Stability only first
-height_reward = 30.0
-low_height_penalty = -50.0
-low_height_threshold = 0.20
+# harold_isaac_lab_env_cfg.py - RewardsCfg
+progress_forward_pos: float = 40.0  # Strong forward incentive
+progress_forward_neg: float = 5.0   # Moderate backward penalty
+standing_penalty: float = -5.0      # Penalize near-zero velocity
+upright_reward: float = 10.0        # Keep upright
+height_reward: float = 15.0         # Reduced - crouch OK
 ```
-
-**Why this might work**:
-- terrain_62 already knows how to stand
-- Aggressive body contact will terminate if it falls
-- Low height penalty creates gradient toward standing
-- No forward reward initially (stability first)
-
----
-
-## Code Changes Made Today
-
-1. **Joint-angle termination** (disabled in current config):
-   - `elbow_pose_termination: bool` in TerminationCfg
-   - Checks front thigh/calf angles in `_get_dones()`
-
-2. **Low height penalty** (active in current config):
-   - `low_height_penalty: -50.0` in RewardsCfg
-   - `low_height_threshold: 0.20` in RewardsCfg
-   - Uses world Z position, clamped to 0.10m max deficit
-
-3. **Height termination warmup** (active):
-   - `height_termination_warmup_steps: 20` in TerminationCfg
-   - Skips height termination for first 20 steps
-
----
-
-## Key Files Modified
-
-| File | Changes |
-|------|---------|
-| `harold_isaac_lab_env_cfg.py` | Added elbow_pose_termination, low_height_penalty |
-| `harold_isaac_lab_env.py` | Implemented joint-angle termination, low height penalty |
 
 ---
 
 ## 5-Metric Validation Protocol
 
-| Priority | Metric | Threshold | Failure Mode |
-|----------|--------|-----------|--------------|
-| 1. SANITY | episode_length | > 100 | Robots dying immediately |
-| 2. Stability | upright_mean | > 0.9 | Falling over |
-| 3. Height | height_reward | > 2.0 | On elbows/collapsed |
-| 4. Contact | body_contact | > -0.1 | Body on ground |
-| 5. Walking | vx_w_mean | > 0.1 | Not walking |
+| Priority | Metric | Threshold | Status |
+|----------|--------|-----------|--------|
+| 1. SANITY | episode_length | > 100 | Must pass |
+| 2. Stability | upright_mean | > 0.9 | Must pass |
+| 3. Height | height_reward | > 1.0 | Acceptable (crouch OK) |
+| 4. Contact | body_contact | > -0.1 | Must pass |
+| 5. **Walking** | **vx_w_mean** | **> 0.1** | **PRIMARY GOAL** |
+
+---
+
+## Goal
+Make the robot walk forward in a straight line. Forward motion is emerging (vx=0.03-0.06). Need to push over 0.1 m/s threshold.

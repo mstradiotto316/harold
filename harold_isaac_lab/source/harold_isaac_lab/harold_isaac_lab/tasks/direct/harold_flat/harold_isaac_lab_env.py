@@ -713,14 +713,48 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         return total_reward
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Terminate only on orientation failure; keep episode timeouts."""
+        """Terminate on orientation failure, height, or body contact."""
 
         time_out = self.episode_length_buf >= self.max_episode_length - 1
         orientation_terminated = (
             self._robot.data.projected_gravity_b[:, 2]
             > self.cfg.termination.orientation_threshold
         )
-        terminated = orientation_terminated
+
+        # Height termination: use terrain-relative height
+        height_threshold = self.cfg.termination.height_threshold
+        if height_threshold > 0.0:
+            pos_z = self._robot.data.root_pos_w[:, 2].unsqueeze(1)
+            ray_z = self._height_scanner.data.ray_hits_w[..., 2]
+            valid_mask = torch.isfinite(ray_z)
+            height_samples = torch.where(valid_mask, pos_z - ray_z, torch.zeros_like(ray_z))
+            valid_counts = valid_mask.sum(dim=1)
+            current_height = self._robot.data.root_pos_w[:, 2].clone()
+            valid_envs = valid_counts > 0
+            if torch.any(valid_envs):
+                current_height[valid_envs] = (
+                    height_samples[valid_envs].sum(dim=1) / valid_counts[valid_envs].float()
+                )
+            height_terminated = current_height < height_threshold
+        else:
+            height_terminated = torch.zeros_like(orientation_terminated)
+
+        # Body contact termination: terminate if body/thigh/shoulder touches ground too hard
+        body_contact_threshold = self.cfg.termination.body_contact_threshold
+        if body_contact_threshold > 0.0 and body_contact_threshold < float('inf'):
+            net_contact_forces = getattr(self._contact_sensor.data, "net_forces_w", None)
+            if net_contact_forces is None:
+                net_contact_forces = self._contact_sensor.data.net_forces_w_history[:, 0]
+            # Sum of absolute Z-force on undesired contact bodies
+            undesired_contact_forces = torch.abs(
+                net_contact_forces[:, self._undesired_contact_body_ids, 2]
+            )
+            body_contact_force = undesired_contact_forces.sum(dim=1)
+            body_contact_terminated = body_contact_force > body_contact_threshold
+        else:
+            body_contact_terminated = torch.zeros_like(orientation_terminated)
+
+        terminated = orientation_terminated | height_terminated | body_contact_terminated
 
         return terminated, time_out
 

@@ -63,5 +63,5 @@ agent:
 
 trainer:
   class: SequentialTrainer
-  timesteps: 128000          # horizon_length * max_epochs (128 * 1000)
+  timesteps: 20000           # Short experiments (~30 min) for fast iteration
   environment_info: log

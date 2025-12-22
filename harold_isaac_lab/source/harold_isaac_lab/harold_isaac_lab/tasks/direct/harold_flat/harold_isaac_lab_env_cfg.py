@@ -34,16 +34,26 @@ HAROLD_FLAT_TERRAIN_CFG = TerrainGeneratorCfg(
 
 @configclass
 class RewardsCfg:
-    """Minimal reward structure for Phase-0 straight walking."""
+    """Reward structure for Phase-0: prioritize standing, then walking.
 
-    progress_forward_pos: float = 80.0  # Reward forward velocity bursts
-    progress_forward_neg: float = 80.0  # Penalize backward velocity
-    upright_reward: float = 1.8         # Keep gravity vector aligned with body Z
-    height_reward: float = 5.0          # Maintain nominal body height
+    EXP-036: Height-based termination to prevent elbow exploit.
+    EXP-034/035 showed height_reward=25.0 alone was insufficient.
+    Now terminating episodes when height < 0.165m (60% of target).
+    """
+
+    # Forward motion rewards (moderate - don't overwhelm stability)
+    progress_forward_pos: float = 5.0   # Start low, increase if stable
+    progress_forward_neg: float = 5.0   # Symmetric for now
+
+    # Stability rewards (HEIGHT DOMINANT to prevent elbow exploit)
+    upright_reward: float = 10.0        # Strong upright incentive
+    height_reward: float = 25.0         # DOMINANT - prevents falling on elbows
+
+    # Penalties
     torque_penalty: float = -0.005      # Gentle energy regularizer
     lat_vel_penalty: float = 12.0       # Penalize sideways skating
     yaw_rate_penalty: float = 1.0       # Dampen gratuitous spinning
-    rear_support_bonus: float = 0.6     # Encourage rear stance during progress
+    rear_support_bonus: float = 0.0     # Disabled - was encouraging standing
 
     height_tolerance: float = 0.02      # |height_error| tolerated before penalty (m)
     height_sigma: float = 0.045         # Controls falloff beyond tolerance (m)
@@ -64,6 +74,12 @@ class TerminationCfg:
     base_contact_force_threshold: float = math.inf
     undesired_contact_force_threshold: float = math.inf
     orientation_threshold: float = -0.5
+    # Height termination: DISABLED (spawn pose too low)
+    height_threshold: float = 0.0
+    # Body contact termination: terminate if body/thigh/shoulder contact > threshold (N)
+    # This prevents elbow exploit directly
+    # EXP-038: Lowered from 50N to 15N (robot was generating ~22N in elbow position)
+    body_contact_threshold: float = 15.0
 
 @configclass
 class DomainRandomizationCfg:
@@ -213,10 +229,13 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # Domain randomization configuration
     domain_randomization = DomainRandomizationCfg()
 
-    # viewer configuration (match original flat task view)
+    # viewer configuration - follow single robot for clear screenshots
     viewer = ViewerCfg(
-        eye=(0.0, 10.0, 2.0),
-        lookat=(0.0, 0.0, 0.0),
+        eye=(2.0, 1.5, 0.3),      # Low side-angle view at robot height
+        lookat=(0.0, 0.0, 0.12),  # Look at robot center
+        origin_type="asset_root", # Follow robot's root position
+        asset_name="robot",       # Matches prim_path ".../Robot"
+        env_index=0,              # Track environment 0
     )
 
     # simulation

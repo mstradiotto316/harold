@@ -202,6 +202,17 @@ Long training runs flood context with tqdm output. Always use `python scripts/ha
 
 ---
 
+## Research Analysis (Pro Models)
+
+To get experiment suggestions from an external research model:
+1. Copy the prompt from `.claude_memory/RESEARCH_PROMPT.md`
+2. Paste into a research model with full codebase access
+3. Receive analysis report with 5 ranked experiment suggestions
+
+The prompt guides the model to analyze 38+ experiments and suggest new approaches.
+
+---
+
 ## Hardware Constraints (Sim-to-Real)
 
 Before modifying simulation parameters, check `.claude_memory/HARDWARE_CONSTRAINTS.md` for:

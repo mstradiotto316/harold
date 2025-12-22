@@ -7,11 +7,12 @@ cd /home/matteo/Desktop/code_projects/harold
 source ~/Desktop/env_isaaclab/bin/activate
 python scripts/harold.py status    # Check current training status
 python scripts/harold.py validate  # Validate latest completed run
+python scripts/harold.py compare   # Compare recent experiments
 ```
 
 ---
 
-## Current Status (2025-12-22 ~11:30)
+## Current Status (2025-12-22 ~12:00)
 
 ### EXP-012: IN PROGRESS - Low Height Penalty (Clamped)
 
@@ -24,12 +25,15 @@ python scripts/harold.py validate  # Validate latest completed run
 - Uses world Z position (not height scanner)
 - Deficit clamped to max 0.10m
 
-**Progress at 20 min:**
+**Progress at 30 min (27%):**
 | Metric | Value | Status |
 |--------|-------|--------|
-| episode_length | 354 | PASS |
-| height_reward | 1.68 | FAIL (< 2.0) |
-| reward_total | 1791 | Reasonable |
+| episode_length | 353 | PASS |
+| height_reward | 1.90 | FAIL (< 2.0) |
+| body_contact | -0.11 | FAIL (< -0.1) |
+| reward_total | 1792 | Reasonable |
+
+**Trend**: Height dropping (1.94 → 1.90), robot settling into elbow pose.
 
 ---
 

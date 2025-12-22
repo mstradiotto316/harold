@@ -162,9 +162,11 @@ These are the physical robot targets used for sim-to-real context. They are not 
   - Mass: ~2.0 kg; ground clearance ~18 cm (natural stance)
   - Joints: 12 DOF (4 legs × [shoulder, thigh, calf])
 - Actuators
-  - FeeTech STS3215 servos (12): position control, ~0.1° resolution
-  - Torque: ~15 kg⋅cm nominal, higher at stall; TTL serial 1 Mbps
+  - FeeTech STS3215 servos (12): position control, 0.088° resolution (4096 steps/360°)
+  - Torque: 30 kg·cm (2.94 Nm) max @12V; TTL serial 1 Mbps
+  - Speed: 45 RPM max (4.71 rad/s) @12V
   - Feedback: position, velocity, load, temperature; built‑in limits
+  - Note: Simulation uses effort_limit=2.0 Nm (conservative margin below hardware max)
 - Controller
   - ESP32 MCU; host <-> ESP32 over USB serial 115200 baud
   - Control loop: ~200 Hz on MCU; safety monitoring and E‑stop support

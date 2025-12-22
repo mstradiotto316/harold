@@ -212,6 +212,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "front_slip_penalty",
             "body_contact_penalty",
             "rear_support_bonus",
+            "low_height_penalty",
         ]
         self._metric_keys = [
             "vx_w_mean",
@@ -679,6 +680,19 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         sigma = max(rewards_cfg.height_sigma, 1e-6)
         adjusted_error = torch.relu(torch.abs(height_error) - tolerance)
 
+        # Low height penalty: strong negative reward for being below threshold
+        # Use world Z position for reliability (flat terrain is at z=0)
+        low_height_penalty_val = getattr(rewards_cfg, 'low_height_penalty', 0.0)
+        low_height_threshold = getattr(rewards_cfg, 'low_height_threshold', 0.0)
+        if low_height_penalty_val < 0.0 and low_height_threshold > 0.0:
+            # Use world Z position for flat terrain (more reliable than height scanner)
+            world_z = self._robot.data.root_pos_w[:, 2]
+            # Penalty proportional to how far below threshold, clamped to max 0.1m deficit
+            height_deficit = torch.clamp(torch.relu(low_height_threshold - world_z), max=0.10)
+            low_height_penalty = low_height_penalty_val * height_deficit
+        else:
+            low_height_penalty = torch.zeros_like(current_height)
+
         rewards = {
             "progress_forward": progress_forward,
             "upright_reward": upright * rewards_cfg.upright_reward,
@@ -690,6 +704,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "front_slip_penalty": -4.0 * torch.square(front_slip) * front_contact,
             "body_contact_penalty": body_contact_penalty,
             "rear_support_bonus": rear_support_bonus,
+            "low_height_penalty": low_height_penalty,
         }
 
         total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
@@ -721,8 +736,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             > self.cfg.termination.orientation_threshold
         )
 
-        # Height termination: use terrain-relative height
+        # Height termination: use terrain-relative height with warmup period
         height_threshold = self.cfg.termination.height_threshold
+        warmup_steps = getattr(self.cfg.termination, 'height_termination_warmup_steps', 0)
         if height_threshold > 0.0:
             pos_z = self._robot.data.root_pos_w[:, 2].unsqueeze(1)
             ray_z = self._height_scanner.data.ray_hits_w[..., 2]
@@ -736,6 +752,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                     height_samples[valid_envs].sum(dim=1) / valid_counts[valid_envs].float()
                 )
             height_terminated = current_height < height_threshold
+            # Skip termination during warmup period (sensor initialization)
+            if warmup_steps > 0:
+                in_warmup = self.episode_length_buf < warmup_steps
+                height_terminated = height_terminated & ~in_warmup
         else:
             height_terminated = torch.zeros_like(orientation_terminated)
 
@@ -754,7 +774,26 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         else:
             body_contact_terminated = torch.zeros_like(orientation_terminated)
 
-        terminated = orientation_terminated | height_terminated | body_contact_terminated
+        # Elbow pose termination: detect via front leg joint angles
+        # Joint order: [shoulders(4), thighs(4), calves(4)]
+        # Front thighs: indices 4 (fl), 5 (fr); Front calves: indices 8 (fl), 9 (fr)
+        elbow_pose_terminated = torch.zeros_like(orientation_terminated)
+        if getattr(self.cfg.termination, 'elbow_pose_termination', False):
+            joint_pos = self._robot.data.joint_pos
+            front_thigh_threshold = self.cfg.termination.front_thigh_threshold
+            front_calf_threshold = self.cfg.termination.front_calf_threshold
+
+            # Check if EITHER front leg is in elbow pose (thigh extended AND calf unbent)
+            fl_elbow = (joint_pos[:, 4] > front_thigh_threshold) & (joint_pos[:, 8] > front_calf_threshold)
+            fr_elbow = (joint_pos[:, 5] > front_thigh_threshold) & (joint_pos[:, 9] > front_calf_threshold)
+            elbow_pose_terminated = fl_elbow | fr_elbow
+
+            # Apply warmup to avoid false positives during initialization
+            if warmup_steps > 0:
+                in_warmup = self.episode_length_buf < warmup_steps
+                elbow_pose_terminated = elbow_pose_terminated & ~in_warmup
+
+        terminated = orientation_terminated | height_terminated | body_contact_terminated | elbow_pose_terminated
 
         return terminated, time_out
 
@@ -829,13 +868,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         if len(env_ids) > 0:
             spacing = getattr(self.cfg.scene, 'env_spacing', 2.0)
-            cols = max(int(math.sqrt(max(self.num_envs - 1, 1))) + 1, 1)
+            cols = max(int(math.sqrt(self.num_envs)), 1)
             for env_id in env_ids:
                 env_idx = int(env_id)
-                if env_idx == 0:
-                    continue
-                row = (env_idx - 1) // cols
-                col = (env_idx - 1) % cols
+                row = env_idx // cols
+                col = env_idx % cols
                 origins[env_idx, 0] = row * spacing
                 origins[env_idx, 1] = col * spacing
 

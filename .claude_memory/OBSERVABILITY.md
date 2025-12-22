@@ -1,43 +1,93 @@
 # Harold Observability Protocol
 
-## CRITICAL: 5-Metric Hierarchical Validation
+## Design Philosophy
 
-**Lessons Learned (2025-12-21)**:
-1. I ran experiments for HOURS without realizing robots were dying immediately (3-timestep episodes)
-2. The metrics I was analyzing (vx_w_mean, upright_mean) were meaningless
-3. The root cause: Missing the most critical sanity check - **episode length**
-
----
-
-## The 5-Metric Protocol (Check in Order!)
-
-| Priority | Metric | Threshold | Failure Mode |
-|----------|--------|-----------|--------------|
-| **1. SANITY** | `Episode / Total timesteps (mean)` | **> 100** | Robots dying immediately (BUG!) |
-| 2. Stability | `Episode_Metric/upright_mean` | > 0.9 | Falling over |
-| 3. Height | `Episode_Reward/height_reward` | > 2.0 | On elbows/collapsed |
-| 4. Contact | `Episode_Reward/body_contact_penalty` | > -0.1 | Body on ground |
-| 5. Walking | `Episode_Metric/vx_w_mean` | > 0.1 m/s | Not walking |
-
-**CRITICAL**: If metric #1 (episode length) fails, ALL OTHER METRICS ARE INVALID.
+This observability system follows Ousterhout's "A Philosophy of Software Design":
+- **Deep Module**: `harold.py` hides TensorBoard complexity behind simple commands
+- **Information Hiding**: Agents never see event file paths or metric tag names
+- **Define Errors Out of Existence**: Missing manifests auto-generated; partial runs return useful data
+- **State-Only Reporting**: Reports facts without prescriptive suggestions
 
 ---
 
-## Required: Run Validator After EVERY Experiment
+## Harold CLI Commands
 
 ```bash
 source ~/Desktop/env_isaaclab/bin/activate
 cd /home/matteo/Desktop/code_projects/harold
 
-python scripts/validate_training.py           # Validate latest run
-python scripts/validate_training.py <run_id>  # Validate specific run
-python scripts/validate_training.py --list    # List recent runs
+# Start experiment with metadata (hypothesis-driven workflow)
+python scripts/harold.py train --hypothesis "Lower threshold (10N) prevents elbow exploit" \
+                               --tags "body_contact,elbow_fix"
+
+# Check current status (state-only, no NEXT suggestions)
+python scripts/harold.py status              # Current run with metrics
+python scripts/harold.py status --json       # Machine-readable output
+
+# Validate a run (by alias, directory name, or path)
+python scripts/harold.py validate            # Latest run
+python scripts/harold.py validate EXP-034    # By experiment alias
+python scripts/harold.py validate <run_id>   # By directory name
+
+# List recent runs
+python scripts/harold.py runs                # Last 10 with status
+python scripts/harold.py runs --hypothesis   # Include hypothesis for each
+
+# Compare experiments side-by-side (essential for hypothesis-driven work)
+python scripts/harold.py compare EXP-034 EXP-035  # Specific experiments
+python scripts/harold.py compare                  # Last 5 experiments
+python scripts/harold.py compare --tag forward_motion  # All with tag
+
+# Add observations to experiments
+python scripts/harold.py note EXP-034 "Robot walked at 40-80% then regressed"
 ```
 
 **Exit codes:**
-- `0`: All metrics pass (or partial success)
-- `1`: Some metrics failing
-- `2`: SANITY CHECK FAILED - Do not trust other metrics
+- `0`: All metrics pass (robot walking)
+- `1`: Partial (standing but not walking)
+- `2`: Failing (on elbows, fallen)
+- `3`: Sanity failure (episodes too short)
+- `4`: Not running / no data
+
+---
+
+## 5-Metric Protocol (Check in Order!)
+
+| Priority | Metric | Threshold | Failure Mode |
+|----------|--------|-----------|--------------|
+| **1. SANITY** | `episode_length` | **> 100** | Robots dying immediately (BUG!) |
+| 2. Stability | `upright_mean` | > 0.9 | Falling over |
+| 3. Height | `height_reward` | > 2.0 | On elbows/collapsed |
+| 4. Contact | `body_contact` | > -0.1 | Body on ground |
+| 5. Walking | `vx_w_mean` | > 0.1 m/s | Not walking |
+
+**CRITICAL**: If metric #1 (episode length) fails, ALL OTHER METRICS ARE INVALID.
+
+---
+
+## Manifest System
+
+Each experiment gets a `manifest.json` file (auto-generated on first access):
+
+```json
+{
+  "id": "2025-12-21_21-38-22_ppo_torch",
+  "alias": "EXP-034",
+  "hypothesis": "Height-dominant rewards will prevent elbow exploit",
+  "tags": ["height_reward", "baseline"],
+  "started_at": "2025-12-21T21:38:22Z",
+  "status": "completed",
+  "notes": [
+    {"timestamp": "2025-12-22T01:00:00Z", "text": "Robot fell forward onto elbows"}
+  ],
+  "summary": {
+    "final": {"episode_length": 370.5, "vx_w_mean": -0.006, ...},
+    "verdict": "FAILING"
+  }
+}
+```
+
+Global index at `logs/skrl/harold_direct/experiments_index.json` maps aliases to directories.
 
 ---
 
@@ -53,90 +103,53 @@ python scripts/validate_training.py --list    # List recent runs
 
 ---
 
-## Known Bugs and How They Present
+## Hypothesis-Driven Workflow
+
+```bash
+# 1. Form hypothesis and run experiment
+harold train --hypothesis "Lower body contact threshold (10N) prevents elbow exploit" \
+             --tags "body_contact,elbow_fix"
+
+# 2. Check progress mid-training
+harold status
+
+# 3. After completion, add observations
+harold note EXP-039 "Episodes terminated correctly but robot still falls forward initially"
+
+# 4. Compare with previous attempts
+harold compare EXP-037 EXP-038 EXP-039
+
+# 5. Interpret results and form next hypothesis...
+```
+
+---
+
+## Known Failure Patterns
 
 ### The Height Termination Bug (2025-12-21)
 
 **Symptom**: Episode length = 3 steps
 
-**Root cause**: Height termination checked `root_pos_w[:, 2]` (world Z coordinate) instead of height above terrain. If terrain origin wasn't at Z=0, robots spawned below the threshold.
+**Root cause**: Height termination checked `root_pos_w[:, 2]` (world Z) instead of height above terrain.
 
-**Lesson**:
-1. Always check episode_length FIRST
-2. Test termination changes with quick sanity runs
-3. Use height above terrain, not world Z
+**Lesson**: Always check episode_length FIRST before analyzing other metrics.
 
 ### The "On Elbows" Exploit (2025-12-20)
 
 **Symptom**: upright_mean > 0.9, vx_w_mean > 0, but height_reward < 1.0
 
-**Root cause**: Robot falls forward onto elbows. Back is elevated (passes upright check), moves forward (passes vx check), but not at standing height.
+**Root cause**: Robot falls forward onto elbows. Back is elevated (passes upright), but not at standing height.
 
 **Lesson**: Always check height_reward. If < 2.0, robot is not standing properly.
 
 ---
 
-## Pre-Experiment Checklist
-
-Before starting any experiment:
-- [ ] Run `python scripts/validate_training.py` on last successful run
-- [ ] Confirm episode_length > 300
-- [ ] No uncommitted changes to termination logic (`_get_dones`)
-- [ ] Quick sanity run (50 iterations) shows ep_len > 50
-
----
-
-## Quick Analysis Script
-
-If you need to manually check without the validator:
-
-```bash
-source ~/Desktop/env_isaaclab/bin/activate
-cd /home/matteo/Desktop/code_projects/harold
-
-python -c "
-from tensorboard.backend.event_processing import event_accumulator
-import os
-
-log_base = 'logs/skrl/harold_direct'
-runs = sorted([d for d in os.listdir(log_base) if os.path.isdir(os.path.join(log_base, d)) and '2025-' in d])
-path = os.path.join(log_base, runs[-1])
-print(f'Run: {runs[-1]}')
-
-ea = event_accumulator.EventAccumulator(path)
-ea.Reload()
-
-def avg(key):
-    try:
-        s = ea.Scalars(key)
-        return sum(x.value for x in s[-10:])/min(10, len(s)) if s else None
-    except: return None
-
-ep_len = avg('Episode / Total timesteps (mean)')
-upright = avg('Info / Episode_Metric/upright_mean')
-height = avg('Info / Episode_Reward/height_reward')
-contact = avg('Info / Episode_Reward/body_contact_penalty')
-vx = avg('Info / Episode_Metric/vx_w_mean')
-
-print(f'')
-print(f'1. SANITY: ep_len   = {ep_len:.1f} (need > 100, expect > 300)')
-print(f'2. upright          = {upright:.4f} (need > 0.9)')
-print(f'3. height_reward    = {height:.4f} (need > 2.0)')
-print(f'4. body_contact     = {contact:.4f} (need > -0.1)')
-print(f'5. vx_w_mean        = {vx:.4f} (need > 0.1)')
-
-if ep_len < 100:
-    print('')
-    print('>>> CRITICAL: Episode length too short! DO NOT TRUST OTHER METRICS.')
-"
-```
-
----
-
 ## Last Updated
 
-2025-12-21 - 5-Metric Hierarchical Protocol
-- Added episode_length as #1 SANITY CHECK
-- Created scripts/validate_training.py for automated validation
-- Documented the Height Termination Bug
-- Previous 4-metric protocol was insufficient
+2025-12-22 - Observability System Enhancement
+- Added hypothesis and tag support to experiments
+- Added `harold compare` for side-by-side experiment comparison
+- Added `harold note` for experiment observations
+- Converted to state-only reporting (removed NEXT: suggestions)
+- Added manifest.json caching for fast metric access
+- Added experiment aliases (EXP-001, EXP-002, ...)

@@ -47,7 +47,7 @@ class RewardsCfg:
 
     # Stability rewards (HEIGHT DOMINANT to prevent elbow exploit)
     upright_reward: float = 10.0        # Strong upright incentive
-    height_reward: float = 25.0         # DOMINANT - prevents falling on elbows
+    height_reward: float = 30.0         # DOMINANT - EXP-008: increased to 30 to incentivize standing
 
     # Penalties
     torque_penalty: float = -0.005      # Gentle energy regularizer
@@ -57,6 +57,11 @@ class RewardsCfg:
 
     height_tolerance: float = 0.02      # |height_error| tolerated before penalty (m)
     height_sigma: float = 0.045         # Controls falloff beyond tolerance (m)
+
+    # EXP-011: Strong negative penalty for low height (instead of termination)
+    # Punish being below minimum height to create gradient toward standing
+    low_height_penalty: float = -50.0   # Strong negative reward
+    low_height_threshold: float = 0.20  # Penalize if height < 0.20m (elbow pose ~0.15-0.18m)
 
 
 @configclass
@@ -74,12 +79,25 @@ class TerminationCfg:
     base_contact_force_threshold: float = math.inf
     undesired_contact_force_threshold: float = math.inf
     orientation_threshold: float = -0.5
-    # Height termination: DISABLED (spawn pose too low)
+    # Height termination: terminate if base height < threshold
+    # EXP-002: 10N contact alone wasn't enough - robot stayed low (height=1.76)
+    # EXP-003-007: Height termination has issues - scanner returns bad values
+    # EXP-008: Disable height termination, rely on height_reward=30.0 to incentivize
+    # Spawn height is ~0.24m, elbow pose is ~0.15-0.18m
     height_threshold: float = 0.0
+    # Warmup: skip height termination for first N steps after reset (sensor initialization)
+    height_termination_warmup_steps: int = 20
     # Body contact termination: terminate if body/thigh/shoulder contact > threshold (N)
-    # This prevents elbow exploit directly
-    # EXP-038: Lowered from 50N to 15N (robot was generating ~22N in elbow position)
-    body_contact_threshold: float = 15.0
+    # EXP-002: 10N kept body contact low (-0.04) but didn't prevent elbow pose
+    body_contact_threshold: float = 10.0
+
+    # Joint-angle termination: detect elbow pose via front leg joint angles
+    # EXP-009: thigh>1.0, calf>-0.8 too loose - robot still found elbow pose (height=1.50)
+    # EXP-010: Tighter thresholds still didn't work
+    # EXP-011: Disable, use low_height_penalty instead
+    elbow_pose_termination: bool = False
+    front_thigh_threshold: float = 0.85   # Terminate if front thigh > 0.85 rad
+    front_calf_threshold: float = -1.0    # AND front calf > -1.0 rad
 
 @configclass
 class DomainRandomizationCfg:

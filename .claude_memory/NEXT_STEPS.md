@@ -3,91 +3,109 @@
 ## MANDATORY: Before ANY Experiment
 
 ```bash
-python scripts/validate_training.py
+cd /home/matteo/Desktop/code_projects/harold
+source ~/Desktop/env_isaaclab/bin/activate
+python scripts/harold.py status    # Check current training status
+python scripts/harold.py validate  # Validate latest completed run
 ```
-
-If this returns exit code 2 (sanity check failed), **DO NOT PROCEED** with experiments. Fix the issue first.
-
-See `.claude_memory/OBSERVABILITY.md` for the 5-metric protocol.
 
 ---
 
-## Current Status (2025-12-22)
+## Current Status (2025-12-22 ~11:30)
 
-### EXP-038: IN PROGRESS (CHECK FIRST!)
+### EXP-012: IN PROGRESS - Low Height Penalty (Clamped)
 
-**Training may still be running or recently completed!**
+**Run ID**: `2025-12-22_11-02-29_ppo_torch`
+**Approach**: Low height penalty with world Z position and clamp
 
-- **Run ID**: `2025-12-21_23-18-57_ppo_torch`
-- **Approach**: Body contact termination with 15N threshold (lowered from 50N)
-- **Config**: `body_contact_threshold: 15.0` in TerminationCfg
+**Config**:
+- `low_height_penalty: -50.0` per meter below threshold
+- `low_height_threshold: 0.20m`
+- Uses world Z position (not height scanner)
+- Deficit clamped to max 0.10m
 
-**First thing to do:**
-```bash
-# Check if training is still running
-ps aux | grep train.py
-
-# If completed, validate results
-source ~/Desktop/env_isaaclab/bin/activate
-python scripts/validate_training.py
-```
-
-**Last Known Metrics (25% through training):**
+**Progress at 20 min:**
 | Metric | Value | Status |
 |--------|-------|--------|
-| episode_length | 364.3 | PASS |
-| upright | 0.9560 | PASS |
-| height_reward | 1.53 | FAIL (< 2.0) |
-| body_contact | -0.19 | FAIL |
-| vx_w_mean | 0.016 | WARN |
-
-**Promising Signs:**
-- Body contact penalty initially improved dramatically (-0.014 → -0.0002)
-- Episode min length 5-6 means termination IS triggering
-- Forward velocity trending positive (from -0.016 to +0.036)
-
-**If EXP-038 PASSED**: Great! Proceed to add forward motion rewards.
-
-**If EXP-038 FAILED**: Try lower threshold (10N) or different approach.
+| episode_length | 354 | PASS |
+| height_reward | 1.68 | FAIL (< 2.0) |
+| reward_total | 1791 | Reasonable |
 
 ---
 
-## Session Summary (2025-12-22)
+## Summary of Approaches Tried
 
-### Experiments This Session
-| EXP | Approach | Result |
-|-----|----------|--------|
-| 034 | height_reward=25.0 | FAILED - Elbow exploit |
-| 035 | Fine-tune from terrain_62 | FAILED - Policy degraded |
-| 036 | Height termination | FAILED - Spawn pose too low |
-| 037 | Body contact term (50N) | FAILED - Threshold too high |
-| 038 | Body contact term (15N) | IN PROGRESS |
-
-### Core Problem
-Robot falls forward onto elbows, passes upright check (back elevated), but fails height check.
-
-### Key Insight from EXP-037
-Robot in elbow position generates ~22N contact force. The 50N threshold was too high to trigger termination. Lowering to 15N should catch this exploit.
+| Approach | EXP | Result | Issue |
+|----------|-----|--------|-------|
+| Height termination | 003-007 | SANITY_FAIL | Height scanner init issues |
+| Height reward only | 008 | Height 1.70 | Local minimum (elbow) |
+| Joint-angle termination | 009-010 | Height 1.44-1.50 | Robot adapts around thresholds |
+| Height penalty (unclamped) | 011 | Reward -25M | Height scanner bad values |
+| Height penalty (clamped) | 012 | Height ~1.68 | IN PROGRESS |
 
 ---
 
-## If EXP-038 Fails: Next Steps
+## Key Insight: Elbow Pose is a Stable Attractor
 
-### Option A: Even Lower Threshold (EXP-039)
+The robot consistently finds the elbow pose as a stable local minimum:
+1. Falls forward early in training
+2. Back stays elevated → passes upright check
+3. Body touches ground → slight contact penalty
+4. Height too low → fails height threshold
+
+**Why it's hard to escape**:
+- Standing requires lifting body (energy cost + risk of falling)
+- Elbow pose is stable and avoids most termination conditions
+- Reward gradient from height_reward alone is insufficient
+
+---
+
+## Recommended Next Approach: Curriculum from terrain_62
+
+**Hypothesis**: Start from a checkpoint that already knows how to stand, then add forward motion.
+
+**Config**:
 ```python
-# In TerminationCfg
-body_contact_threshold: float = 10.0  # Was 15.0
+checkpoint = "terrain_62/checkpoints/agent_128000.pt"
+height_threshold = 0.0  # No height termination
+body_contact_threshold = 5.0  # Aggressive
+forward_reward = 0.0  # Stability only first
+height_reward = 30.0
+low_height_penalty = -50.0
+low_height_threshold = 0.20
 ```
 
-### Option B: Combined Approach (EXP-040)
-Add both body contact AND height termination, but:
-1. First modify spawn pose to be higher
-2. Then enable height termination
+**Why this might work**:
+- terrain_62 already knows how to stand
+- Aggressive body contact will terminate if it falls
+- Low height penalty creates gradient toward standing
+- No forward reward initially (stability first)
 
-### Option C: Curriculum Learning
-1. Start with stability-only (no forward reward)
-2. Save checkpoint at stable standing
-3. Fine-tune with small forward reward
+---
+
+## Code Changes Made Today
+
+1. **Joint-angle termination** (disabled in current config):
+   - `elbow_pose_termination: bool` in TerminationCfg
+   - Checks front thigh/calf angles in `_get_dones()`
+
+2. **Low height penalty** (active in current config):
+   - `low_height_penalty: -50.0` in RewardsCfg
+   - `low_height_threshold: 0.20` in RewardsCfg
+   - Uses world Z position, clamped to 0.10m max deficit
+
+3. **Height termination warmup** (active):
+   - `height_termination_warmup_steps: 20` in TerminationCfg
+   - Skips height termination for first 20 steps
+
+---
+
+## Key Files Modified
+
+| File | Changes |
+|------|---------|
+| `harold_isaac_lab_env_cfg.py` | Added elbow_pose_termination, low_height_penalty |
+| `harold_isaac_lab_env.py` | Implemented joint-angle termination, low height penalty |
 
 ---
 
@@ -100,14 +118,3 @@ Add both body contact AND height termination, but:
 | 3. Height | height_reward | > 2.0 | On elbows/collapsed |
 | 4. Contact | body_contact | > -0.1 | Body on ground |
 | 5. Walking | vx_w_mean | > 0.1 | Not walking |
-
-**CRITICAL**: If #1 fails, all other metrics are invalid!
-
----
-
-## Key Files
-
-- `scripts/validate_training.py` - Run after every experiment
-- `.claude_memory/OBSERVABILITY.md` - 5-metric protocol documentation
-- `harold_isaac_lab/.../harold_flat/harold_isaac_lab_env.py` - Termination logic
-- `harold_isaac_lab/.../harold_flat/harold_isaac_lab_env_cfg.py` - Reward/termination config

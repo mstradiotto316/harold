@@ -24,6 +24,7 @@ Read these files in order:
 2. `.claude_memory/NEXT_STEPS.md` - Priority queue and pending tasks
 3. `.claude_memory/EXPERIMENTS.md` - Recent experiment history
 4. `.claude_memory/OBSERVATIONS.md` - Accumulated insights
+5. `.claude_memory/HARDWARE_CONSTRAINTS.md` - Real-world limits for sim-to-real
 
 ### Session End (ALWAYS DO THIS BEFORE FINISHING)
 1. Update `EXPERIMENTS.md` with any experiments run
@@ -34,22 +35,75 @@ Read these files in order:
 
 ---
 
-## Common Commands
+## Harold CLI (Primary Interface for Agents)
+
+The `harold` CLI is a **deep module** for hypothesis-driven experimentation. It hides TensorBoard complexity behind manifest files and comparison tools.
 
 ```bash
-# Activate environment
+# Activate environment first
 source ~/Desktop/env_isaaclab/bin/activate
 cd /home/matteo/Desktop/code_projects/harold
 
-# Training (basic)
-python harold_isaac_lab/scripts/skrl/train.py \
-  --task=Template-Harold-Direct-flat-terrain-v0 \
-  --num_envs 1024
+# Start experiment with metadata (hypothesis-driven workflow)
+python scripts/harold.py train --hypothesis "Lower threshold (10N) prevents elbow exploit" \
+                               --tags "body_contact,elbow_fix"
+python scripts/harold.py train --iterations 50000   # Custom duration
+python scripts/harold.py train --checkpoint path    # Resume from checkpoint
 
-# Training headless with video recording
+# Check status (state-only reporting, no prescriptive suggestions)
+python scripts/harold.py status                     # Current run with metrics
+python scripts/harold.py status --json              # Machine-readable output
+
+# Validate a run (by alias, directory name, or path)
+python scripts/harold.py validate                   # Latest run
+python scripts/harold.py validate EXP-034           # By experiment alias
+python scripts/harold.py validate <run_id>          # By directory name
+
+# List recent runs
+python scripts/harold.py runs                       # Last 10 with status
+python scripts/harold.py runs --hypothesis          # Include hypothesis for each
+
+# Compare experiments side-by-side (essential for hypothesis-driven work)
+python scripts/harold.py compare EXP-034 EXP-035    # Specific experiments
+python scripts/harold.py compare                    # Last 5 experiments
+python scripts/harold.py compare --tag forward_motion  # All with tag
+
+# Add observations to experiments
+python scripts/harold.py note EXP-034 "Robot walked at 40-80% then regressed"
+```
+
+### Status Output Example
+```
+RUN: 2025-12-22_14-30-00_ppo_torch (EXP-039)
+HYPOTHESIS: Lower body contact threshold prevents elbow exploit
+STATUS: RUNNING (45%, 1h 23m elapsed)
+REWARD: 1234.5
+SANITY: PASS (ep_len=342)
+STANDING: PASS (height=6.8, contact=0.0)
+WALKING: WARN (vx=0.03, need >0.1)
+VERDICT: STANDING
+DIAGNOSIS: Upright and stable, forward velocity 0.030 m/s
+```
+
+### Exit Codes
+- `0` = All metrics pass (robot walking)
+- `1` = Partial (standing but not walking)
+- `2` = Failing (on elbows, fallen)
+- `3` = Sanity failure (episodes too short)
+- `4` = Not running / no data
+
+### Manifest System
+Each experiment gets a `manifest.json` with cached metrics, hypothesis, and notes. Global index at `logs/skrl/harold_direct/experiments_index.json` maps EXP-NNN aliases to directories.
+
+---
+
+## Low-Level Commands (for manual use)
+
+```bash
+# Direct training (verbose output - avoid in agents)
 python harold_isaac_lab/scripts/skrl/train.py \
   --task=Template-Harold-Direct-flat-terrain-v0 \
-  --num_envs 4096 --headless --video --video_length 250 --video_interval 6400
+  --num_envs 4096 --headless --video
 
 # Play/evaluate a checkpoint
 python harold_isaac_lab/scripts/skrl/play.py \
@@ -58,22 +112,13 @@ python harold_isaac_lab/scripts/skrl/play.py \
 
 # TensorBoard monitoring
 python3 -m tensorboard.main --logdir logs/skrl/harold_direct/ --bind_all
-
-# Background training (prevents context overflow)
-./scripts/run_experiment.sh [iterations]  # Runs in background, outputs to /tmp/harold_train.log
-./scripts/check_training.sh               # Compact progress check
-
-# Validate training results (REQUIRED after every experiment)
-python scripts/validate_training.py           # Validate latest run
-python scripts/validate_training.py <run_id>  # Validate specific run
-python scripts/validate_training.py --list    # List recent runs
 ```
 
 ---
 
 ## 5-Metric Validation Protocol
 
-**Run `python scripts/validate_training.py` after EVERY experiment.**
+**Run `python scripts/harold.py status` during training or `python scripts/harold.py validate` after completion.**
 
 | Priority | Metric | Threshold | Failure Mode |
 |----------|--------|-----------|--------------|
@@ -83,9 +128,11 @@ python scripts/validate_training.py --list    # List recent runs
 | 4. Contact | `body_contact_penalty` | > -0.1 | Body on ground |
 | 5. Walking | `vx_w_mean` | > 0.1 m/s | Not walking forward |
 
-**CRITICAL**: If metric #1 fails, ALL other metrics are invalid.
+**CRITICAL**: If SANITY fails, ALL other metrics are invalid.
 
-Exit codes: `0` = pass, `1` = some failures, `2` = sanity check failed (do not proceed).
+**Answering the key questions:**
+- **Is robot standing?** → STANDING: PASS means height > 2.0 and contact > -0.1
+- **Is robot walking?** → WALKING: PASS means vx > 0.1 m/s (and standing)
 
 ---
 
@@ -151,7 +198,22 @@ Robot falls forward onto elbows with back elevated. Passes `upright_mean > 0.9` 
 If using height-based termination, check height above terrain, NOT world Z coordinate. Spawn pose must be above threshold.
 
 ### Context Overflow
-Long training runs flood context with tqdm output. Always use `./scripts/run_experiment.sh` for training.
+Long training runs flood context with tqdm output. Always use `python scripts/harold.py train` which runs training in background.
+
+---
+
+## Hardware Constraints (Sim-to-Real)
+
+Before modifying simulation parameters, check `.claude_memory/HARDWARE_CONSTRAINTS.md` for:
+- **Safe parameter ranges** - What values won't break hardware
+- **Must-preserve values** - Critical for deployment (joint limits, control rate, joint order)
+- **Freely tunable** - No hardware impact (reward weights, termination thresholds)
+
+Key hardware specs (FeeTech ST3215 servo):
+- Max torque: 30 kg·cm (2.94 Nm) @12V - simulation uses conservative 2.0 Nm
+- Position resolution: 0.088° (4096 steps/360°)
+- Max speed: 45 RPM (4.71 rad/s)
+- Joint limits: shoulders ±30°, thighs/calves ±90° (mechanical stops)
 
 ---
 

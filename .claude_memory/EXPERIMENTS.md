@@ -934,6 +934,221 @@ Both failed similarly. Reward shaping alone is insufficient.
 
 ---
 
+---
+
+## Session 7 (2025-12-22 Overnight) - Height Termination Debugging
+
+### EXP-002: Body Contact Only (10N) - FAILED
+- **Date**: 2025-12-22
+- **ID**: `2025-12-22_03-15-23_ppo_torch`
+- **Config**:
+  - `body_contact_threshold: 10.0` (lowered from 15.0)
+  - `height_threshold: 0.0` (disabled)
+  - `height_reward: 25.0`
+  - `upright_reward: 10.0`
+
+**4-METRIC ANALYSIS:**
+| Metric | Value | Threshold | Status |
+|--------|-------|-----------|--------|
+| episode_length | 344.9 | > 100 | PASS |
+| upright_mean | 0.938 | > 0.9 | PASS |
+| height_reward | 1.76 | > 2.0 | FAIL |
+| body_contact | -0.04 | > -0.1 | PASS |
+| vx_w_mean | -0.023 | > 0.1 | FAIL |
+
+**TRUE STATUS**: ELBOW EXPLOIT
+- 10N threshold reduced body contact penalty (-0.04 vs -0.12 in EXP-037)
+- But robot still on elbows (height_reward=1.76 < 2.0)
+- Body contact alone insufficient to prevent elbow pose
+
+---
+
+### EXP-003: Combined Height + Contact - FAILED (SANITY)
+- **Date**: 2025-12-22
+- **ID**: `2025-12-22_04-56-02_ppo_torch`
+- **Config**:
+  - `height_threshold: 0.12` (new - terminate if below)
+  - `body_contact_threshold: 10.0`
+  - `height_reward: 25.0`
+
+**Hypothesis**: Combined termination (height < 0.12m OR contact > 10N) will prevent elbow exploit.
+
+**Result**: SANITY_FAIL - Episodes only 8 steps!
+| Metric | Value | Status |
+|--------|-------|--------|
+| episode_length | 7.8 | FAIL (need >100) |
+| upright_mean | 0.999 | PASS |
+| height_reward | 4.70 | N/A (too short) |
+
+**Issue**: Height threshold 0.12m too aggressive. Robot terminates immediately after spawn.
+
+---
+
+### EXP-004/005: Conservative Height (0.05m) - FAILED (SANITY)
+- **Date**: 2025-12-22
+- **Config**: `height_threshold: 0.05`
+
+**Result**: Still SANITY_FAIL - Episodes 6-23 steps
+- Even 0.05m threshold caused immediate termination
+- Height scanner has initialization issues on early frames
+
+**Diagnostic (EXP-005)**: Disabled height termination entirely → 223 steps, confirming sensor issue.
+
+---
+
+### EXP-006: Height (0.10m) with Warmup - FAILED (SANITY)
+- **Date**: 2025-12-22
+- **Config**:
+  - `height_threshold: 0.10`
+  - `height_termination_warmup_steps: 20` (NEW - skip first 20 steps)
+
+**Result**: SANITY_FAIL - Episodes 31 steps
+- Warmup helped (23→31 steps) but still insufficient
+- Robot falls to elbow pose by step 31, triggering termination after warmup
+
+---
+
+### EXP-007: Height (0.05m) with Warmup - FAILED (SANITY)
+- **Date**: 2025-12-22
+- **Config**: `height_threshold: 0.05`, warmup=20
+
+**Result**: Still SANITY_FAIL - Episodes 23 steps
+- Even conservative 0.05m threshold triggers after warmup
+- Fundamental issue: robot falls to elbow pose faster than it learns to stand
+
+---
+
+### EXP-008: Reward-Only Approach - COMPLETED (FAILED)
+- **Date**: 2025-12-22
+- **ID**: `2025-12-22_05-45-33_ppo_torch`
+- **Config**:
+  - `height_threshold: 0.0` (disabled)
+  - `height_reward: 30.0` (increased from 25.0)
+  - `body_contact_threshold: 10.0`
+  - No height termination - rely on rewards only
+
+**Hypothesis**: Stronger height reward (30.0) will incentivize standing through reward gradient alone.
+
+**Final Results:**
+| Metric | Value | Threshold | Status |
+|--------|-------|-----------|--------|
+| episode_length | 351 | > 100 | PASS |
+| upright_mean | - | > 0.9 | PASS |
+| height_reward | 1.70 | > 2.0 | FAIL |
+| body_contact | -0.01 | > -0.1 | PASS |
+| vx_w_mean | 0.031 | > 0.1 | FAIL |
+
+**TRUE STATUS**: ELBOW EXPLOIT - Robot on elbows
+
+**Height Progression:**
+- 5 min: 1.44
+- 15 min: 1.64
+- 30 min: 1.77
+- 48 min: 1.93 (peak)
+- 68 min: 1.61 (regressed)
+- Final: 1.70
+
+**Key Finding**: Even with height_reward=30.0, robot settles into elbow exploit.
+The reward gradient from height is insufficient to overcome the stable local minimum.
+
+---
+
+### EXP-009: Joint-Angle Termination (Loose) - FAILED
+- **Date**: 2025-12-22
+- **ID**: `2025-12-22_10-02-46_ppo_torch`
+- **Config**:
+  - `elbow_pose_termination: True`
+  - `front_thigh_threshold: 1.0` rad
+  - `front_calf_threshold: -0.8` rad
+  - Terminate if front thigh > 1.0 AND front calf > -0.8
+
+**Result**: FAILED - Height 1.50, robot adapted around thresholds
+- Thresholds too loose, robot found elbow pose that didn't trigger termination
+
+---
+
+### EXP-010: Joint-Angle Termination (Tight) - FAILED
+- **Date**: 2025-12-22
+- **ID**: `2025-12-22_10-18-44_ppo_torch`
+- **Config**:
+  - `front_thigh_threshold: 0.85` rad (tightened)
+  - `front_calf_threshold: -1.0` rad (tightened)
+
+**Result**: FAILED - Height 1.44, still adapted around thresholds
+- Robot finds poses that avoid joint-angle termination while staying low
+
+---
+
+### EXP-011: Low Height Penalty (Unclamped) - FAILED
+- **Date**: 2025-12-22
+- **ID**: `2025-12-22_10-31-06_ppo_torch`
+- **Config**:
+  - `low_height_penalty: -50.0` per meter below threshold
+  - `low_height_threshold: 0.20m`
+  - No joint-angle termination
+
+**Result**: FAILED - Reward was -25 million (penalty too aggressive)
+- Height scanner returned bad values causing extreme penalties
+- Height oscillated: 1.67 → 1.80 → 1.48
+
+---
+
+### EXP-012: Low Height Penalty (Clamped, World Z) - IN PROGRESS
+- **Date**: 2025-12-22
+- **ID**: `2025-12-22_11-02-29_ppo_torch`
+- **Config**:
+  - `low_height_penalty: -50.0` per meter below threshold
+  - `low_height_threshold: 0.20m`
+  - Uses world Z position instead of height scanner
+  - Height deficit clamped to max 0.10m (max penalty -5 per step)
+
+**Progress at 20 min:**
+| Metric | Value | Status |
+|--------|-------|--------|
+| episode_length | 354 | PASS |
+| height_reward | 1.68 | FAIL (< 2.0) |
+| body_contact | -0.01 | PASS |
+| vx_w_mean | 0.003 | FAIL |
+| reward_total | 1791 | Reasonable |
+
+**Observation**: Height stable at ~1.68, penalty not pushing higher.
+Training still in progress.
+
+---
+
+## Key Insights from Session 7-8
+
+1. **Height Termination Unusable**: Height scanner has initialization issues
+2. **Joint-Angle Termination**: Robot adapts around any threshold
+3. **Reward-Only Approach**: Robot settles into elbow exploit (local minimum)
+4. **Height Penalty**: Helps but robot still finds low poses
+
+The fundamental problem: **Elbow pose is a stable attractor** that the robot discovers early in training. Once found, it's hard to escape via reward gradients alone.
+
+**Recommended Next Approach**: Curriculum from terrain_62 checkpoint (already knows how to stand)
+3. Reward-only approach results in same elbow exploit as before
+
+**Next Steps**:
+1. Investigate height scanner initialization
+2. Consider curriculum: start standing → add motion
+3. Or use different termination signal (e.g., specific joint angles)
+
+---
+
+## Key Finding: Height Termination is Unusable
+
+All height termination experiments (EXP-003 through EXP-007) failed due to:
+
+1. **Sensor Initialization**: Height scanner returns bad values for first few steps
+2. **Learning Dynamics**: Robot learns elbow pose faster than standing
+3. **Local Minimum**: Once in elbow pose, termination prevents learning recovery
+
+The fundamental issue: **Termination kills exploration before learning happens.**
+
+Reward-only approach (EXP-008) allows learning but robot finds elbow exploit.
+
+---
+
 ## Baseline Configuration
 ```yaml
 # From terrain_62 (reference baseline)

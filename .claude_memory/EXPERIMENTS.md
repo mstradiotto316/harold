@@ -1682,3 +1682,172 @@ upright_reward: 10.0
 - Forward-gated variant achieved best-ever velocity (+0.036, 24% better than baseline)
 - Higher gait reward achieved peak vx=0.061 (61% of target) but regressed
 - Forward velocity is improving but mid-training regression remains a challenge
+
+---
+
+## Session 15 (2025-12-24, Night)
+
+### Overview
+Tested early stopping and velocity-based curriculum approaches to prevent mid-training regression.
+
+### Experiments
+
+| EXP | Hypothesis | Final vx | Peak vx | Verdict |
+|-----|------------|----------|---------|---------|
+| 059 | Early stopping (50% duration) | +0.027 | **+0.076** | STANDING |
+| 060 | Very early stopping (400 iter) | +0.026 | - | STANDING |
+| 061 | Velocity decay curriculum (decay=30) | +0.007 | +0.020 | STANDING (killed by watchdog) |
+| 062 | Softer velocity decay (decay=10) | -0.001 | - | STANDING (no forward motion) |
+
+### EXP-059: Early Stopping (50% Duration)
+- **Hypothesis**: Stop training at 50% (625 iterations) to capture peak before regression
+- **Config**: diagonal_gait_reward=10.0, 625 iterations
+- **Result**: vx=+0.027 final, but **peak vx=+0.076 at 89%!** (76% of target)
+- **Analysis**: Peak velocity is relative to training progress, not absolute iteration count
+
+### EXP-060: Very Early Stopping (400 iterations)
+- **Hypothesis**: Stop at 400 iterations to capture earlier in learning curve
+- **Config**: diagonal_gait_reward=10.0, 400 iterations
+- **Result**: vx=+0.026 (similar to EXP-059 final)
+- **Analysis**: Shorter training compresses learning phases proportionally
+
+### EXP-061: Velocity Decay Curriculum (Aggressive)
+- **Hypothesis**: Decay gait reward as vx increases: decay=exp(-vx*30)
+- **Config**: At vx=0.05: 22% gait reward remaining
+- **Result**: vx=+0.007 (killed by memory watchdog at 65%)
+- **Analysis**: Decay too aggressive, reduced reward before robot learned to walk
+
+### EXP-062: Softer Velocity Decay
+- **Hypothesis**: Gentler decay: decay=exp(-vx*10), at vx=0.05: 61% remaining
+- **Config**: 4096 envs to avoid memory issues
+- **Result**: vx=-0.001 (robot learned to stand still!)
+- **Analysis**: Any velocity decay prevents forward motion learning
+
+### Key Findings
+
+**1. Early Stopping Does NOT Prevent Regression**
+- Peak happens relative to training progress (80-90%), not absolute iterations
+- Shortening training just compresses the learning phases proportionally
+- EXP-059 still peaked at 89% of its shortened run, then regressed
+
+**2. Velocity Decay Curriculum FAILS Completely**
+- Decaying gait reward as vx increases prevents forward motion learning
+- Robot optimizes for standing still (highest gait reward when vx=0)
+- Both aggressive (decay=30) and gentle (decay=10) failed
+
+**3. Peak Velocities Observed**
+| Experiment | Peak vx | Training % | Notes |
+|------------|---------|------------|-------|
+| EXP-058 | 0.061 | 43% | Full training (1250 iter) |
+| EXP-059 | 0.076 | 89% | Half training (625 iter) |
+
+The robot CAN achieve vx=0.076 (76% of target!) but cannot maintain it.
+
+### Approaches Ruled Out (Session 15)
+- ❌ Early stopping (50% duration) - regression is proportional to progress
+- ❌ Very early stopping (400 iter) - learning phases compress
+- ❌ Velocity decay curriculum - prevents forward motion learning
+
+### Remaining Approaches
+1. **Checkpoint selection**: Use agent_13500.pt from EXP-058/059 (near peak)
+2. **Reference motion / imitation learning**: Provide target trajectories
+3. **Freeze policy architecture**: Train walking head separately
+4. **PPO hyperparameter tuning**: clip_range, value_loss_coef to reduce regression
+
+### Session Summary
+- Tested 4 approaches to prevent mid-training regression
+- All failed - regression is fundamental to current training setup
+- Peak velocities (0.061-0.076) prove robot CAN walk, just can't maintain
+- Best stable configuration remains EXP-056 (gait=5.0, vx=0.036)
+
+---
+
+## Session 16 (2025-12-24, Night) - PPO Tuning and Forward Gating Experiments
+
+### Overview
+Autonomous overnight research session testing PPO hyperparameters and forward gating mechanisms.
+
+### Experiments
+
+| EXP | Hypothesis | Final vx | Height | Verdict |
+|-----|------------|----------|--------|---------|
+| 063 | ratio_clip=0.1 prevents regression | +0.024 | 1.26 | STANDING |
+| 064 | Higher gait (10) + clip=0.1 | +0.019 | 1.37 | STANDING |
+| 065 | Extended training (60min), gait=10 | +0.018 | 1.19 | KILLED (52%) |
+| 066 | gait=10 with 4096 envs | -0.040 | 1.96 | STANDING (backward) |
+| 067 | Stronger forward gate (sigmoid*50) | -0.018 | 1.89 | STANDING (backward) |
+| 068 | Hard forward gate (ReLU-like) | -0.046 | 2.20 | STANDING (backward) |
+
+### EXP-063: Reduced PPO Clip Range
+- **Hypothesis**: Smaller clip_range (0.1 vs 0.2) prevents large policy updates that destroy walking
+- **Config**: ratio_clip=0.1, gait=5.0
+- **Result**: vx=+0.024, height=1.26
+- **Analysis**: Comparable to baseline, did not significantly improve walking
+
+### EXP-064: Higher Gait + Reduced Clip
+- **Hypothesis**: Combine gait=10 with clip=0.1 for peak without regression
+- **Config**: diagonal_gait_reward=10, ratio_clip=0.1
+- **Result**: Peak vx=+0.029 at 76%, final vx=+0.019
+- **Analysis**: Reduced clip slowed learning too much; EXP-058 (clip=0.2, gait=10) achieved peak 0.061
+
+### EXP-065: Extended Training
+- **Hypothesis**: Longer training overcomes regression through more samples
+- **Config**: 60min (2500 iterations), gait=10, clip=0.2
+- **Result**: Killed by memory watchdog at 52%
+- **Peak**: vx=+0.024 at 27%, regressed to -0.006 at 40%
+- **Analysis**: Regression still occurred despite longer training
+
+### EXP-066-068: Forward Gating Experiments
+All three experiments showed backward drift despite different gating approaches:
+
+**EXP-066** (baseline gait=10, 4096 envs):
+- Final vx=-0.040, height=1.96
+- Robot learned to stand tall but moved backward
+
+**EXP-067** (sigmoid scale 50):
+- Final vx=-0.018, height=1.89
+- Stronger gating reduced but didn't prevent backward drift
+
+**EXP-068** (hard ReLU-like gate):
+- Final vx=-0.046, height=2.20 (best height ever!)
+- Robot found local optimum: excellent standing + backward drift
+
+### Key Findings
+
+1. **Reduced clip_range slows learning**
+   - clip=0.1 achieved similar results to clip=0.2 but learned slower
+   - EXP-058 (clip=0.2) reached peak vx=0.061 vs EXP-064 (clip=0.1) peak vx=0.029
+
+2. **Forward gating insufficient**
+   - Even hard gating (zero reward when vx<=0) doesn't prevent backward drift
+   - Robot can achieve high stability rewards without gait reward
+
+3. **High outcome variability**
+   - EXP-063/064: positive forward velocity
+   - EXP-066/067/068: backward drift
+   - Suggests high sensitivity to random seed or initialization
+
+4. **Backward drift is a stable attractor**
+   - The reward structure allows backward motion as an acceptable strategy
+   - Standing + backward drift gives stable rewards without stepping risk
+
+### Approaches Ruled Out (Session 16)
+- ❌ Reduced PPO clip_range (0.1) - slows learning without benefit
+- ❌ Stronger sigmoid forward gating (scale 50) - doesn't prevent backward drift
+- ❌ Hard forward gate (ReLU-like) - robot finds backward drift optimum
+
+### Configuration Reverted
+- Reset ratio_clip to 0.2
+- Reset diagonal_gait_reward to 5.0
+- Forward gate modified to hard gate (may need revert)
+
+### Memory Watchdog Issues
+- 3 of 6 experiments killed by watchdog (RAM>95% or Swap>70%)
+- Using 4096 envs (instead of 6144) helps but doesn't fully solve
+- System has residual swap usage affecting training stability
+
+### Remaining Approaches
+1. **Checkpoint selection**: Evaluate mid-training checkpoints from EXP-058/059
+2. **Reference motion**: Imitation learning with designed gait trajectories
+3. **Stronger backward penalty**: Add explicit penalty for vx<0 motion
+4. **Two-phase training**: Train stability only, then add forward with frozen value network

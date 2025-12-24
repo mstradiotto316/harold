@@ -25,20 +25,22 @@ Train a stable forward walking gait for the Harold quadruped robot.
 | USD model | `part_files/V4/harold_8.usd` |
 | Best checkpoint | `logs/skrl/harold_direct/terrain_62/checkpoints/best_agent.pt` |
 
-## Current State (2025-12-24 ~00:30, Session 14 Complete)
+## Current State (2025-12-24 ~08:00, Session 16 Complete)
 
-**BREAKTHROUGH: Forward-gated gait reward achieved vx=0.036 (24% better than baseline)**
+**Best stable: EXP-056 vx=0.036 | Peak observed: EXP-059 vx=0.076 (unstable) | Best height: EXP-068 height=2.20**
 
-- 58 experiments completed (EXP-001 to EXP-058)
-- **Best result (EXP-056)**: vx=0.036 m/s, height=1.49 (36% of walking target)
+- 68 experiments completed (EXP-001 to EXP-068)
+- **Best stable (EXP-056)**: vx=0.036 m/s, height=1.49 (36% of walking target)
+- **Peak observed (EXP-059)**: vx=0.076 at 89% training, then regressed (76% of target!)
+- **Best height (EXP-068)**: height=2.20 but with backward drift (vx=-0.046)
 - Robot stands properly with all stability metrics PASS
-- **Session 14**: Implemented diagonal gait reward - first major velocity improvement
+- **Session 16**: Tested PPO tuning and forward gating - all failed, backward drift discovered
 
-### Key Findings (Session 14)
-1. **Diagonal gait reward works**: Rewarding alternating foot contacts creates stepping gradient
-2. **Forward gating essential**: Ungated reward led to backward stepping (EXP-055)
-3. **Higher weight = higher peak, more regression**: weight=10 peaked at vx=0.061 but regressed (EXP-058)
-4. **Mid-training regression pattern**: Peak at 40-70%, then regression continues
+### Key Findings (Session 16)
+1. **Backward drift is a stable attractor**: Robot consistently learns backward drift regardless of gating
+2. **PPO clip_range tuning failed**: Reduced clip (0.1) slowed learning, didn't prevent regression
+3. **Height vs velocity trade-off**: Best height (2.20) came with worst velocity (-0.046)
+4. **Forward gating variations failed**: sigmoid scale=50 and hard gate (ReLU) both caused backward drift
 
 ### Approach Status
 | Approach | Status |
@@ -49,9 +51,14 @@ Train a stable forward walking gait for the Harold quadruped robot.
 | Higher forward (>40) | ❌ Causes SANITY_FAIL |
 | Slip factor modification | ❌ No improvement or worse |
 | Gait phase observations | ❌ No improvement |
-| **Contact-based gait reward** | ✅ **WORKS** (vx=0.036, 24% better) |
-| **Early stopping / curriculum** | 🔲 TO TEST (Priority 1) |
-| **Reference motion** | 🔲 TO TEST (Priority 2) |
+| **Contact-based gait reward** | ✅ **WORKS** (vx=0.036, best stable) |
+| Early stopping (50%/25%) | ❌ Peak proportional to progress |
+| Velocity decay curriculum | ❌ Prevents forward motion |
+| PPO clip_range tuning | ❌ Slower learning, same regression |
+| Forward gating variations | ❌ Causes backward drift |
+| **Checkpoint selection** | 🔲 TO TEST (Priority 1) |
+| **Explicit backward penalty** | 🔲 TO TEST (Priority 2) |
+| **Reference motion** | 🔲 TO TEST (Priority 3) |
 
 ### Best Configuration (EXP-056)
 ```python

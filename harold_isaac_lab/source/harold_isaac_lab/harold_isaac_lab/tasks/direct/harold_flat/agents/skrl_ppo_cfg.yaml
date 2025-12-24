@@ -47,7 +47,7 @@ agent:
   random_timesteps: 0
   learning_starts: 0
   grad_norm_clip: 1.0        # grad_norm
-  ratio_clip: 0.2            # e_clip
+  ratio_clip: 0.2            # e_clip - EXP-065: reverted to standard, longer training
   value_clip: 0.2            # clip_value
   clip_predicted_values: True
   entropy_loss_scale: 0.01  # standard exploration

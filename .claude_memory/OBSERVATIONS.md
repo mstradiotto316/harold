@@ -731,5 +731,104 @@ EXP-058 shows the robot CAN walk at 0.061 m/s (61% of target), but the policy re
 | H26 | Gait-based rewards needed | **CONFIRMED** - vx improved 24% |
 | **H30** | Forward gating essential for gait reward | **CONFIRMED** |
 | **H31** | Higher gait weight causes more regression | **CONFIRMED** |
-| **H32** | Early stopping can preserve peak performance | **TO TEST** |
-| **H33** | Gait reward curriculum prevents regression | **TO TEST** |
+| **H32** | Early stopping can preserve peak performance | **DISPROVEN** (Session 15) |
+| **H33** | Gait reward curriculum prevents regression | **DISPROVEN** (Session 15) |
+
+---
+
+## Session 15 Analysis: Early Stopping & Curriculum Failed
+
+### Key Finding: Regression is Proportional to Training Progress
+
+EXP-059 (50% duration) achieved peak vx=0.076 at 89% of its shortened run:
+- This proves the robot CAN walk at 76% of target velocity
+- But peak timing is relative to training progress, not absolute iterations
+- Shortening training just compresses learning phases proportionally
+
+### Velocity Decay Curriculum: Complete Failure
+
+Both decay=30 (EXP-061) and decay=10 (EXP-062) failed:
+- Any decay of gait reward as vx increases prevents forward motion learning
+- Robot optimizes for standing still (maximum gait reward at vx=0)
+- The curriculum creates a local optimum at vx=0
+
+### Root Cause Analysis: PPO Forgetting
+
+The consistent pattern across experiments suggests:
+1. **Learning phase**: Robot learns stepping and forward motion (0-80%)
+2. **Peak phase**: Maximum velocity achieved (80-90%)
+3. **Forgetting phase**: Policy updates destroy walking behavior (90-100%)
+
+This may be PPO-specific:
+- Large policy updates overwrite successful behaviors
+- Value function mismatch causes instability
+- No explicit mechanism to preserve good behaviors
+
+### New Hypotheses (Session 15)
+
+| ID | Hypothesis | Status |
+|----|------------|--------|
+| **H34** | Checkpoint selection (mid-training) can capture peak | TO TEST |
+| **H35** | PPO clip_range adjustment prevents forgetting | **DISPROVEN** (Session 16) |
+| **H36** | Reference motion/imitation learning bypasses RL instability | TO TEST |
+| **H37** | Recurrent policy (LSTM) preserves gait memory | TO TEST |
+
+---
+
+## Session 16 Analysis: PPO Tuning & Forward Gating Failed
+
+### Key Discovery: Backward Drift is a Stable Attractor
+
+Session 16's overnight experiments revealed that backward drift is a stable attractor that the robot consistently discovers, regardless of forward gating mechanism.
+
+**Evidence:**
+- EXP-066 (gait=10, 4096 envs): vx = -0.040 (backward)
+- EXP-067 (sigmoid scale=50): vx = -0.018 (backward)
+- EXP-068 (hard ReLU gate): vx = -0.046 (backward)
+
+All three experiments achieved good height (1.89-2.20) while drifting backward.
+
+### Why Forward Gating Failed
+
+The forward gating mechanism (multiply gait reward by sigmoid(vx)) was designed to only reward stepping when moving forward. However:
+
+1. **Gating creates zero gradient at vx=0**: When robot stands still, gait reward is ~0.5, providing no strong direction signal
+2. **Backward drift has lower instability**: Stepping backward may be mechanically easier (robot's weight distribution)
+3. **Local minimum**: Once backward drift starts, forward gating reduces gait reward, making recovery harder
+
+### PPO Clip Range Analysis
+
+Reduced clip_range (0.1 vs 0.2) results:
+- EXP-063: vx=+0.024, height=1.26 (lower than baseline)
+- EXP-064: Peak vx=+0.029, final vx=+0.019 (still regressed)
+
+**Conclusion**: Smaller clip_range slows learning but doesn't prevent regression. The regression appears to be caused by fundamental reward structure, not policy update size.
+
+### Height vs Velocity Trade-off
+
+Session 16 achieved the best height ever (2.20 in EXP-068) but with the worst velocity (-0.046). This suggests:
+
+1. **Two competing objectives**: Standing tall vs moving forward
+2. **Current reward structure favors height**: Robot optimizes for height when forward motion is difficult
+3. **Backward drift satisfies both partially**: Robot maintains height while "moving" (backward)
+
+### Updated Hypotheses (Session 16)
+
+| ID | Hypothesis | Status |
+|----|------------|--------|
+| **H35** | PPO clip_range adjustment prevents forgetting | **DISPROVEN** - Slower learning, same regression |
+| **H38** | Backward drift is a stable attractor | **CONFIRMED** |
+| **H39** | Hard forward gating (ReLU) prevents backward optimization | **DISPROVEN** |
+| **H40** | Explicit backward penalty needed to break drift optimum | TO TEST |
+| **H41** | Height/velocity trade-off is fundamental to reward structure | OBSERVED |
+
+### Memory Watchdog Performance
+
+3 of 6 experiments were killed by memory watchdog:
+- EXP-063: Killed at ~90% progress
+- EXP-064: Killed at ~97% progress
+- EXP-065: Killed at ~52% progress
+
+**Root cause**: 6144 envs + overnight run accumulates memory. Swap couldn't be cleared without sudo.
+
+**Recommendation**: Use 4096 envs for overnight runs, or ensure system starts clean.

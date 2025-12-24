@@ -579,14 +579,14 @@ def get_progress(run_path: Path) -> tuple[float | None, int | None, int | None]:
     return None, None, None
 
 
-def get_training_rate() -> float | None:
+def get_training_rate() -> tuple[float | None, float | None]:
     """Parse iterations per second from training log.
 
     Looks for tqdm-style output like '17.02it/s' or '6.31it/s'.
-    Returns the most recent rate, or None if not found.
+    Returns: (current_rate, average_rate) or (None, None) if not found.
     """
     if not LOG_FILE.exists():
-        return None
+        return None, None
 
     try:
         import re
@@ -594,10 +594,13 @@ def get_training_rate() -> float | None:
         # Match patterns like "17.02it/s" or "6.31it/s"
         matches = re.findall(r'(\d+\.?\d*)it/s', content)
         if matches:
-            return float(matches[-1])
+            rates = [float(r) for r in matches]
+            current = rates[-1]
+            avg = sum(rates) / len(rates)
+            return current, avg
     except Exception:
         pass
-    return None
+    return None, None
 
 
 # === SUBCOMMANDS ===
@@ -672,7 +675,7 @@ def cmd_train(args):
     # Print startup info
     print(f"Starting Harold training in background...")
     print(f"  Iterations: {iterations}")
-    print(f"  Environments: {num_envs} (~{16.6 if num_envs == 6144 else 14.7 if num_envs == 8192 else 19.6} it/s)")
+    print(f"  Environments: {num_envs}")
     print(f"  Video recording: enabled")
     if args.checkpoint:
         print(f"  Checkpoint: {args.checkpoint}")
@@ -747,7 +750,8 @@ def cmd_status(args):
             'progress': progress,
             'current_iteration': current_iter,
             'total_iterations': total_iter,
-            'iterations_per_second': get_training_rate() if train_status.running else None,
+            'iterations_per_second': get_training_rate()[0] if train_status.running else None,
+            'iterations_per_second_avg': get_training_rate()[1] if train_status.running else None,
             'killed_by_watchdog': None,
         }
         # Check if watchdog killed training
@@ -783,8 +787,13 @@ def cmd_status(args):
         progress_str = f"{int(progress * 100)}%" if progress else "?"
 
         # Get training rate and config
-        rate = get_training_rate()
-        rate_str = f"{rate:.1f} it/s" if rate else "? it/s"
+        current_rate, avg_rate = get_training_rate()
+        if current_rate and avg_rate:
+            rate_str = f"{current_rate:.1f} it/s (avg {avg_rate:.1f})"
+        elif current_rate:
+            rate_str = f"{current_rate:.1f} it/s"
+        else:
+            rate_str = "? it/s"
 
         # Get num_envs from manifest
         training_config = manifest.get('training_config', {}) if manifest else {}

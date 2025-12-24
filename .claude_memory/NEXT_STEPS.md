@@ -1,21 +1,71 @@
 # Harold Next Steps
 
-## Current Status (2025-12-24 ~00:30, Session 14 Complete)
+## Current Status (2025-12-24 ~08:00, Session 16 Complete)
 
-### Best Configuration (EXP-056) ⭐ NEW
-**Breakthrough**: Forward-gated diagonal gait reward achieved 24% velocity improvement!
+### Best Configuration (EXP-056) - UNCHANGED
+Forward-gated diagonal gait reward remains the best stable configuration.
 - `learning_rate: 5.0e-4`
 - `progress_forward_neg: 10.0`
 - `progress_forward_pos: 40.0`
 - `height_reward: 15.0`
 - `upright_reward: 10.0`
-- `diagonal_gait_reward: 5.0` **← NEW**
+- `diagonal_gait_reward: 5.0`
 - `entropy_loss_scale: 0.01`
 
-**Best Metrics Achieved:**
-- Forward velocity: **0.036 m/s** (was 0.029, 24% improvement!)
+**Best Stable Metrics:**
+- Forward velocity: **0.036 m/s** (36% of target)
 - Height reward: **1.49** (standing properly)
 - All stability metrics: PASS
+
+**Peak Observed (Unstable):**
+- EXP-059 achieved **vx=0.076** (76% of target!) at 89% training, then regressed
+
+**Best Height Achieved:**
+- EXP-068 achieved **height=2.20** (best ever!) but with backward drift (vx=-0.046)
+
+---
+
+## Session 16 Summary (6 experiments - Autonomous Overnight)
+
+### What We Tried
+| EXP | Change | vx | height | Notes |
+|-----|--------|-----|--------|-------|
+| 063 | Reduced clip_range (0.2→0.1) | +0.024 | 1.26 | Killed by watchdog at 90% |
+| 064 | gait=10 + clip=0.1 | +0.019 | 1.50 | Peak vx=0.029 at 76%, regressed |
+| 065 | Extended training (60min) | +0.018 | 1.44 | Peak vx=0.024 at 27%, regressed |
+| 066 | gait=10, 4096 envs | -0.040 | 1.96 | Backward drift |
+| 067 | Stronger forward gate (scale=50) | -0.018 | 1.89 | Backward drift |
+| 068 | Hard forward gate (ReLU-like) | -0.046 | **2.20** | Best height, backward drift |
+
+### Key Findings
+1. **Reduced clip_range (0.1)**: Slower learning, didn't prevent regression
+2. **Backward drift is a stable attractor**: Robot consistently learns to drift backward
+3. **Height vs velocity trade-off**: Best height (2.20) came with worst velocity
+4. **Forward gating variations don't help**: Sigmoid scale 50 and ReLU-like both failed
+5. **Memory watchdog killed 3/6 experiments**: System memory pressure issues
+
+### Current Code State (Reverted to EXP-056 Best Stable)
+- `ratio_clip: 0.2` (standard)
+- `diagonal_gait_reward: 5.0` (stable weight)
+- `forward_gate: torch.sigmoid(vx * 20.0)` (reverted from hard gate)
+
+---
+
+## Session 15 Summary (4 experiments)
+
+### What We Tried
+| EXP | Change | vx | Notes |
+|-----|--------|-----|-------|
+| 059 | Early stopping (50% duration) | +0.027 | Peak vx=0.076, regressed |
+| 060 | Very early stopping (400 iter) | +0.026 | No improvement |
+| 061 | Velocity decay curriculum (decay=30) | +0.007 | Too aggressive |
+| 062 | Softer decay (decay=10) | -0.001 | Robot learned to stand still |
+
+### Key Findings
+1. **Early stopping doesn't work**: Peak is proportional to training progress (80-90%), not absolute iterations
+2. **Velocity decay curriculum FAILS**: Any decay prevents forward motion learning entirely
+3. **Regression is fundamental**: Robot CAN achieve vx=0.076 but cannot maintain it
+4. **Learning phases compress**: Shorter training compresses learning proportionally
 
 ---
 
@@ -93,12 +143,14 @@
 
 ## Recommended Next Approaches
 
-**Note**: Forward-gated diagonal gait reward is working! Focus now on preventing mid-training regression.
+**Note**: Sessions 15-16 tested PPO tuning and forward gating variations - all failed.
+The robot CAN achieve vx=0.076 (76% of target) but cannot maintain it during continued training.
+Backward drift is a stable attractor regardless of gating mechanism.
 
 ### ✅ Approaches That Work
-- **Forward-gated diagonal gait reward** (EXP-056) - vx=0.036, 24% improvement!
+- **Forward-gated diagonal gait reward** (EXP-056) - vx=0.036, 24% improvement (best stable)
 
-### ❌ Approaches Ruled Out
+### ❌ Approaches Ruled Out (Sessions 11-16)
 - **Reward weight tuning** - No further gains from adjusting forward/stability balance
 - **Air time rewards** (EXP-040-043) - Interfered with velocity learning
 - **Reducing stability rewards** (EXP-049) - Caused falling/instability
@@ -106,32 +158,37 @@
 - **Slip factor modification** (EXP-052/053) - Makes things worse or no improvement
 - **Gait phase observations** (EXP-054) - No significant improvement
 - **Ungated gait reward** (EXP-055) - Led to backward stepping
-- **Higher gait weight (10)** (EXP-058) - Peak vx=0.061 but regressed to 0.018
+- **Higher gait weight (10)** (EXP-058/064/066) - Peak vx=0.061 but regresses or drifts backward
+- **Early stopping (50%)** (EXP-059) - Peak is proportional to progress, not absolute
+- **Very early stopping** (EXP-060) - Learning phases compress proportionally
+- **Velocity decay curriculum** (EXP-061/062) - Prevents forward motion learning entirely
+- **Reduced PPO clip_range (0.1)** (EXP-063/064) - Slower learning, no regression prevention
+- **Stronger forward gating (scale=50)** (EXP-067) - Robot learns backward drift
+- **Hard forward gate (ReLU-like)** (EXP-068) - Best height but backward drift
 
-### Priority 1: Early Stopping / Checkpoint Selection
-EXP-058 peaked at vx=0.061 (61% of target!) at 43% training:
-- Try stopping training at peak performance (40-50%)
-- Use validation metric to detect peak and save best checkpoint
-- May preserve walking behavior before regression
+### Priority 1: Checkpoint Selection (STILL TOP PRIORITY)
+EXP-059 checkpoints exist near peak velocity (vx=0.076 at 89%):
+- agent_13500.pt from EXP-059 is likely near peak
+- Evaluate this checkpoint for deployment testing
+- May capture walking behavior before regression
 
-### Priority 2: Gait Reward Curriculum
-Decay gait reward as velocity increases:
-- Start with high gait reward (10) to encourage stepping
-- As vx increases, reduce gait reward and rely more on velocity reward
-- Prevents the instability from high gait reward while capturing the benefit
+### Priority 2: Explicit Backward Penalty
+Session 16 revealed backward drift as a stable attractor:
+- Add explicit penalty for vx < 0 motion
+- May break the backward drift optimum
+- Weight needs careful tuning to avoid destabilization
 
 ### Priority 3: Reference Motion / Imitation Learning
 Use manually designed walking gaits as reference:
 - Define target joint trajectories for a walking cycle
 - Reward tracking the reference motion
-- May be the fastest path to real walking
+- Bypasses RL instability by providing explicit gait template
 
-### Priority 4: Velocity Command Curriculum
-Start with LOWER target velocity, gradually increase:
-- Phase 1: Target vx = 0.03 m/s (achievable)
-- Phase 2: Target vx = 0.05 m/s
-- Phase 3: Target vx = 0.10 m/s
-- Each phase fine-tunes from previous checkpoint
+### Priority 4: Policy Architecture
+Current MLP may not preserve gait memory:
+- Add recurrent layer (LSTM/GRU) to maintain gait state
+- Separate walking head from stability head
+- Test larger networks (256→512 units)
 
 ---
 

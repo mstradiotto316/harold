@@ -793,16 +793,20 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             # EXP-056: Gate gait reward by forward velocity
             # Only reward stepping when moving forward (vx > 0)
             # Use soft gating with sigmoid for smooth gradient
-            forward_gate = torch.sigmoid(vx * 20.0)  # ~0 when vx<0, ~1 when vx>0.1
+            # Forward gate: sigmoid to smoothly bias gait reward toward forward motion
+            # EXP-056 (best stable): sigmoid(vx * 20.0) - ~0 when vx<0, ~1 when vx>0.1
+            # Note: Hard gate (EXP-068) and scale=50 (EXP-067) both failed - caused backward drift
+            forward_gate = torch.sigmoid(vx * 20.0)
 
-            # EXP-061: Velocity-based gait decay curriculum
-            # As robot learns to walk (vx increases), reduce gait reward to prevent destabilization
-            # At vx=0: full gait reward, at vx=0.05: ~22% reward, at vx=0.1: ~5% reward
-            velocity_decay = torch.exp(-vx * 30.0)
+            # EXP-061/062: Velocity-based gait decay curriculum - DISABLED
+            # Both decay=30 (EXP-061) and decay=10 (EXP-062) failed:
+            # - Decay prevents forward motion learning entirely
+            # - Robot converges to standing still (vx≈0) as optimal
+            # Reverted to original forward-gated gait from EXP-056
 
             # Reward only switches (removed stance bonus that encouraged staying in one pair)
-            # Gated by forward velocity AND decayed by achieved velocity
-            diagonal_gait_reward = diagonal_gait_weight * valid_switch.float() * forward_gate * upright_sq * velocity_decay
+            # Gated by forward velocity to bias stepping toward forward motion
+            diagonal_gait_reward = diagonal_gait_weight * valid_switch.float() * forward_gate * upright_sq
 
             # Update tracking: only update if current is valid
             self._last_diagonal_pair = torch.where(

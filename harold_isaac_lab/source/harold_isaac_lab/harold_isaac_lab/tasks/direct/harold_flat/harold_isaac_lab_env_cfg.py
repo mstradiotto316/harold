@@ -81,7 +81,7 @@ class RewardsCfg:
     # EXP-055 (ungated): vx=+0.022 (worse - no direction bias)
     # EXP-056 (gated, weight=5.0): vx=+0.036 (BEST final, 24% better than baseline)
     # EXP-058 (gated, weight=10.0): peak vx=0.061 at 43%, regressed to 0.018
-    diagonal_gait_reward: float = 10.0  # EXP-059: Test early stopping with higher weight
+    diagonal_gait_reward: float = 5.0   # EXP-056 (best stable): weight=5.0 with sigmoid forward gate
     gait_phase_tolerance: float = 0.3   # Phase window where contact is rewarded (0-1 scale)
 
 

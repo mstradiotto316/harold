@@ -25,45 +25,72 @@ Train a stable forward walking gait for the Harold quadruped robot.
 | USD model | `part_files/V4/harold_8.usd` |
 | Best checkpoint | `logs/skrl/harold_direct/terrain_62/checkpoints/best_agent.pt` |
 
-## Current State (2025-12-22 ~14:30)
-- 15 experiments completed (EXP-001 to EXP-015)
-- **BREAKTHROUGH in EXP-015**: Spawn pose fix worked!
-- **Height reward: 3.43** (first time above 2.0 threshold)
-- **Robot is STANDING properly** - ready for forward motion
-- **EXP-015 still running**: ~31% complete, run ID `2025-12-22_13-32-42_ppo_torch`
-- **Next**: Add forward reward in EXP-016 when EXP-015 completes
+## Current State (2025-12-24 ~00:30, Session 14 Complete)
 
-### Root Cause Analysis (NEW)
-The problem is NOT reward engineering. The actual issues are:
-1. **Contact detection gap** (FIXED): Elbow contact was below 10N threshold
-2. **Spawn pose bias** (TO TEST): Shoulders at ±0.20 may cause forward lean
-3. **Spawn height too low** (TO TEST): 0.24m is only 0.06m above elbow contact
+**BREAKTHROUGH: Forward-gated gait reward achieved vx=0.036 (24% better than baseline)**
 
-### Experiment Results Summary
-| EXP | Approach | Height | Outcome |
-|-----|----------|--------|---------|
-| 008 | Height reward only | 1.70 | Elbow pose |
-| 012 | Height penalty | 1.83 | Peak 1.96, regressed |
-| 014 | Contact 3N | **1.88** | Improved, still failing |
+- 58 experiments completed (EXP-001 to EXP-058)
+- **Best result (EXP-056)**: vx=0.036 m/s, height=1.49 (36% of walking target)
+- Robot stands properly with all stability metrics PASS
+- **Session 14**: Implemented diagonal gait reward - first major velocity improvement
 
-### Fast Iteration Protocol (NEW)
-- **Short runs**: 1000 iterations (~15-30 min) instead of 2 hours
-- **Early stopping**: If height stuck, stop and adjust config
-- **Extend if improving**: Only continue promising experiments
+### Key Findings (Session 14)
+1. **Diagonal gait reward works**: Rewarding alternating foot contacts creates stepping gradient
+2. **Forward gating essential**: Ungated reward led to backward stepping (EXP-055)
+3. **Higher weight = higher peak, more regression**: weight=10 peaked at vx=0.061 but regressed (EXP-058)
+4. **Mid-training regression pattern**: Peak at 40-70%, then regression continues
+
+### Approach Status
+| Approach | Status |
+|----------|--------|
+| Reward weight tuning | ❌ Exhausted |
+| Air time rewards | ❌ Made things worse |
+| Reduce stability | ❌ Caused instability |
+| Higher forward (>40) | ❌ Causes SANITY_FAIL |
+| Slip factor modification | ❌ No improvement or worse |
+| Gait phase observations | ❌ No improvement |
+| **Contact-based gait reward** | ✅ **WORKS** (vx=0.036, 24% better) |
+| **Early stopping / curriculum** | 🔲 TO TEST (Priority 1) |
+| **Reference motion** | 🔲 TO TEST (Priority 2) |
+
+### Best Configuration (EXP-056)
+```python
+learning_rate = 5.0e-4
+progress_forward_pos = 40.0
+progress_forward_neg = 10.0
+height_reward = 15.0
+upright_reward = 10.0
+diagonal_gait_reward = 5.0  # NEW - forward-gated
+entropy_loss_scale = 0.01
+```
 
 ### Harold CLI Observability System (COMPLETE)
 ```bash
+# BEFORE starting: always check for orphan processes
+harold ps                                     # List processes (shows [ORPHAN] if any)
+harold stop                                   # Kill all and cleanup (if needed)
+
+# Experiment workflow
 harold train --hypothesis "..." --tags "..."  # Start with metadata
-harold status                                  # Check progress
+harold status                                 # Check progress (shows it/s, envs)
 harold validate                               # Final metrics
 harold compare EXP-014 EXP-015               # Side-by-side
 ```
+
+**Process Safety**: The harness blocks concurrent training, but orphan processes can exist after crashes. Always run `harold ps` before starting new experiments.
 
 ## System Specs
 - **GPU**: NVIDIA GeForce RTX 4080 (16GB)
 - **CPU**: Intel Core i7-8700K @ 3.70GHz (6 cores, 12 threads)
 - **RAM**: 32 GB
 - **Simulation boot time**: ~14 seconds
+
+## Training Configuration
+- **Target duration**: 30-60 minutes per experiment (fast iteration > long runs)
+- **Environment count**: 6144 (recommended), 4096 (fallback if unstable)
+- **Video recording**: MANDATORY - never disable
+- **Memory watchdog**: Auto-starts, kills at RAM>95% or Swap>70% (safety net)
+- **Kill detection**: `harold status` shows `KILLED_BY_WATCHDOG` if triggered
 
 ## Active Hypotheses
 1. Current reward structure may not incentivize stable forward locomotion

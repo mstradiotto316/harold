@@ -71,13 +71,13 @@ Consider whether these have been tried:
 |--------|-----------|----------------|
 | `episode_length` | > 100 | Episodes not dying immediately (SANITY CHECK) |
 | `upright_mean` | > 0.9 | Robot orientation correct (CAN BE MISLEADING!) |
-| `height_reward` | > 2.0 | Robot at standing height (NOT on elbows) |
+| `height_reward` | > 1.2 | Robot at standing height (NOT on elbows) |
 | `body_contact_penalty` | > -0.1 | Body not touching ground |
 | `vx_w_mean` | > 0.1 m/s | Robot walking forward |
 
 **CRITICAL**:
 - If `episode_length < 100`, all other metrics are invalid (BUG!)
-- If `height_reward < 2.0`, robot is likely on elbows regardless of upright_mean!
+- If `height_reward < 1.2`, robot is likely on elbows regardless of upright_mean!
 - `upright_mean > 0.9` does NOT mean standing - elbow pose passes this check
 
 ---

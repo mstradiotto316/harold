@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## IMPORTANT: Instructions from the Operator
 
+**Video Recording is MANDATORY**: Every training run MUST include video recording (`--video` flag). Video is critical logging infrastructure for human review. Never disable it.
+
 **Observability Limitations**: You cannot reliably interpret video output. Focus on TensorBoard metrics and text-based logs. Continue generating videos for human monitoring, but base your experiment conclusions on numerical metrics only.
 
 **Context Management**: Training runs may produce hours of logs that cause context overflow. Use the helper scripts in `scripts/` to run training in the background and check progress compactly.
@@ -39,6 +41,22 @@ Read these files in order:
 
 The `harold` CLI is a **deep module** for hypothesis-driven experimentation. It hides TensorBoard complexity behind manifest files and comparison tools.
 
+### Before Starting an Experiment (IMPORTANT)
+
+**The harness automatically blocks concurrent training.** If you try to start training while another is running, you'll get an error. However, orphan processes can exist after crashes or interrupted sessions.
+
+```bash
+# ALWAYS check for existing processes before starting
+python scripts/harold.py ps
+
+# If orphans exist, clean them up
+python scripts/harold.py stop
+```
+
+**What are orphan processes?** Training spawns child processes. If the parent dies unexpectedly (OOM, crash, context overflow), children may keep running. `harold ps` shows `[ORPHAN]` for processes not tracked by the PID file. `harold stop` kills all training processes and cleans up PID files.
+
+### Starting Experiments
+
 ```bash
 # Activate environment first
 source ~/Desktop/env_isaaclab/bin/activate
@@ -47,9 +65,14 @@ cd /home/matteo/Desktop/code_projects/harold
 # Start experiment with metadata (hypothesis-driven workflow)
 python scripts/harold.py train --hypothesis "Lower threshold (10N) prevents elbow exploit" \
                                --tags "body_contact,elbow_fix"
-python scripts/harold.py train --iterations 50000   # Custom duration
-python scripts/harold.py train --checkpoint path    # Resume from checkpoint
+python scripts/harold.py train --iterations 2500   # Custom duration (~60 min)
+python scripts/harold.py train --checkpoint path   # Resume from checkpoint
+python scripts/harold.py train --num-envs 4096     # Fewer envs if memory-constrained
+```
 
+### Monitoring & Analysis
+
+```bash
 # Check status (state-only reporting, no prescriptive suggestions)
 python scripts/harold.py status                     # Current run with metrics
 python scripts/harold.py status --json              # Machine-readable output
@@ -72,18 +95,27 @@ python scripts/harold.py compare --tag forward_motion  # All with tag
 python scripts/harold.py note EXP-034 "Robot walked at 40-80% then regressed"
 ```
 
+### Process Management
+
+```bash
+python scripts/harold.py ps                   # List all training processes
+python scripts/harold.py stop                 # Stop all training and cleanup
+```
+
 ### Status Output Example
 ```
 RUN: 2025-12-22_14-30-00_ppo_torch (EXP-039)
 HYPOTHESIS: Lower body contact threshold prevents elbow exploit
-STATUS: RUNNING (45%, 1h 23m elapsed)
+STATUS: RUNNING (45%, 1h 23m elapsed, 6.5 it/s, 6144 envs)
 REWARD: 1234.5
 SANITY: PASS (ep_len=342)
-STANDING: PASS (height=6.8, contact=0.0)
+STANDING: PASS (height=2.1, contact=-0.02)
 WALKING: WARN (vx=0.03, need >0.1)
 VERDICT: STANDING
 DIAGNOSIS: Upright and stable, forward velocity 0.030 m/s
 ```
+
+The STATUS line shows: progress %, elapsed time, iterations/second, and environment count.
 
 ### Exit Codes
 - `0` = All metrics pass (robot walking)
@@ -93,7 +125,26 @@ DIAGNOSIS: Upright and stable, forward velocity 0.030 m/s
 - `4` = Not running / no data
 
 ### Manifest System
-Each experiment gets a `manifest.json` with cached metrics, hypothesis, and notes. Global index at `logs/skrl/harold_direct/experiments_index.json` maps EXP-NNN aliases to directories.
+Each experiment gets a `manifest.json` with:
+- `alias`: EXP-NNN identifier
+- `hypothesis`: What you're testing
+- `tags`: For filtering in `harold compare --tag`
+- `training_config`: `{num_envs, iterations}` for status display
+- `summary.final`: Cached final metrics
+- `summary.verdict`: WALKING/STANDING/FAILING/etc.
+- `notes`: Timestamped observations
+
+Global index at `logs/skrl/harold_direct/experiments_index.json` maps EXP-NNN aliases to directories.
+
+### JSON Output (`harold status --json`)
+Machine-readable output includes:
+- `running`, `pid`, `elapsed_seconds`: Process state
+- `progress`, `current_iteration`, `total_iterations`: Training progress
+- `iterations_per_second`: Current training rate
+- `training_config`: `{num_envs, iterations}` from manifest
+- `metrics`: All TensorBoard metrics
+- `status`, `diagnosis`, `exit_code`: Validation result
+- `killed_by_watchdog`: Memory watchdog kill info (if applicable)
 
 ---
 
@@ -101,9 +152,10 @@ Each experiment gets a `manifest.json` with cached metrics, hypothesis, and note
 
 ```bash
 # Direct training (verbose output - avoid in agents)
+# NOTE: --video is MANDATORY, never omit it
 python harold_isaac_lab/scripts/skrl/train.py \
   --task=Template-Harold-Direct-flat-terrain-v0 \
-  --num_envs 4096 --headless --video
+  --num_envs 6144 --headless --video
 
 # Play/evaluate a checkpoint
 python harold_isaac_lab/scripts/skrl/play.py \
@@ -124,14 +176,14 @@ python3 -m tensorboard.main --logdir logs/skrl/harold_direct/ --bind_all
 |----------|--------|-----------|--------------|
 | 1. SANITY | `episode_length` | > 100 | Robots dying immediately (BUG!) |
 | 2. Stability | `upright_mean` | > 0.9 | Falling over |
-| 3. Height | `height_reward` | > 2.0 | On elbows/collapsed |
+| 3. Height | `height_reward` | > 1.2 | On elbows/collapsed |
 | 4. Contact | `body_contact_penalty` | > -0.1 | Body on ground |
 | 5. Walking | `vx_w_mean` | > 0.1 m/s | Not walking forward |
 
 **CRITICAL**: If SANITY fails, ALL other metrics are invalid.
 
 **Answering the key questions:**
-- **Is robot standing?** → STANDING: PASS means height > 2.0 and contact > -0.1
+- **Is robot standing?** → STANDING: PASS means height > 1.2 and contact > -0.1
 - **Is robot walking?** → WALKING: PASS means vx > 0.1 m/s (and standing)
 
 ---
@@ -199,6 +251,33 @@ If using height-based termination, check height above terrain, NOT world Z coord
 
 ### Context Overflow
 Long training runs flood context with tqdm output. Always use `python scripts/harold.py train` which runs training in background.
+
+---
+
+## Simulation Settings & Memory Safety
+
+### Recommended Environment Count
+- **Default**: 6144 envs (best throughput/stability balance)
+- **If unstable after crash**: Use 4096 envs temporarily
+- **Never exceed**: 8192 envs (causes memory pressure)
+
+### Memory Watchdog
+Training automatically starts a memory watchdog that prevents OOM-induced system hangs:
+- **Thresholds**: Kills training at RAM > 95% OR Swap > 70%
+- **Detection**: `harold status` shows `STATUS: KILLED_BY_WATCHDOG` if triggered
+- **JSON output**: `killed_by_watchdog` field contains reason and memory stats
+- **Disable**: `harold train --no-watchdog` (not recommended)
+
+The watchdog writes to `/tmp/harold_watchdog.log` and creates `/tmp/harold_watchdog_killed.json` if it kills training.
+
+### Training Duration Guidelines
+**Target: 30-60 minutes per experiment.** Fast iteration is more valuable than long runs.
+
+| Iterations | Duration | Timesteps | Use Case |
+|------------|----------|-----------|----------|
+| 1250 | ~30 min | 30k | Quick hypothesis test |
+| 2500 | ~60 min | 60k | Standard experiment |
+| 4167 | ~100 min | 100k | Extended run (only if promising) |
 
 ---
 

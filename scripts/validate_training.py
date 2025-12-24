@@ -71,7 +71,7 @@ def validate_run(run_path: str) -> dict:
     THRESHOLDS = {
         'episode_length': (100, 300),  # (minimum, expected)
         'upright_mean': 0.9,
-        'height_reward': 2.0,
+        'height_reward': 1.2,  # Athletic crouch acceptable (user validated via video)
         'body_contact': -0.1,  # Must be GREATER than this (less negative)
         'vx_w_mean': 0.1,
     }

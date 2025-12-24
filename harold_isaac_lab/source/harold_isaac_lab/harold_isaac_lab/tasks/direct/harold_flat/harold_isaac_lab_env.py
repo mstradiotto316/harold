@@ -214,7 +214,14 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "rear_support_bonus",
             "low_height_penalty",
             "standing_penalty",
+            "feet_air_time_reward",
+            "diagonal_gait_reward",
         ]
+
+        # --- Diagonal Gait Tracking (EXP-055) ---
+        # Track which diagonal pair was last in contact for rewarding alternation
+        # 0 = FL+BR pair, 1 = FR+BL pair, -1 = neither/both (no reward)
+        self._last_diagonal_pair = torch.full((self.num_envs,), -1, dtype=torch.long, device=self.device)
         self._metric_keys = [
             "vx_w_mean",
             "vy_w_mean",
@@ -480,14 +487,14 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._act_marker.visualize(marker_pos_act, marker_ori_act, marker_indices=marker_idx, scales=self._act_scale_buffer)
 
     def _get_observations(self) -> dict:
-        """Construct the 48-dimensional observation vector for policy input.
+        """Construct the 50-dimensional observation vector for policy input.
         
         Assembles robot state, sensor data, and command information into a structured
         observation that enables the policy to perform locomotion control. Updates
         terrain difficulty for each environment.
         
         Returns:
-            Dict with 'policy' key containing 48D observation tensor:
+            Dict with 'policy' key containing 50D observation tensor:
                 - root_lin_vel_b (3): Linear velocity in body frame [m/s]
                 - root_ang_vel_b (3): Angular velocity in body frame [rad/s] 
                 - projected_gravity_b (3): Gravity vector in body frame (for orientation)
@@ -495,7 +502,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 - joint_vel (12): Joint angular velocities [rad/s]
                 - commands (3): Velocity commands [vx, vy, yaw_rate]
                 - prev_target_delta (12): Previous joint targets relative to neutral pose [rad]
-                
+                - gait_phase (2): Sin/Cos of gait phase for leg coordination [EXP-054]
+
         State Tracking:
             - Increments policy step counter for tracking
             - Updates time buffer for temporal observations
@@ -565,21 +573,30 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # - No proprioceptive terrain information (generalizes to unknown terrain)
         # - Sufficient information for closed-loop control without redundancy
         
+        # Compute gait phase based on cumulative time
+        # Phase cycles at gait frequency (default 2.0 Hz from GaitCfg)
+        gait_freq = self.cfg.gait.frequency  # Hz
+        gait_phase = 2.0 * math.pi * gait_freq * self._time  # radians
+        gait_phase_sin = torch.sin(gait_phase).unsqueeze(-1)  # [num_envs, 1]
+        gait_phase_cos = torch.cos(gait_phase).unsqueeze(-1)  # [num_envs, 1]
+        gait_phase_obs = torch.cat([gait_phase_sin, gait_phase_cos], dim=-1)  # [num_envs, 2]
+
         obs = torch.cat(
             [
                 tensor
                 for tensor in (
-                    self._robot.data.root_lin_vel_b,                                      # (3D) Body linear velocity  
+                    self._robot.data.root_lin_vel_b,                                      # (3D) Body linear velocity
                     self._robot.data.root_ang_vel_b,                                      # (3D) Body angular velocity
                     self._robot.data.projected_gravity_b,                                 # (3D) Gravity in body frame
                     self._robot.data.joint_pos - self._robot.data.default_joint_pos,     # (12D) Joint angles (relative)
                     self._robot.data.joint_vel,                                          # (12D) Joint velocities
-                    self._commands,                                                      # (3D) Velocity commands 
-                    self._prev_target_delta                                              # (12D) Previous target deltas
+                    self._commands,                                                      # (3D) Velocity commands
+                    self._prev_target_delta,                                             # (12D) Previous target deltas
+                    gait_phase_obs,                                                      # (2D) Gait phase (sin/cos) [EXP-054]
                 )
                 if tensor is not None
             ],
-            dim=-1,  # Concatenate along feature dimension -> [batch_size, 48]
+            dim=-1,  # Concatenate along feature dimension -> [batch_size, 50]
         )
 
         # Apply observation noise if domain randomization is enabled
@@ -642,6 +659,12 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         front_slip = (slip_xy[:, self._front_foot_slots] * front_mask).sum(dim=1) / front_cnt
         front_contact = front_contact_bool.float()
 
+        # SLIP_THR controls how much foot sliding reduces forward reward
+        # Session 13 findings:
+        # - EXP-032 baseline (0.03): vx=+0.029 ← BEST
+        # - EXP-052 relaxed (0.10): vx=+0.024 (worse)
+        # - EXP-053 disabled (1.0): vx=-0.023 (much worse, backward)
+        # Conclusion: Slip factor HELPS forward motion, revert to baseline
         SLIP_THR = 0.03
         f_slip = 1.0 / (1.0 + torch.square(front_slip / SLIP_THR))
         upright_sq = torch.square(upright)
@@ -704,6 +727,87 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         else:
             low_height_penalty = torch.zeros_like(current_height)
 
+        # ==================== FEET AIR TIME REWARD (EXP-040) ====================
+        # Reward proper stepping patterns to break the standing equilibrium
+        # UNGATED: Reward any stepping, rely on forward/backward rewards for direction
+        # EXP-038: Total speed gate led to backward stepping
+        # EXP-039: Forward gate never activated (chicken-and-egg)
+        # EXP-040: No gate, let velocity rewards handle direction
+        feet_air_time_weight = getattr(rewards_cfg, 'feet_air_time_reward', 0.0)
+        if feet_air_time_weight > 0.0:
+            first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._feet_ids]
+            last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
+
+            # Reward feet that achieve optimal air time when they land
+            optimal_air_time = getattr(rewards_cfg, 'optimal_air_time', 0.25)
+            air_time_error = torch.abs(last_air_time - optimal_air_time)
+
+            # Exponential reward: peaks at optimal_air_time, decays for deviations
+            # NO GATE - reward stepping in any direction, velocity rewards bias forward
+            feet_air_time_reward = torch.sum(
+                torch.exp(-air_time_error * 10.0) * first_contact.float(), dim=1
+            ) * feet_air_time_weight
+        else:
+            feet_air_time_reward = torch.zeros_like(vx)
+
+        # ==================== DIAGONAL GAIT REWARD (EXP-056) ====================
+        # Reward alternating diagonal pair contacts (FL+BR vs FR+BL)
+        # EXP-055: Ungated reward led to backward stepping (vx=+0.022 vs baseline +0.029)
+        # EXP-056: Gate by forward velocity - only reward stepping when moving forward
+        # This biases the stepping direction toward forward motion
+        # Foot order: [FL, FR, BL, BR] = indices [0, 1, 2, 3]
+        diagonal_gait_weight = getattr(rewards_cfg, 'diagonal_gait_reward', 0.0)
+        if diagonal_gait_weight > 0.0:
+            # Diagonal pairs for trotting gait:
+            # Pair 0: FL (index 0) + BR (index 3)
+            # Pair 1: FR (index 1) + BL (index 2)
+            fl_contact = feet_contact[:, 0]  # FL
+            fr_contact = feet_contact[:, 1]  # FR
+            bl_contact = feet_contact[:, 2]  # BL
+            br_contact = feet_contact[:, 3]  # BR
+
+            # Check if each diagonal pair is in stance (both feet touching)
+            pair0_stance = fl_contact & br_contact  # FL + BR
+            pair1_stance = fr_contact & bl_contact  # FR + BL
+
+            # Determine current dominant diagonal pair
+            # -1 = neither/both (ambiguous), 0 = pair0, 1 = pair1
+            current_pair = torch.where(
+                pair0_stance & ~pair1_stance,
+                torch.zeros_like(self._last_diagonal_pair),  # Pair 0 dominant
+                torch.where(
+                    pair1_stance & ~pair0_stance,
+                    torch.ones_like(self._last_diagonal_pair),  # Pair 1 dominant
+                    torch.full_like(self._last_diagonal_pair, -1)  # Ambiguous
+                )
+            )
+
+            # Reward switches between diagonal pairs (the essence of trotting)
+            # Only reward if switching from one valid pair to another valid pair
+            valid_switch = (
+                (self._last_diagonal_pair >= 0) &  # Previous was valid
+                (current_pair >= 0) &               # Current is valid
+                (self._last_diagonal_pair != current_pair)  # Actually switched
+            )
+
+            # EXP-056: Gate gait reward by forward velocity
+            # Only reward stepping when moving forward (vx > 0)
+            # Use soft gating with sigmoid for smooth gradient
+            forward_gate = torch.sigmoid(vx * 20.0)  # ~0 when vx<0, ~1 when vx>0.1
+
+            # Reward only switches (removed stance bonus that encouraged staying in one pair)
+            # Gated by forward velocity to bias stepping toward forward motion
+            diagonal_gait_reward = diagonal_gait_weight * valid_switch.float() * forward_gate * upright_sq
+
+            # Update tracking: only update if current is valid
+            self._last_diagonal_pair = torch.where(
+                current_pair >= 0,
+                current_pair,
+                self._last_diagonal_pair
+            )
+        else:
+            diagonal_gait_reward = torch.zeros_like(vx)
+
         rewards = {
             "progress_forward": progress_forward,
             "upright_reward": upright * rewards_cfg.upright_reward,
@@ -717,6 +821,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "rear_support_bonus": rear_support_bonus,
             "low_height_penalty": low_height_penalty,
             "standing_penalty": standing_penalty,
+            "feet_air_time_reward": feet_air_time_reward,
+            "diagonal_gait_reward": diagonal_gait_reward,
         }
 
         total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
@@ -905,6 +1011,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 )
 
         self._time[env_ids] = 0
+
+        # Reset diagonal gait tracking (EXP-055)
+        self._last_diagonal_pair[env_ids] = -1
 
         log = {}
         if len(env_ids) > 0:

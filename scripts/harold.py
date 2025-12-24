@@ -42,9 +42,11 @@ Exit Codes:
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -54,25 +56,59 @@ LOG_DIR = PROJECT_ROOT / "logs" / "skrl" / "harold_direct"
 INDEX_FILE = LOG_DIR / "experiments_index.json"
 PID_FILE = Path("/tmp/harold_train.pid")
 LOG_FILE = Path("/tmp/harold_train.log")
+WATCHDOG_PID_FILE = Path("/tmp/harold_watchdog.pid")
+WATCHDOG_LOG_FILE = Path("/tmp/harold_watchdog.log")
+WATCHDOG_KILL_MARKER = Path("/tmp/harold_watchdog_killed.json")
 ENV_PATH = Path.home() / "Desktop" / "env_isaaclab" / "bin" / "activate"
 
-# Metric thresholds
-THRESHOLDS = {
-    'episode_length': (100, 300),  # (minimum, expected)
-    'upright_mean': 0.9,
-    'height_reward': 2.0,
-    'body_contact': -0.1,
-    'vx_w_mean': 0.1,
-}
+# Memory safety (prevents OOM-induced system hangs)
+# Only intervene at truly dangerous levels to avoid interrupting legitimate training
+RAM_KILL_THRESHOLD = 95   # Kill only when RAM critically full
+SWAP_KILL_THRESHOLD = 70  # Kill only when swap heavily used (thrashing imminent)
 
-# Metrics to extract for comparison (in priority order)
-COMPARISON_METRICS = [
-    'episode_length',
-    'upright_mean',
-    'height_reward',
-    'body_contact',
-    'vx_w_mean',
+
+# === METRIC SPECIFICATION (Single Source of Truth) ===
+# All metric-related code derives from this list. To add a metric, add one line here.
+
+@dataclass
+class MetricSpec:
+    """Specification for a training metric."""
+    key: str                # Internal key used in dicts
+    tensorboard_tag: str    # TensorBoard scalar tag path
+    threshold: float        # Pass threshold value
+    compare_gt: bool        # True = value > threshold is PASS
+    display_name: str       # Human-readable name for output
+
+METRICS = [
+    MetricSpec('episode_length', 'Episode / Total timesteps (mean)', 100, True, 'Episode Length'),
+    MetricSpec('upright_mean', 'Info / Episode_Metric/upright_mean', 0.9, True, 'Upright Mean'),
+    MetricSpec('height_reward', 'Info / Episode_Reward/height_reward', 1.2, True, 'Height Reward'),
+    MetricSpec('body_contact', 'Info / Episode_Reward/body_contact_penalty', -0.1, True, 'Body Contact'),
+    MetricSpec('vx_w_mean', 'Info / Episode_Metric/vx_w_mean', 0.1, True, 'Forward Velocity'),
 ]
+
+# Derived lookups (computed once at import time)
+METRIC_BY_KEY = {m.key: m for m in METRICS}
+METRIC_KEYS = [m.key for m in METRICS]
+
+
+@dataclass
+class TrainingStatus:
+    """Status of the training process."""
+    running: bool
+    pid: int | None = None
+    elapsed_seconds: float | None = None
+
+
+@dataclass
+class DiagnosisResult:
+    """Result of analyzing training metrics.
+
+    Replaces tuple return from get_diagnosis() - clearer than (str, str, int).
+    """
+    status: str        # 'WALKING', 'STANDING', 'FAILING', 'SANITY_FAIL', 'NO_DATA'
+    diagnosis: str     # Human-readable description
+    exit_code: int     # 0=walking, 1=standing, 2=failing, 3=sanity, 4=no data
 
 
 def get_latest_run() -> Path | None:
@@ -87,7 +123,10 @@ def get_latest_run() -> Path | None:
 
 
 def get_metrics(run_path: Path) -> dict:
-    """Extract metrics from TensorBoard logs."""
+    """Extract metrics from TensorBoard logs.
+
+    Uses METRICS as single source of truth for which metrics to extract.
+    """
     try:
         from tensorboard.backend.event_processing import event_accumulator
         ea = event_accumulator.EventAccumulator(str(run_path))
@@ -111,15 +150,14 @@ def get_metrics(run_path: Path) -> dict:
         except KeyError:
             return 0
 
-    return {
-        'episode_length': avg_last('Episode / Total timesteps (mean)'),
-        'upright_mean': avg_last('Info / Episode_Metric/upright_mean'),
-        'height_reward': avg_last('Info / Episode_Reward/height_reward'),
-        'body_contact': avg_last('Info / Episode_Reward/body_contact_penalty'),
-        'vx_w_mean': avg_last('Info / Episode_Metric/vx_w_mean'),
-        'reward_total': avg_last('Reward / Total reward (mean)'),
-        'data_points': get_count('Info / Episode_Metric/vx_w_mean'),
-    }
+    # Extract all metrics from METRICS spec
+    result = {spec.key: avg_last(spec.tensorboard_tag) for spec in METRICS}
+
+    # Add derived metrics (not in METRICS spec)
+    result['reward_total'] = avg_last('Reward / Total reward (mean)')
+    result['data_points'] = get_count(METRICS[-1].tensorboard_tag)  # Use last metric for count
+
+    return result
 
 
 # === MANIFEST & INDEX SYSTEM ===
@@ -184,14 +222,9 @@ def resolve_experiment(exp_id: str) -> Path | None:
     return path if path.exists() else None
 
 
-def get_manifest_path(run_path: Path) -> Path:
-    """Get path to manifest.json for a run."""
-    return run_path / 'manifest.json'
-
-
 def load_manifest(run_path: Path) -> dict | None:
     """Load manifest from disk, returns None if not found."""
-    manifest_path = get_manifest_path(run_path)
+    manifest_path = run_path / 'manifest.json'
     if manifest_path.exists():
         try:
             return json.loads(manifest_path.read_text())
@@ -202,8 +235,7 @@ def load_manifest(run_path: Path) -> dict | None:
 
 def save_manifest(run_path: Path, manifest: dict) -> None:
     """Persist manifest to disk."""
-    manifest_path = get_manifest_path(run_path)
-    manifest_path.write_text(json.dumps(manifest, indent=2))
+    (run_path / 'manifest.json').write_text(json.dumps(manifest, indent=2))
 
 
 def generate_manifest(run_path: Path) -> dict:
@@ -219,13 +251,13 @@ def generate_manifest(run_path: Path) -> dict:
 
     # Determine verdict
     if metrics.get('episode_length') is not None:
-        status, diagnosis, exit_code = get_diagnosis(metrics)
+        diag = get_diagnosis(metrics)
     else:
-        status, diagnosis, exit_code = 'NO_DATA', 'No metrics available', 4
+        diag = DiagnosisResult('NO_DATA', 'No metrics available', 4)
 
     # Check if run is still active
-    running, pid, _ = is_training_running()
-    if running:
+    train_status = is_training_running()
+    if train_status.running:
         run_status = 'running'
     elif metrics.get('data_points', 0) > 0:
         run_status = 'completed'
@@ -250,8 +282,8 @@ def generate_manifest(run_path: Path) -> dict:
         'status': run_status,
         'notes': [],
         'summary': {
-            'final': {k: metrics.get(k) for k in COMPARISON_METRICS},
-            'verdict': status
+            'final': {k: metrics.get(k) for k in METRIC_KEYS},
+            'verdict': diag.status
         }
     }
 
@@ -267,14 +299,13 @@ def get_or_create_manifest(run_path: Path) -> dict:
         if manifest.get('status') == 'running':
             metrics = get_metrics(run_path)
             if metrics.get('data_points', 0) > 0:
-                status, _, _ = get_diagnosis(metrics)
+                diag = get_diagnosis(metrics)
                 manifest['summary'] = {
-                    'final': {k: metrics.get(k) for k in COMPARISON_METRICS},
-                    'verdict': status
+                    'final': {k: metrics.get(k) for k in METRIC_KEYS},
+                    'verdict': diag.status
                 }
                 # Check if still running
-                running, _, _ = is_training_running()
-                if not running:
+                if not is_training_running().running:
                     manifest['status'] = 'completed'
                 save_manifest(run_path, manifest)
         return manifest
@@ -285,8 +316,20 @@ def get_or_create_manifest(run_path: Path) -> dict:
     return manifest
 
 
-def register_experiment(run_path: Path, hypothesis: str = '', tags: list[str] = None) -> str:
-    """Register a new experiment and return its alias."""
+def register_experiment(
+    run_path: Path,
+    hypothesis: str = '',
+    tags: list[str] = None,
+    training_config: dict = None
+) -> str:
+    """Register a new experiment and return its alias.
+
+    Args:
+        run_path: Path to the experiment directory
+        hypothesis: Hypothesis being tested
+        tags: List of tags for categorization
+        training_config: Training parameters (num_envs, iterations) for STATUS display
+    """
     index = load_index()
     alias = get_next_alias(index)
 
@@ -308,6 +351,8 @@ def register_experiment(run_path: Path, hypothesis: str = '', tags: list[str] = 
     manifest['alias'] = alias
     manifest['hypothesis'] = hypothesis
     manifest['tags'] = tags or []
+    if training_config:
+        manifest['training_config'] = training_config
     save_manifest(run_path, manifest)
 
     return alias
@@ -341,16 +386,38 @@ def get_recent_experiments(n: int = 5) -> list[str]:
     return result
 
 
-def get_diagnosis(metrics: dict) -> tuple[str, str, int]:
+def metric_passes(key: str, value: float | None) -> bool:
+    """Check if a metric value passes its threshold."""
+    if value is None:
+        return False
+    spec = METRIC_BY_KEY[key]
+    return value >= spec.threshold if spec.compare_gt else value <= spec.threshold
+
+
+def format_metric_line(key: str, value: float | None, show_threshold: bool = True) -> str:
+    """Format a metric for display with pass/fail status.
+
+    Reduces repetition across cmd_status(), cmd_validate(), etc.
+    """
+    spec = METRIC_BY_KEY[key]
+    if value is None:
+        return f"  {spec.display_name}: (no data)"
+
+    passed = metric_passes(key, value)
+    status = "PASS" if passed else "FAIL"
+    cmp = ">" if spec.compare_gt else "<"
+
+    if show_threshold:
+        return f"  {spec.display_name}: {value:.4f} ({status}, need {cmp} {spec.threshold})"
+    else:
+        return f"  {spec.display_name}: {value:.4f} ({status})"
+
+
+def get_diagnosis(metrics: dict) -> DiagnosisResult:
     """Analyze metrics and return state-only diagnosis.
 
     State-only reporting: describes current state without prescriptive suggestions.
     The agent interprets results and decides next steps.
-
-    Returns:
-        status: 'WALKING', 'STANDING', 'FAILING', 'SANITY_FAIL', 'NO_DATA'
-        diagnosis: Factual description of current state
-        exit_code: 0-4
     """
     ep_len = metrics.get('episode_length')
     height = metrics.get('height_reward')
@@ -360,37 +427,42 @@ def get_diagnosis(metrics: dict) -> tuple[str, str, int]:
 
     # No data
     if ep_len is None or height is None:
-        return 'NO_DATA', 'No metrics available yet', 4
+        return DiagnosisResult('NO_DATA', 'No metrics available yet', 4)
 
-    # Sanity check
-    if ep_len < THRESHOLDS['episode_length'][0]:
-        return 'SANITY_FAIL', f'Episodes only {ep_len:.0f} steps (threshold: {THRESHOLDS["episode_length"][0]})', 3
+    # Sanity check (episode length)
+    ep_spec = METRIC_BY_KEY['episode_length']
+    if not metric_passes('episode_length', ep_len):
+        return DiagnosisResult('SANITY_FAIL', f'Episodes only {ep_len:.0f} steps (threshold: {ep_spec.threshold})', 3)
 
     # Failing checks
-    if height < THRESHOLDS['height_reward']:
-        return 'FAILING', f'Height {height:.2f} below threshold {THRESHOLDS["height_reward"]}', 2
+    height_spec = METRIC_BY_KEY['height_reward']
+    if not metric_passes('height_reward', height):
+        return DiagnosisResult('FAILING', f'Height {height:.2f} below threshold {height_spec.threshold}', 2)
 
-    if contact is not None and contact < THRESHOLDS['body_contact']:
-        return 'FAILING', f'Body contact {contact:.2f} below threshold {THRESHOLDS["body_contact"]}', 2
+    contact_spec = METRIC_BY_KEY['body_contact']
+    if contact is not None and not metric_passes('body_contact', contact):
+        return DiagnosisResult('FAILING', f'Body contact {contact:.2f} below threshold {contact_spec.threshold}', 2)
 
-    if upright is not None and upright < THRESHOLDS['upright_mean']:
-        return 'FAILING', f'Upright {upright:.2f} below threshold {THRESHOLDS["upright_mean"]}', 2
+    upright_spec = METRIC_BY_KEY['upright_mean']
+    if upright is not None and not metric_passes('upright_mean', upright):
+        return DiagnosisResult('FAILING', f'Upright {upright:.2f} below threshold {upright_spec.threshold}', 2)
 
     # Success checks
-    if vx is not None and vx >= THRESHOLDS['vx_w_mean']:
-        return 'WALKING', f'Forward velocity {vx:.3f} m/s exceeds threshold {THRESHOLDS["vx_w_mean"]}', 0
+    vx_spec = METRIC_BY_KEY['vx_w_mean']
+    if vx is not None and metric_passes('vx_w_mean', vx):
+        return DiagnosisResult('WALKING', f'Forward velocity {vx:.3f} m/s exceeds threshold {vx_spec.threshold}', 0)
 
     # Partial success
     if vx is not None:
-        return 'STANDING', f'Upright and stable, forward velocity {vx:.3f} m/s', 1
+        return DiagnosisResult('STANDING', f'Upright and stable, forward velocity {vx:.3f} m/s', 1)
 
-    return 'STANDING', 'Upright and stable', 1
+    return DiagnosisResult('STANDING', 'Upright and stable', 1)
 
 
-def is_training_running() -> tuple[bool, int | None, float | None]:
-    """Check if training is running. Returns (running, pid, elapsed_seconds)."""
+def is_training_running() -> TrainingStatus:
+    """Check if training is running. Returns TrainingStatus with running, pid, elapsed."""
     if not PID_FILE.exists():
-        return False, None, None
+        return TrainingStatus(running=False)
 
     try:
         pid = int(PID_FILE.read_text().strip())
@@ -403,9 +475,74 @@ def is_training_running() -> tuple[bool, int | None, float | None]:
             capture_output=True, text=True
         )
         elapsed = float(result.stdout.strip()) if result.returncode == 0 else None
-        return True, pid, elapsed
+        return TrainingStatus(running=True, pid=pid, elapsed_seconds=elapsed)
     except (ProcessLookupError, ValueError):
-        return False, None, None
+        return TrainingStatus(running=False)
+
+
+def get_kill_info() -> dict | None:
+    """Check if training was killed by watchdog. Returns kill info or None."""
+    if not WATCHDOG_KILL_MARKER.exists():
+        return None
+    try:
+        return json.loads(WATCHDOG_KILL_MARKER.read_text())
+    except (json.JSONDecodeError, IOError):
+        return None
+
+
+def clear_kill_marker() -> None:
+    """Clear the watchdog kill marker (called when starting new training)."""
+    if WATCHDOG_KILL_MARKER.exists():
+        WATCHDOG_KILL_MARKER.unlink()
+
+
+def find_training_processes() -> list[dict]:
+    """Find all Isaac Lab training processes (including orphans)."""
+    processes = []
+    try:
+        result = subprocess.run(
+            ['pgrep', '-af', 'train.py.*Template-Harold'],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split('\n'):
+                if line:
+                    parts = line.split(' ', 1)
+                    pid = int(parts[0])
+                    cmd = parts[1] if len(parts) > 1 else ''
+                    # Get elapsed time
+                    ps_result = subprocess.run(
+                        ['ps', '-p', str(pid), '-o', 'etimes='],
+                        capture_output=True, text=True
+                    )
+                    elapsed = float(ps_result.stdout.strip()) if ps_result.returncode == 0 else 0
+                    processes.append({'pid': pid, 'cmd': cmd, 'elapsed': elapsed})
+    except Exception:
+        pass
+    return processes
+
+
+def kill_training(pid: int) -> bool:
+    """Kill a training process and its children."""
+    try:
+        # Try to kill the process group first
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            os.kill(pid, signal.SIGTERM)
+
+        # Wait briefly then force kill if needed
+        time.sleep(2)
+        try:
+            os.kill(pid, 0)  # Check if still alive
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass  # Already dead
+
+        return True
+    except Exception as e:
+        print(f"Error killing PID {pid}: {e}")
+        return False
 
 
 def format_elapsed(seconds: float) -> str:
@@ -420,10 +557,13 @@ def format_elapsed(seconds: float) -> str:
         return f"{hours}h {mins}m"
 
 
-def get_progress(run_path: Path) -> float | None:
-    """Estimate training progress from log file."""
+def get_progress(run_path: Path) -> tuple[float | None, int | None, int | None]:
+    """Estimate training progress from log file.
+
+    Returns: (progress_fraction, current_iteration, total_iterations)
+    """
     if not LOG_FILE.exists():
-        return None
+        return None, None, None
 
     try:
         # Look for iteration progress in log
@@ -433,7 +573,28 @@ def get_progress(run_path: Path) -> float | None:
         matches = re.findall(r'(\d+)/(\d+)', content)
         if matches:
             current, total = map(int, matches[-1])
-            return current / total
+            return current / total, current, total
+    except Exception:
+        pass
+    return None, None, None
+
+
+def get_training_rate() -> float | None:
+    """Parse iterations per second from training log.
+
+    Looks for tqdm-style output like '17.02it/s' or '6.31it/s'.
+    Returns the most recent rate, or None if not found.
+    """
+    if not LOG_FILE.exists():
+        return None
+
+    try:
+        import re
+        content = LOG_FILE.read_text()
+        # Match patterns like "17.02it/s" or "6.31it/s"
+        matches = re.findall(r'(\d+\.?\d*)it/s', content)
+        if matches:
+            return float(matches[-1])
     except Exception:
         pass
     return None
@@ -441,57 +602,74 @@ def get_progress(run_path: Path) -> float | None:
 
 # === SUBCOMMANDS ===
 
-def cmd_train(args):
-    """Start training in background with optional hypothesis and tags."""
-    # Check if already running
-    running, pid, _ = is_training_running()
-    if running:
-        print(f"ERROR: Training already running (PID: {pid})")
-        print(f"Check status: harold status")
-        print(f"Kill it: kill {pid}")
-        return 1
+def build_train_command(num_envs: int, iterations: int, checkpoint: str | None = None) -> list[str]:
+    """Build the Isaac Lab training command.
 
-    # Build command
+    Encapsulates command construction and benchmark-based defaults.
+    """
     # Benchmark results (2025-12-22):
     #   2048 envs: 20.9 it/s, 1.03M samples/s, GPU 4.0GB, RAM 7GB
     #   4096 envs: 19.6 it/s, 1.93M samples/s, GPU 4.5GB, RAM 8GB
     #   6144 envs: 16.6 it/s, 2.45M samples/s, GPU 5.0GB, RAM 8GB  <- RECOMMENDED
-    #   8192 envs: 14.7 it/s, 2.88M samples/s, GPU 5.5GB, RAM 9GB  <- Use when system is clean
-    # Note: Parallel experiments are 43% as efficient as single large runs
-    #
-    # Time calculation: timesteps = max_iterations × rollouts (24)
-    #   Example: 4167 iterations × 24 = 100k timesteps
-    #   At 16.6 it/s: 100k timesteps / 16.6 = ~100 min
-    num_envs = 6144
-    # Default: 1250 iterations × 24 rollouts = 30k timesteps (~30 min at 16.6 it/s)
-    # For longer experiments: --iterations 2500 (60 min), --iterations 4167 (100 min)
-    iterations = args.iterations or 1250
-
+    #   8192 envs: 14.7 it/s, 2.88M samples/s, GPU 5.5GB, RAM 9GB
     cmd = [
         'python', str(PROJECT_ROOT / 'harold_isaac_lab' / 'scripts' / 'skrl' / 'train.py'),
         '--task=Template-Harold-Direct-flat-terrain-v0',
         '--num_envs', str(num_envs),
         '--max_iterations', str(iterations),
         '--headless',
-        '--rendering_mode', 'performance',  # Optimize rendering for headless training
+        '--rendering_mode', 'performance',
         '--video',
-        '--video_interval', '6400',
+        '--video_interval', '3200',
         '--video_length', '250',
     ]
+    if checkpoint:
+        cmd.extend(['--checkpoint', str(checkpoint)])
+    return cmd
 
-    if args.checkpoint:
-        cmd.extend(['--checkpoint', str(args.checkpoint)])
 
-    # Parse hypothesis and tags
+def start_watchdog(pid: str) -> bool:
+    """Start memory watchdog for the given training PID.
+
+    Returns True if started successfully.
+    """
+    watchdog_script = PROJECT_ROOT / 'scripts' / 'memory_watchdog.py'
+    if not watchdog_script.exists():
+        return False
+
+    watchdog_cmd = (
+        f"python {watchdog_script} --pid {pid} "
+        f"--ram-kill {RAM_KILL_THRESHOLD} --swap-kill {SWAP_KILL_THRESHOLD} "
+        f"> {WATCHDOG_LOG_FILE} 2>&1 & echo $! > {WATCHDOG_PID_FILE}"
+    )
+    subprocess.run(['bash', '-c', watchdog_cmd])
+    return True
+
+
+def cmd_train(args):
+    """Start training in background with optional hypothesis and tags."""
+    # Check if already running
+    train_status = is_training_running()
+    if train_status.running:
+        print(f"ERROR: Training already running (PID: {train_status.pid})")
+        print(f"Check status: harold status")
+        print(f"Kill it: kill {train_status.pid}")
+        return 1
+
+    # Parse arguments with defaults
+    num_envs = getattr(args, 'num_envs', 6144) or 6144
+    iterations = args.iterations or 1250
     hypothesis = getattr(args, 'hypothesis', '') or ''
-    tags = []
-    if hasattr(args, 'tags') and args.tags:
-        tags = [t.strip() for t in args.tags.split(',') if t.strip()]
+    tags = [t.strip() for t in args.tags.split(',') if t.strip()] if getattr(args, 'tags', None) else []
 
-    # Clear old log
+    # Build command
+    cmd = build_train_command(num_envs, iterations, args.checkpoint)
+
+    # Clear old log and kill marker
     LOG_FILE.write_text('')
+    clear_kill_marker()
 
-    # Run in background with nohup
+    # Print startup info
     print(f"Starting Harold training in background...")
     print(f"  Iterations: {iterations}")
     print(f"  Environments: {num_envs} (~{16.6 if num_envs == 6144 else 14.7 if num_envs == 8192 else 19.6} it/s)")
@@ -499,44 +677,55 @@ def cmd_train(args):
     if args.checkpoint:
         print(f"  Checkpoint: {args.checkpoint}")
 
-    # Create shell command with source
+    # Launch training in background
     shell_cmd = f"source {ENV_PATH} && cd {PROJECT_ROOT} && {' '.join(cmd)} > {LOG_FILE} 2>&1 &"
-
     process = subprocess.Popen(
         ['bash', '-c', shell_cmd + f" echo $! > {PID_FILE}"],
         cwd=PROJECT_ROOT,
     )
     process.wait()
-
-    # Wait briefly for PID file and run directory
     time.sleep(2)
 
-    if PID_FILE.exists():
-        pid_val = PID_FILE.read_text().strip()
-
-        # Find the new run directory and register it
-        run_path = get_latest_run()
-        if run_path:
-            alias = register_experiment(run_path, hypothesis=hypothesis, tags=tags)
-            print(f"\n{alias}: {run_path.name}")
-            if hypothesis:
-                print(f"HYPOTHESIS: {hypothesis}")
-            if tags:
-                print(f"TAGS: {', '.join(tags)}")
-        else:
-            print(f"\nTraining started (PID: {pid_val})")
-
-        print(f"\nMonitor: harold status")
-        print(f"Logs: tail -f {LOG_FILE}")
-        return 0
-    else:
+    if not PID_FILE.exists():
         print("ERROR: Failed to start training")
         return 1
+
+    pid_val = PID_FILE.read_text().strip()
+
+    # Start memory watchdog
+    if not getattr(args, 'no_watchdog', False) and not getattr(args, 'no-watchdog', False):
+        if start_watchdog(pid_val):
+            print(f"  Memory watchdog: active (kills at RAM>{RAM_KILL_THRESHOLD}% or Swap>{SWAP_KILL_THRESHOLD}%)")
+
+    # Register experiment with training config
+    run_path = get_latest_run()
+    if run_path:
+        training_config = {
+            'num_envs': num_envs,
+            'iterations': iterations,
+        }
+        alias = register_experiment(
+            run_path,
+            hypothesis=hypothesis,
+            tags=tags,
+            training_config=training_config
+        )
+        print(f"\n{alias}: {run_path.name}")
+        if hypothesis:
+            print(f"HYPOTHESIS: {hypothesis}")
+        if tags:
+            print(f"TAGS: {', '.join(tags)}")
+    else:
+        print(f"\nTraining started (PID: {pid_val})")
+
+    print(f"\nMonitor: harold status")
+    print(f"Logs: tail -f {LOG_FILE}")
+    return 0
 
 
 def cmd_status(args):
     """Check training status and metrics (state-only reporting)."""
-    running, pid, elapsed = is_training_running()
+    train_status = is_training_running()
     run_path = get_latest_run()
 
     # Get manifest for alias and hypothesis
@@ -546,20 +735,32 @@ def cmd_status(args):
 
     if args.json:
         # Machine-readable output
+        progress, current_iter, total_iter = get_progress(run_path) if run_path else (None, None, None)
         result = {
-            'running': running,
-            'pid': pid,
-            'elapsed_seconds': elapsed,
+            'running': train_status.running,
+            'pid': train_status.pid,
+            'elapsed_seconds': train_status.elapsed_seconds,
             'run_name': run_path.name if run_path else None,
             'alias': manifest.get('alias') if manifest else None,
             'hypothesis': manifest.get('hypothesis') if manifest else None,
+            'training_config': manifest.get('training_config') if manifest else None,
+            'progress': progress,
+            'current_iteration': current_iter,
+            'total_iterations': total_iter,
+            'iterations_per_second': get_training_rate() if train_status.running else None,
+            'killed_by_watchdog': None,
         }
+        # Check if watchdog killed training
+        if not train_status.running:
+            kill_info = get_kill_info()
+            if kill_info:
+                result['killed_by_watchdog'] = kill_info
         if run_path:
             result['metrics'] = get_metrics(run_path)
-            status, diag, code = get_diagnosis(result['metrics'])
-            result['status'] = status
-            result['diagnosis'] = diag
-            result['exit_code'] = code
+            diag = get_diagnosis(result['metrics'])
+            result['status'] = diag.status
+            result['diagnosis'] = diag.diagnosis
+            result['exit_code'] = diag.exit_code
         print(json.dumps(result, indent=2, default=str))
         return result.get('exit_code', 4)
 
@@ -575,14 +776,41 @@ def cmd_status(args):
     else:
         print("RUN: (none)")
 
-    # Status line
-    if running:
-        progress = get_progress(run_path)
-        elapsed_str = format_elapsed(elapsed) if elapsed else "?"
+    # Status line with enhanced info
+    if train_status.running:
+        progress, current_iter, total_iter = get_progress(run_path)
+        elapsed_str = format_elapsed(train_status.elapsed_seconds) if train_status.elapsed_seconds else "?"
         progress_str = f"{int(progress * 100)}%" if progress else "?"
-        print(f"STATUS: RUNNING ({progress_str}, {elapsed_str} elapsed)")
+
+        # Get training rate and config
+        rate = get_training_rate()
+        rate_str = f"{rate:.1f} it/s" if rate else "? it/s"
+
+        # Get num_envs from manifest
+        training_config = manifest.get('training_config', {}) if manifest else {}
+        num_envs = training_config.get('num_envs')
+        envs_str = f"{num_envs} envs" if num_envs else ""
+
+        # Build status line
+        parts = [progress_str, elapsed_str + " elapsed", rate_str]
+        if envs_str:
+            parts.append(envs_str)
+        print(f"STATUS: RUNNING ({', '.join(parts)})")
     else:
-        print("STATUS: NOT RUNNING")
+        # Check if watchdog killed training
+        kill_info = get_kill_info()
+        if kill_info:
+            reason = kill_info.get('reason', 'unknown')
+            ram_pct = kill_info.get('ram_percent', 0)
+            swap_pct = kill_info.get('swap_percent', 0)
+            if reason == 'swap_pressure':
+                print(f"STATUS: KILLED_BY_WATCHDOG (swap={swap_pct:.0f}%, ram={ram_pct:.0f}%)")
+            elif reason == 'ram_pressure':
+                print(f"STATUS: KILLED_BY_WATCHDOG (ram={ram_pct:.0f}%, swap={swap_pct:.0f}%)")
+            else:
+                print(f"STATUS: KILLED_BY_WATCHDOG ({reason})")
+        else:
+            print("STATUS: NOT RUNNING")
 
     # Get metrics
     if run_path:
@@ -593,7 +821,7 @@ def cmd_status(args):
         # Sanity check
         ep_len = metrics.get('episode_length')
         if ep_len is not None:
-            status = 'PASS' if ep_len >= THRESHOLDS['episode_length'][0] else 'FAIL'
+            status = 'PASS' if metric_passes('episode_length', ep_len) else 'FAIL'
             print(f"SANITY: {status} (ep_len={ep_len:.0f})")
         else:
             print("SANITY: (no data)")
@@ -602,7 +830,7 @@ def cmd_status(args):
         height = metrics.get('height_reward')
         contact = metrics.get('body_contact')
         if height is not None:
-            status = 'PASS' if height >= THRESHOLDS['height_reward'] else 'FAIL'
+            status = 'PASS' if metric_passes('height_reward', height) else 'FAIL'
             contact_str = f", contact={contact:.2f}" if contact is not None else ""
             print(f"STANDING: {status} (height={height:.2f}{contact_str})")
         else:
@@ -610,22 +838,23 @@ def cmd_status(args):
 
         # Walking check
         vx = metrics.get('vx_w_mean')
+        vx_spec = METRIC_BY_KEY['vx_w_mean']
         if vx is not None:
-            if vx >= THRESHOLDS['vx_w_mean']:
+            if metric_passes('vx_w_mean', vx):
                 status = 'PASS'
             elif vx > 0:
                 status = 'WARN'
             else:
                 status = 'FAIL'
-            print(f"WALKING: {status} (vx={vx:.3f}, need >0.1)")
+            print(f"WALKING: {status} (vx={vx:.3f}, need >{vx_spec.threshold})")
         else:
             print("WALKING: (no data)")
 
         # Diagnosis (state-only, no NEXT field)
-        status, diagnosis, exit_code = get_diagnosis(metrics)
-        print(f"VERDICT: {status}")
-        print(f"DIAGNOSIS: {diagnosis}")
-        return exit_code
+        diag = get_diagnosis(metrics)
+        print(f"VERDICT: {diag.status}")
+        print(f"DIAGNOSIS: {diag.diagnosis}")
+        return diag.exit_code
     else:
         print("REWARD: (no runs)")
         print("SANITY: (no runs)")
@@ -666,38 +895,17 @@ def cmd_validate(args):
     print(f"Data points: {metrics.get('data_points', 0)}")
     print()
 
-    # Print each metric
-    checks = [
-        ('episode_length', 'Episode Length', f"> {THRESHOLDS['episode_length'][0]}"),
-        ('upright_mean', 'Upright Mean', f"> {THRESHOLDS['upright_mean']}"),
-        ('height_reward', 'Height Reward', f"> {THRESHOLDS['height_reward']}"),
-        ('body_contact', 'Body Contact', f"> {THRESHOLDS['body_contact']}"),
-        ('vx_w_mean', 'Forward Velocity', f"> {THRESHOLDS['vx_w_mean']} m/s"),
-    ]
-
-    for key, name, threshold_str in checks:
-        val = metrics.get(key)
-        if val is None:
-            print(f"  {name}: NO DATA")
-            continue
-
-        # Determine pass/fail
-        if key == 'episode_length':
-            passed = val >= THRESHOLDS['episode_length'][0]
-        elif key == 'body_contact':
-            passed = val >= THRESHOLDS[key]
-        else:
-            passed = val >= THRESHOLDS.get(key, 0)
-
-        status = "PASS" if passed else "FAIL"
-        print(f"  {name}: {val:.4f} ({status}, need {threshold_str})")
+    # Print each metric (uses METRICS as single source of truth)
+    for spec in METRICS:
+        val = metrics.get(spec.key)
+        print(format_metric_line(spec.key, val))
 
     print()
-    status, diagnosis, exit_code = get_diagnosis(metrics)
-    print(f"VERDICT: {status}")
-    print(f"DIAGNOSIS: {diagnosis}")
+    diag = get_diagnosis(metrics)
+    print(f"VERDICT: {diag.status}")
+    print(f"DIAGNOSIS: {diag.diagnosis}")
 
-    return exit_code
+    return diag.exit_code
 
 
 def cmd_runs(args):
@@ -729,12 +937,12 @@ def cmd_runs(args):
 
         metrics = get_metrics(run)
         if metrics.get('episode_length'):
-            status, _, _ = get_diagnosis(metrics)
+            diag = get_diagnosis(metrics)
             ep_len = metrics.get('episode_length', 0)
             vx = metrics.get('vx_w_mean', 0)
 
             alias_str = f" ({alias})" if alias else ""
-            print(f"  {run.name}{alias_str}  {status:12s}  ep={ep_len:.0f}  vx={vx:.3f}")
+            print(f"  {run.name}{alias_str}  {diag.status:12s}  ep={ep_len:.0f}  vx={vx:.3f}")
 
             if show_hypothesis and manifest and manifest.get('hypothesis'):
                 print(f"    -> {manifest['hypothesis'][:60]}...")
@@ -804,21 +1012,18 @@ def cmd_compare(args):
     header = "                   " + "".join(f"{e['manifest'].get('alias') or e['id']:>12}" for e in experiments) + "   threshold"
     print(header)
 
-    for metric in COMPARISON_METRICS:
-        row = f"  {metric:17s}"
+    for spec in METRICS:
+        row = f"  {spec.key:17s}"
         for e in experiments:
-            val = e['manifest'].get('summary', {}).get('final', {}).get(metric)
+            val = e['manifest'].get('summary', {}).get('final', {}).get(spec.key)
             if val is not None:
                 row += f"{val:>12.3f}"
             else:
                 row += f"{'?':>12}"
 
-        # Add threshold
-        threshold = THRESHOLDS.get(metric)
-        if isinstance(threshold, tuple):
-            threshold = threshold[0]
-        if threshold is not None:
-            row += f"   > {threshold}"
+        # Add threshold from spec
+        cmp = ">" if spec.compare_gt else "<"
+        row += f"   {cmp} {spec.threshold}"
         print(row)
     print()
 
@@ -857,6 +1062,90 @@ def cmd_note(args):
     return 0
 
 
+def cmd_stop(args):
+    """Stop training and cleanup processes."""
+    processes = find_training_processes()
+
+    if not processes:
+        print("No training processes found")
+        # Clean up stale PID files
+        if PID_FILE.exists():
+            PID_FILE.unlink()
+            print("Cleaned up stale PID file")
+        if WATCHDOG_PID_FILE.exists():
+            WATCHDOG_PID_FILE.unlink()
+            print("Cleaned up stale watchdog PID file")
+        return 0
+
+    print(f"Found {len(processes)} training process(es):")
+    for p in processes:
+        elapsed_str = format_elapsed(p['elapsed'])
+        print(f"  PID {p['pid']} (running {elapsed_str})")
+
+    # Kill all training processes
+    killed = 0
+    for p in processes:
+        if kill_training(p['pid']):
+            print(f"  Killed PID {p['pid']}")
+            killed += 1
+
+    # Also kill watchdog if running
+    if WATCHDOG_PID_FILE.exists():
+        try:
+            watchdog_pid = int(WATCHDOG_PID_FILE.read_text().strip())
+            os.kill(watchdog_pid, signal.SIGTERM)
+            print(f"  Killed watchdog PID {watchdog_pid}")
+        except (ProcessLookupError, ValueError):
+            pass
+        WATCHDOG_PID_FILE.unlink()
+
+    # Clean up PID files
+    if PID_FILE.exists():
+        PID_FILE.unlink()
+
+    print(f"\nStopped {killed} process(es)")
+    return 0
+
+
+def cmd_ps(args):
+    """List all training processes (including orphans)."""
+    processes = find_training_processes()
+
+    # Also check PID file
+    tracked_pid = None
+    if PID_FILE.exists():
+        try:
+            tracked_pid = int(PID_FILE.read_text().strip())
+        except ValueError:
+            pass
+
+    if not processes:
+        print("No training processes running")
+        if tracked_pid:
+            print(f"  (stale PID file points to {tracked_pid})")
+        return 0
+
+    print(f"Training processes ({len(processes)}):")
+    for p in processes:
+        elapsed_str = format_elapsed(p['elapsed'])
+        tracked = " (tracked)" if tracked_pid and p['pid'] == tracked_pid else ""
+        orphan = " [ORPHAN]" if tracked_pid and p['pid'] != tracked_pid else ""
+        if not tracked_pid:
+            orphan = " [ORPHAN - no PID file]"
+        print(f"  PID {p['pid']:>7} | {elapsed_str:>10} |{tracked}{orphan}")
+
+    # Check for watchdog
+    if WATCHDOG_PID_FILE.exists():
+        try:
+            watchdog_pid = int(WATCHDOG_PID_FILE.read_text().strip())
+            os.kill(watchdog_pid, 0)
+            print(f"\nWatchdog: PID {watchdog_pid} (active)")
+        except (ProcessLookupError, ValueError):
+            print(f"\nWatchdog: stale PID file")
+
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Harold Training CLI - Unified observability tool',
@@ -871,6 +1160,8 @@ def main():
     train_parser.add_argument('--checkpoint', type=str, help='Resume from checkpoint')
     train_parser.add_argument('--hypothesis', type=str, help='Hypothesis being tested (stored with experiment)')
     train_parser.add_argument('--tags', type=str, help='Comma-separated tags for categorization')
+    train_parser.add_argument('--no-watchdog', action='store_true', help='Disable memory watchdog (not recommended)')
+    train_parser.add_argument('--num-envs', type=int, default=6144, help='Number of environments (default: 6144, use 4096 if memory-constrained)')
 
     # status
     status_parser = subparsers.add_parser('status', help='Check training status and metrics')
@@ -894,6 +1185,12 @@ def main():
     note_parser.add_argument('experiment', help='Experiment alias or name')
     note_parser.add_argument('note', help='Note text to add')
 
+    # stop
+    stop_parser = subparsers.add_parser('stop', help='Stop training and cleanup processes')
+
+    # ps
+    ps_parser = subparsers.add_parser('ps', help='List all training processes (including orphans)')
+
     args = parser.parse_args()
 
     if args.command == 'train':
@@ -908,6 +1205,10 @@ def main():
         return cmd_compare(args)
     elif args.command == 'note':
         return cmd_note(args)
+    elif args.command == 'stop':
+        return cmd_stop(args)
+    elif args.command == 'ps':
+        return cmd_ps(args)
     else:
         parser.print_help()
         return 0

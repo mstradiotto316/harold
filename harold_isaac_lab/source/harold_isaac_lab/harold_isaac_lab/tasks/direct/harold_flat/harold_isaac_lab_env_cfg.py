@@ -41,15 +41,20 @@ class RewardsCfg:
     Now terminating episodes when height < 0.165m (60% of target).
     """
 
-    # Forward motion rewards - EXP-019: Stronger forward incentive
-    # EXP-018 achieved vx=0.065, need to push over 0.1
-    progress_forward_pos: float = 40.0  # Increased from 25 to push vx over 0.1
-    progress_forward_neg: float = 5.0   # Moderate backward penalty
-    standing_penalty: float = -5.0      # Penalize near-zero velocity
+    # Forward motion rewards - EXP-054: Test gait phase observation
+    # Session 13 summary:
+    # - EXP-050/051: Higher forward reward → SANITY_FAIL
+    # - EXP-052/053: Slip factor experiments → no improvement
+    # - EXP-054: Add gait phase (sin/cos) to observation space
+    # Hypothesis: Phase signal helps policy coordinate leg movements
+    progress_forward_pos: float = 40.0   # Keep optimal from EXP-032
+    progress_forward_neg: float = 10.0   # Keep optimal from EXP-032
+    standing_penalty: float = -5.0      # Best from EXP-021
 
-    # Stability rewards (REDUCED - athletic crouch is acceptable)
+    # Stability rewards - EXP-032 optimal values
+    # EXP-049 showed reducing these causes instability (SANITY_FAIL)
     upright_reward: float = 10.0        # Keep upright incentive
-    height_reward: float = 15.0         # Reduced from 30 - crouch is OK
+    height_reward: float = 15.0         # Reverted from EXP-049's 8.0
 
     # Penalties
     torque_penalty: float = -0.005      # Gentle energy regularizer
@@ -64,6 +69,20 @@ class RewardsCfg:
     # Punish being below minimum height to create gradient toward standing
     low_height_penalty: float = -50.0   # Strong negative reward
     low_height_threshold: float = 0.20  # Penalize if height < 0.20m (elbow pose ~0.15-0.18m)
+
+    # EXP-044: Air time rewards DISABLED - they made vx worse in EXP-038-043
+    # EXP-038: vx=-0.029, EXP-042: vx=-0.025, EXP-043: vx=-0.004 (all worse than baseline 0.029)
+    # Hypothesis: Air time reward interferes with velocity reward gradient
+    feet_air_time_reward: float = 0.0   # DISABLED - counterproductive
+    optimal_air_time: float = 0.25      # Unused when weight=0
+
+    # EXP-055/056/058: Contact-based diagonal gait reward with forward gating
+    # Rewards alternating diagonal pair contacts (FL+BR vs FR+BL) when moving forward
+    # EXP-055 (ungated): vx=+0.022 (worse - no direction bias)
+    # EXP-056 (gated, weight=5.0): vx=+0.036 (BEST final, 24% better than baseline)
+    # EXP-058 (gated, weight=10.0): peak vx=0.061 at 43%, regressed to 0.018
+    diagonal_gait_reward: float = 5.0   # Optimal from EXP-056
+    gait_phase_tolerance: float = 0.3   # Phase window where contact is rewarded (0-1 scale)
 
 
 @configclass
@@ -232,7 +251,8 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     action_scale = 0.5
 
     # Space definitions
-    observation_space = 48
+    # EXP-054: Added 2D gait phase (sin/cos) to help policy coordinate leg movements
+    observation_space = 50  # Was 48, now includes gait phase
     action_space = 12
     state_space = 0
 
@@ -334,7 +354,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
         prim_path="/World/envs/env_.*/Robot/.*",
         history_length=3,
         update_period=0.005,            # 5ms update rate (much higher frequency than 0.05s)
-        track_air_time=False            # Disabled for minimal reward setup
+        track_air_time=True             # Enabled for gait-based rewards (EXP-038)
     )
 
     # === Joint configuration (moved from env implementation) ===

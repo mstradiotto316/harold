@@ -1231,3 +1231,454 @@ discount_factor: 0.99
 lambda: 0.95
 entropy_loss_scale: 0.01
 ```
+
+---
+
+## Session 9 (2025-12-22 Evening) - Reward Tuning Experiments
+
+### Configuration Fix
+- **num_envs**: 6144 (optimal per benchmark)
+- **iterations**: 1250 (~30 min experiments)
+- Previous 27000 iterations was misconfigured (~12 hours)
+
+### EXP-021: Baseline with Correct Duration
+- **Date**: 2025-12-22
+- **ID**: `2025-12-22_17-48-06_ppo_torch`
+- **Config**: forward=40, backward=5, penalty=-5, height=15
+- **Duration**: 30 min (1250 iterations)
+
+**Final Results:**
+| Metric | Value | Status |
+|--------|-------|--------|
+| episode_length | 427.8 | PASS |
+| upright_mean | 0.94 | PASS |
+| height_reward | 1.58 | OK (crouch acceptable) |
+| body_contact | -0.018 | PASS |
+| **vx_w_mean** | **+0.023** | FAIL (need >0.1) |
+
+**VERDICT**: BEST of session. Forward motion emerging but below threshold.
+
+---
+
+### EXP-022: Stronger Standing Penalty
+- **Date**: 2025-12-22
+- **ID**: `2025-12-22_18-31-54_ppo_torch`
+- **Config**: standing_penalty=-10 (was -5)
+- **Duration**: 30 min
+
+**Final Results:**
+| Metric | EXP-021 | EXP-022 |
+|--------|---------|---------|
+| vx_w_mean | +0.023 | **-0.018** |
+| height_reward | 1.58 | 1.26 |
+
+**VERDICT**: WORSE. Stronger penalty caused backward drift.
+
+---
+
+### EXP-023: Higher Forward, Lower Height
+- **Date**: 2025-12-22
+- **ID**: `2025-12-22_19-17-57_ppo_torch`
+- **Config**: forward=50, backward=10, height=10
+- **Duration**: 30 min
+
+**Final Results:**
+| Metric | EXP-021 | EXP-023 |
+|--------|---------|---------|
+| vx_w_mean | +0.023 | **-0.025** |
+| height_reward | 1.58 | **0.96** |
+
+**VERDICT**: WORST. Both height and velocity degraded.
+
+---
+
+### EXP-024: Revert to EXP-018 Config
+- **Date**: 2025-12-22
+- **ID**: `2025-12-22_20-01-54_ppo_torch`
+- **Config**: forward=25, backward=5, penalty=-5, height=15
+- **Duration**: 30 min
+
+**Final Results:**
+| Metric | EXP-021 | EXP-024 |
+|--------|---------|---------|
+| vx_w_mean | +0.023 | +0.005 |
+| height_reward | 1.58 | 1.43 |
+
+**VERDICT**: Mediocre. Lower forward reward didn't help.
+
+---
+
+### EXP-025: Stronger Backward Penalty
+- **Date**: 2025-12-22
+- **ID**: `2025-12-22_20-45-47_ppo_torch`
+- **Config**: forward=25, backward=10, penalty=-5, height=15
+- **Duration**: 30 min
+
+**Mid-Training Peak**: vx=+0.019 at 47% (best mid-training velocity!)
+**Final Results:**
+| Metric | EXP-024 | EXP-025 |
+|--------|---------|---------|
+| vx_w_mean | +0.005 | -0.014 |
+| height_reward | 1.43 | 1.30 |
+
+**VERDICT**: Worse final, but showed promising mid-training forward motion.
+
+---
+
+### Session 9 Summary
+
+| EXP | Key Change | Final vx | Final height |
+|-----|------------|----------|--------------|
+| 021 | Baseline (30 min) | **+0.023** | **1.58** |
+| 022 | penalty=-10 | -0.018 | 1.26 |
+| 023 | forward=50, height=10 | -0.025 | 0.96 |
+| 024 | forward=25 | +0.005 | 1.43 |
+| 025 | backward=10 | -0.014 | 1.30 |
+
+**Key Finding**: Reward tuning has diminishing returns. EXP-021 config is optimal.
+
+**Critical Observation**: All experiments show mid-training forward motion that regresses.
+- EXP-025 reached vx=+0.019 at 47% then regressed to -0.014
+- This suggests the policy learns walking but then unlearns it
+
+**Next Steps**:
+1. Early stopping at peak velocity
+2. Curriculum learning
+3. Longer training experiments
+
+---
+
+## Session 10 (2025-12-23) - Post-Crash Recovery & Hyperparameter Experiments
+
+### System Crash Recovery
+- Previous session crashed due to OOM after 1d 8h 43min of training
+- Memory grew to 27.6GB RAM + 5.1GB swap (system has 32GB)
+- Memory watchdog safety mechanism now in place
+- Training processes were stuck during initialization (6144 envs too heavy after crash)
+- Reduced to 4096 envs for stability
+
+### EXP-026: Higher Entropy (0.05) - FAILED
+- **Date**: 2025-12-22 (from previous session, completed)
+- **ID**: `2025-12-22_21-36-27_ppo_torch`
+- **Config**: entropy_loss_scale: 0.05 (was 0.01)
+- **Hypothesis**: Higher entropy prevents policy regression to standing
+- **Result**: vx=-0.001, height=1.44
+- **Velocity progression**: 0.021 (13%) → -0.019 (42%) → 0.040 (69%) → -0.005 (97%)
+- **VERDICT**: FAILED - Regression still occurred despite higher entropy
+
+### EXP-027: Longer Training (100k timesteps) - CRASHED (OOM)
+- **Date**: 2025-12-22
+- **ID**: `2025-12-22_22-20-27_ppo_torch`
+- **Config**: 4167 iterations (~100 min)
+- **Hypothesis**: Longer training may converge past regression phase
+- **Result**: System OOM crash after 1d 8h 43min
+- **Last metrics before crash**: vx=-0.030, height=1.18
+- **VERDICT**: CRASHED - OOM caused system hang
+
+### EXP-028: Lower Learning Rate (5e-4) - PARTIAL SUCCESS
+- **Date**: 2025-12-23
+- **ID**: `2025-12-23_00-24-41_ppo_torch`
+- **Config**: learning_rate: 5e-4 (was 1e-3)
+- **Hypothesis**: Lower LR prevents policy regression by making updates more conservative
+- **Duration**: ~40 min (1250 iterations with 4096 envs)
+
+**Final Results:**
+| Metric | Value | Status |
+|--------|-------|--------|
+| episode_length | 368.4 | PASS |
+| upright_mean | 0.957 | PASS |
+| height_reward | 2.11 | PASS (best standing yet!) |
+| body_contact | -0.058 | PASS |
+| vx_w_mean | 0.008 | FAIL |
+
+**Velocity progression**:
+- 8%: -0.007
+- 22%: -0.027
+- 43%: -0.027
+- 68%: **+0.023** (peak)
+- 93%: +0.018
+- Final: +0.008
+
+**Key Finding**: Lower LR produced excellent standing (height 2.11 vs 1.58) but still showed regression pattern. Less severe than previous experiments (stayed positive).
+
+### EXP-029: Higher Forward Reward (60) - KILLED
+- **Date**: 2025-12-23
+- **ID**: `2025-12-23_01-04-42_ppo_torch`
+- **Config**: forward_pos: 60 (was 40), LR: 5e-4
+- **Hypothesis**: Higher forward reward with stabilizing LR may achieve walking
+- **Result**: Robot fell early (height=0.91), experiment killed
+- **VERDICT**: KILLED - Higher forward destabilized learning
+
+### EXP-030: Early Stopping (15 min) - IN PROGRESS
+- **Date**: 2025-12-23
+- **ID**: `2025-12-23_01-13-55_ppo_torch`
+- **Config**: 625 iterations (~15 min), standard config
+- **Hypothesis**: Stop training at peak (before regression) to preserve walking
+- **Status**: Running (~4% complete at session end)
+
+---
+
+### Session 10 Summary
+
+| EXP | Key Change | Final vx | Final height | Notes |
+|-----|------------|----------|--------------|-------|
+| 026 | entropy=0.05 | -0.001 | 1.44 | Regression still occurred |
+| 027 | 100k timesteps | -0.030 | 1.18 | OOM crash |
+| 028 | LR=5e-4 | +0.008 | **2.11** | Best standing, mild regression |
+| 029 | forward=60 | N/A | 0.91 | Robot fell, killed |
+| 030 | 625 iterations | TBD | TBD | Running |
+
+**Key Insight**: Lower learning rate (5e-4) produced the best standing results (height 2.11) and reduced regression severity (final vx stayed positive at 0.008 vs going negative in other experiments). However, still doesn't achieve walking threshold (0.1 m/s).
+
+---
+
+## Session 11 (2025-12-23 Overnight) - Hyperparameter Grid Search
+
+### Overview
+Systematic grid search around the best config from Session 10 (LR=5e-4). Tested variations in backward penalty, LR, forward reward, entropy, and training duration.
+
+### EXP-030: Standard Config + Early Stopping
+- **ID**: `2025-12-23_01-13-55_ppo_torch`
+- **Config**: LR=1e-3, neg=5, forward=40, 15min
+- **Result**: vx=0.009, height=1.52
+- **Peak vx**: 0.024 at 27%
+
+### EXP-031: Lower LR + Early Stopping
+- **ID**: `2025-12-23_01-41-00_ppo_torch`
+- **Config**: LR=5e-4, neg=5, forward=40, 15min
+- **Result**: vx=0.004, height=1.36
+- **Peak vx**: 0.035 at 84%
+
+### EXP-032: Lower LR + Higher Backward Penalty (BEST)
+- **ID**: `2025-12-23_02-25-04_ppo_torch`
+- **Config**: LR=5e-4, neg=10, forward=40, 15min
+- **Result**: **vx=0.029**, **height=1.67**
+- **VERDICT**: **BEST configuration of session**
+
+### EXP-033: Even Lower LR
+- **ID**: `2025-12-23_03-08-14_ppo_torch`
+- **Config**: LR=3e-4, neg=10, forward=40, 15min
+- **Result**: vx=-0.037, height=1.44
+- **VERDICT**: LR too conservative, robot didn't develop forward motion
+
+### EXP-034: Higher Forward Reward
+- **ID**: `2025-12-23_03-47-51_ppo_torch`
+- **Config**: LR=5e-4, neg=10, forward=50, 15min
+- **Result**: vx=-0.027, height=1.25
+- **VERDICT**: Forward reward too high, destabilized
+
+### EXP-035: Longer Training
+- **ID**: `2025-12-23_04-29-16_ppo_torch`
+- **Config**: Same as EXP-032, 30min
+- **Result**: vx=0.029, height=1.67
+- **VERDICT**: Same as EXP-032, longer training doesn't help
+
+### EXP-036: Higher Entropy
+- **ID**: `2025-12-23_05-13-37_ppo_torch`
+- **Config**: LR=5e-4, neg=10, entropy=0.02, 15min
+- **Result**: vx=-0.025, height=1.61
+- **VERDICT**: Higher entropy didn't help
+
+### EXP-037: Even Higher Backward Penalty
+- **ID**: `2025-12-23_05-56-16_ppo_torch`
+- **Config**: LR=5e-4, neg=15, forward=40, 15min
+- **Result**: vx=-0.034, height=1.75
+- **VERDICT**: Backward penalty too aggressive
+
+---
+
+### Session 11 Summary
+
+| EXP | Config | Final vx | Height | Notes |
+|-----|--------|----------|--------|-------|
+| 030 | std, 15min | 0.009 | 1.52 | Baseline |
+| 031 | LR=5e-4 | 0.004 | 1.36 | Lower LR |
+| **032** | **LR=5e-4, neg=10** | **0.029** | **1.67** | **BEST** |
+| 033 | LR=3e-4, neg=10 | -0.037 | 1.44 | Too conservative |
+| 034 | forward=50 | -0.027 | 1.25 | Destabilized |
+| 035 | longer (30min) | 0.029 | 1.67 | Same as 032 |
+| 036 | entropy=0.02 | -0.025 | 1.61 | No improvement |
+| 037 | neg=15 | -0.034 | 1.75 | Too aggressive |
+
+**Best Config (EXP-032)**:
+- learning_rate: 5e-4
+- progress_forward_neg: 10.0
+- progress_forward_pos: 40.0
+- entropy_loss_scale: 0.01
+
+**Key Finding**: The robot consistently achieves vx~0.03 with the best config but cannot break through to 0.1 m/s. The reward structure appears to have hit a local optimum. Further progress may require:
+1. Different reward formulation (gait-based instead of velocity-based)
+2. Curriculum learning
+3. Reference motion / imitation learning
+
+---
+
+## Session 12 (2025-12-23, Evening)
+
+### Overview
+Debugged SANITY_FAIL issues from previous runs and tested reward rebalancing hypothesis.
+
+### Issues Encountered
+- Multiple runs (EXP-045, EXP-046, several unnamed) had SANITY_FAIL with very short episodes (3-62 steps)
+- Memory watchdog killed training at swap=75% RAM=87%
+- Root cause: Leftover swap usage + high memory from multiple processes
+
+### Experiments
+
+| EXP | Config | Final vx | Height | Ep Len | Verdict |
+|-----|--------|----------|--------|--------|---------|
+| 048 | Baseline verification (4096 envs) | +0.010 | 2.11 | 344 | STANDING |
+| 049 | Reduced stability (5+8), forward=60 | -0.081 | 1.61 | 76 | SANITY_FAIL |
+
+**EXP-048 (Baseline Verification)**:
+- Confirmed environment working properly after debugging
+- height=2.11 (excellent standing)
+- vx=+0.010 m/s (positive but low)
+- Used 4096 envs to avoid memory issues
+
+**EXP-049 (Reward Rebalancing - FAILED)**:
+- Hypothesis: Reduce stability rewards (10→5, 15→8) to allow more forward exploration
+- Result: SANITY_FAIL - episodes shortened to 76 steps
+- Robot became unstable, strong backward drift (-0.08 m/s)
+- **Conclusion**: Current stability rewards are necessary for basic standing
+
+### Key Findings
+1. **Stability rewards are necessary**: Reducing height_reward from 15→8 and upright_reward from 10→5 caused episode length to drop from 344→76 (terminations due to falling)
+2. **Memory management important**: 6144 envs can trigger memory watchdog if swap isn't cleared
+3. **Configuration reverted**: Returned to EXP-032 optimal config after EXP-049 failure
+
+### Session Summary
+- Environment verified working after debugging
+- Reward rebalancing approach (reduce stability) does not work
+- Next approaches should maintain stability rewards and try other methods (curriculum, reference motion)
+
+---
+
+## Session 13 (2025-12-23, Late Evening)
+
+### Overview
+Systematic investigation of reward structure and observation space to break the vx~0.03 ceiling.
+
+### Experiments
+
+| EXP | Hypothesis | Final vx | Height | Verdict |
+|-----|------------|----------|--------|---------|
+| 050 | forward=100, LR=3e-4 | - | - | SANITY_FAIL (ep=76) |
+| 051 | forward=50, neg=15 | - | - | SANITY_FAIL (ep=23) |
+| 052 | Relax slip (0.03→0.10) | +0.024 | 1.52 | STANDING (no improvement) |
+| 053 | Disable slip factor | -0.023 | 1.56 | STANDING (WORSE) |
+| 054 | Gait phase observation | +0.022 | 1.62 | STANDING (no improvement) |
+
+### Key Findings
+
+**1. Forward Reward Ceiling Confirmed**
+- EXP-050/051: Increasing forward reward beyond 40 causes SANITY_FAIL
+- Even with lower LR (3e-4), high forward reward destabilizes learning
+
+**2. Slip Factor HELPS Forward Motion**
+- EXP-052: Relaxing slip threshold (0.03→0.10) → vx=0.024 (slightly worse)
+- EXP-053: Disabling slip factor → vx=-0.023 (much worse, backward drift)
+- **Conclusion**: Slip factor creates gradient toward proper walking, not against it
+
+**3. Gait Phase Observation Doesn't Help**
+- EXP-054: Added sin/cos gait phase to observations (48D→50D)
+- Result: vx=0.022 (no improvement over baseline 0.029)
+- Peak at 86%: vx=0.031, then regressed (same pattern as before)
+
+### Root Cause Analysis
+
+The robot is stuck in a **local optimum** where "standing + slight drift" gives near-optimal reward:
+1. Forward reward: vx * upright² * slip_factor * weight
+2. Standing (vx≈0) gives zero forward reward but avoids backward penalty
+3. Taking a step requires temporary balance loss → height/upright reward drops
+4. Net reward for stepping < reward for standing still
+
+### Approaches Ruled Out (Session 13)
+- ❌ Higher forward reward (>40) - causes instability
+- ❌ Slip factor modification - makes things worse
+- ❌ Gait phase observations - no significant improvement
+
+### Remaining Approaches to Test
+1. **Reference motion tracking** - reward following a designed gait trajectory
+2. **Velocity curriculum** - start with lower target velocity, increase gradually
+3. **Contact-based gait reward** - reward alternating foot contacts
+4. **Two-phase training** - train stability first, then freeze stability and train forward
+
+---
+
+## Session 14 (2025-12-23, Night)
+
+### Overview
+Implemented and tested contact-based diagonal gait reward - the first major breakthrough in forward velocity.
+
+### Technical Implementation
+Added diagonal gait reward to environment that rewards alternating diagonal foot pair contacts:
+- **Diagonal pairs**: FL+BR (pair 0) vs FR+BL (pair 1) - proper trotting pattern
+- **Reward logic**: Reward when switching from one diagonal pair to another
+- **Forward gating** (EXP-056+): Only reward steps when moving forward (sigmoid gate at vx=0)
+
+### Experiments
+
+| EXP | Hypothesis | Gait Weight | Final vx | Peak vx | Verdict |
+|-----|------------|-------------|----------|---------|---------|
+| 055 | Diagonal gait (ungated) | 5.0 | +0.022 | - | STANDING (worse) |
+| 056 | Forward-gated gait | 5.0 | **+0.036** | - | STANDING (**BEST**) |
+| 058 | Stronger gait reward | 10.0 | +0.018 | +0.061 | STANDING (regressed) |
+
+### EXP-055: Ungated Diagonal Gait Reward
+- **Hypothesis**: Reward alternating diagonal foot contacts to break standing optimum
+- **Config**: diagonal_gait_reward=5.0, no velocity gating
+- **Result**: vx=+0.022 (worse than baseline +0.029)
+- **Analysis**: Robot stepped but not specifically forward. Direction-agnostic reward.
+
+### EXP-056: Forward-Gated Gait Reward ⭐ NEW BEST
+- **Hypothesis**: Gate gait reward by forward velocity to bias stepping direction
+- **Config**: diagonal_gait_reward=5.0, sigmoid gate at vx=0
+- **Result**: vx=+0.036, height=1.49 (**24% improvement over baseline!**)
+- **Analysis**: Forward gating biases stepping toward forward motion
+
+### EXP-058: Stronger Gait Reward (Regressed)
+- **Hypothesis**: Higher gait weight (10 vs 5) pushes velocity further
+- **Config**: diagonal_gait_reward=10.0, forward gated
+- **Result**: Final vx=+0.018, but **peak vx=+0.061 at 43%!**
+- **Analysis**: Higher reward finds walking faster but training regresses
+
+### Key Findings
+
+**1. Forward-Gated Gait Reward Works**
+- EXP-056 achieved vx=+0.036 (24% better than baseline)
+- Gating by forward velocity (sigmoid) biases stepping direction
+- This is the first successful approach beyond reward weight tuning
+
+**2. Higher Gait Weight = Higher Peak but More Regression**
+- EXP-058 peaked at vx=0.061 (61% of target!) at 43% training
+- But final result regressed to 0.018
+- Suggests early stopping or curriculum might help
+
+**3. Mid-Training Regression is Fundamental**
+All experiments show same pattern:
+- Peak performance at 40-70% of training
+- Regression as training continues
+- PPO may be destabilizing learned behaviors
+
+### Best Configuration (Updated)
+```python
+# EXP-056 config (best final velocity)
+diagonal_gait_reward: 5.0  # Forward-gated
+learning_rate: 5.0e-4
+progress_forward_pos: 40.0
+progress_forward_neg: 10.0
+height_reward: 15.0
+upright_reward: 10.0
+```
+
+### Remaining Questions
+1. Can early stopping at peak preserve walking behavior?
+2. Can curriculum (decay gait reward as vx increases) prevent regression?
+3. Does the peak vx=0.061 represent the limit of this reward structure?
+
+### Session Summary
+- Implemented contact-based diagonal gait reward (new feature)
+- Forward-gated variant achieved best-ever velocity (+0.036, 24% better than baseline)
+- Higher gait reward achieved peak vx=0.061 (61% of target) but regressed
+- Forward velocity is improving but mid-training regression remains a challenge

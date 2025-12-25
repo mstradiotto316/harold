@@ -216,6 +216,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "standing_penalty",
             "feet_air_time_reward",
             "diagonal_gait_reward",
+            "backward_motion_penalty",
+            "velocity_threshold_bonus",
+            "exp_velocity_reward",
+            "bidirectional_gait_reward",
         ]
 
         # --- Diagonal Gait Tracking (EXP-055) ---
@@ -817,6 +821,109 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         else:
             diagonal_gait_reward = torch.zeros_like(vx)
 
+        # ==================== BIDIRECTIONAL GAIT REWARD (EXP-088) ====================
+        # Spot-style gait enforcement with both sync AND async components
+        # - Sync: Diagonal pairs (FL+BR, FR+BL) should have matching air/contact times
+        # - Async: Same-side legs (FL vs FR, BL vs BR) should be out of phase
+        # This provides stronger gait enforcement than unidirectional reward alone
+        bidirectional_gait_enabled = getattr(rewards_cfg, 'bidirectional_gait', False)
+        if bidirectional_gait_enabled:
+            gait_weight = getattr(rewards_cfg, 'bidirectional_gait_weight', 2.0)
+            gait_sigma = getattr(rewards_cfg, 'bidirectional_gait_sigma', 0.1)
+
+            # Get air time and contact time for each foot
+            # Foot order: [FL, FR, BL, BR] = indices [0, 1, 2, 3]
+            last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
+            last_contact_time = self._contact_sensor.data.last_contact_time[:, self._feet_ids]
+
+            # SYNC REWARD: Diagonal pairs should have matching times
+            # Pair 0: FL (0) + BR (3), Pair 1: FR (1) + BL (2)
+            # Sync means both feet in a diagonal pair lift and land together
+            air_diff_pair0 = torch.abs(last_air_time[:, 0] - last_air_time[:, 3])  # FL vs BR
+            air_diff_pair1 = torch.abs(last_air_time[:, 1] - last_air_time[:, 2])  # FR vs BL
+            contact_diff_pair0 = torch.abs(last_contact_time[:, 0] - last_contact_time[:, 3])
+            contact_diff_pair1 = torch.abs(last_contact_time[:, 1] - last_contact_time[:, 2])
+
+            # Exponential reward for small differences (Spot-style)
+            sync_reward_pair0 = torch.exp(-(air_diff_pair0 ** 2 + contact_diff_pair0 ** 2) / (gait_sigma ** 2))
+            sync_reward_pair1 = torch.exp(-(air_diff_pair1 ** 2 + contact_diff_pair1 ** 2) / (gait_sigma ** 2))
+            sync_reward = (sync_reward_pair0 + sync_reward_pair1) / 2.0
+
+            # ASYNC REWARD: Same-side legs should be out of phase
+            # FL vs FR should have opposite contact states, BL vs BR should have opposite
+            # Measure by contact state difference (one up, one down = good)
+            fl_contact = feet_contact[:, 0].float()
+            fr_contact = feet_contact[:, 1].float()
+            bl_contact = feet_contact[:, 2].float()
+            br_contact = feet_contact[:, 3].float()
+
+            # Async reward: difference between same-side legs should be high
+            # |FL - FR| + |BL - BR| should be close to 2 (both pairs opposite)
+            front_async = torch.abs(fl_contact - fr_contact)  # 0 = same, 1 = opposite
+            rear_async = torch.abs(bl_contact - br_contact)
+            async_reward = (front_async + rear_async) / 2.0  # 0-1 range
+
+            # Combined bidirectional gait reward
+            # Gate by forward velocity to only reward when moving forward
+            forward_gate = torch.sigmoid(vx * 20.0)
+
+            # EXP-089: Support additive mode (sync + async) vs multiplicative (sync * async)
+            use_additive = getattr(rewards_cfg, 'bidirectional_gait_additive', False)
+            if use_additive:
+                # Additive: rewards sync and async independently
+                combined_gait = (sync_reward + async_reward) / 2.0
+            else:
+                # Multiplicative: both sync and async must be high for reward
+                combined_gait = sync_reward * async_reward
+
+            bidirectional_gait_reward = gait_weight * combined_gait * forward_gate * upright_sq
+        else:
+            bidirectional_gait_reward = torch.zeros_like(vx)
+
+        # ==================== BACKWARD MOTION PENALTY (EXP-069) ====================
+        # Explicit penalty for backward motion to break the backward drift attractor
+        # Session 16 showed that backward drift is a stable optimum - robot consistently
+        # converges to backward motion (vx < 0) regardless of forward gating mechanism.
+        # This adds a strong penalty proportional to backward velocity to break that attractor.
+        backward_penalty_weight = getattr(rewards_cfg, 'backward_motion_penalty', 0.0)
+        if backward_penalty_weight > 0.0:
+            # Penalize backward velocity (vx < 0) strongly
+            # Scale by upright^2 so we only penalize backward motion when robot is standing
+            backward_motion_penalty = -backward_penalty_weight * torch.relu(-vx) * upright_sq
+        else:
+            backward_motion_penalty = torch.zeros_like(vx)
+
+        # ==================== VELOCITY THRESHOLD BONUS (EXP-080) ====================
+        # Add bonus for exceeding velocity thresholds to break the ~0.056 m/s plateau
+        # This provides extra reward when robot achieves higher forward velocity
+        velocity_bonus_weight = getattr(rewards_cfg, 'velocity_threshold_bonus', 0.0)
+        velocity_threshold = getattr(rewards_cfg, 'velocity_bonus_threshold', 0.04)
+        if velocity_bonus_weight > 0.0:
+            # Bonus for exceeding threshold - scaled by how much we exceed it
+            velocity_excess = torch.relu(vx - velocity_threshold)
+            velocity_threshold_bonus = velocity_bonus_weight * velocity_excess * upright_sq
+        else:
+            velocity_threshold_bonus = torch.zeros_like(vx)
+
+        # ==================== EXPONENTIAL VELOCITY TRACKING (EXP-083) ====================
+        # Reference implementations (AnyMal, Spot) use exponential kernels for velocity tracking
+        # exp(-error²/σ²) provides smooth gradients near zero, unlike linear penalties
+        # This should help break the velocity plateau by providing better gradient signal
+        exp_velocity_tracking = getattr(rewards_cfg, 'exp_velocity_tracking', False)
+        if exp_velocity_tracking:
+            exp_weight = getattr(rewards_cfg, 'exp_velocity_weight', 5.0)
+            sigma_sq = getattr(rewards_cfg, 'exp_velocity_sigma_sq', 0.25)
+            target_vx = getattr(rewards_cfg, 'exp_velocity_target', 0.1)
+
+            # Compute velocity error squared
+            vel_error_sq = torch.square(vx - target_vx)
+
+            # Exponential tracking reward: peaks at target, decays for deviations
+            # Gate by upright^2 to only reward when standing properly
+            exp_velocity_reward = exp_weight * torch.exp(-vel_error_sq / sigma_sq) * upright_sq
+        else:
+            exp_velocity_reward = torch.zeros_like(vx)
+
         rewards = {
             "progress_forward": progress_forward,
             "upright_reward": upright * rewards_cfg.upright_reward,
@@ -832,6 +939,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "standing_penalty": standing_penalty,
             "feet_air_time_reward": feet_air_time_reward,
             "diagonal_gait_reward": diagonal_gait_reward,
+            "backward_motion_penalty": backward_motion_penalty,
+            "velocity_threshold_bonus": velocity_threshold_bonus,
+            "exp_velocity_reward": exp_velocity_reward,
+            "bidirectional_gait_reward": bidirectional_gait_reward,
         }
 
         total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

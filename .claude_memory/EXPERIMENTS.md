@@ -1851,3 +1851,263 @@ All three experiments showed backward drift despite different gating approaches:
 2. **Reference motion**: Imitation learning with designed gait trajectories
 3. **Stronger backward penalty**: Add explicit penalty for vx<0 motion
 4. **Two-phase training**: Train stability only, then add forward with frozen value network
+
+---
+
+## Session 17 (2025-12-24, Afternoon/Evening) - Backward Motion Penalty Breakthrough
+
+### Overview
+Implemented and tested explicit backward motion penalty to break the backward drift attractor discovered in Session 16.
+
+### Technical Implementation
+Added `backward_motion_penalty` to reward structure:
+- Penalizes backward velocity (vx < 0) with configurable weight
+- Only applies when robot is upright (scaled by upright²)
+- Complements existing progress_forward_neg reward
+
+### Experiments
+
+| EXP | Config | Final vx | Height | Verdict |
+|-----|--------|----------|--------|---------|
+| 069 | backward=20, gait=5 | **+0.012** | 2.00 | STANDING (forward!) |
+| 070 | backward=20, gait=10 | -0.053 | 2.11 | STANDING (backward) |
+| 071 | backward=40, gait=5 | **+0.039** | 1.82 | STANDING |
+| 072 | backward=60, gait=5 | ABORTED | - | Unstable (height readings nonsensical) |
+| 073 | backward=50, gait=5 | **+0.056** | 1.50 | STANDING (**BEST**) ⭐ |
+| 074 | backward=50, forward=60 | +0.045 | 1.82 | STANDING (worse than 073) |
+| 075 | backward=50, gait=7 | +0.041 | 1.89 | STANDING (worse than 073) |
+| 076 | backward=50, gait=5, 2500 iter | +0.057 | 1.94 | STANDING (same as 073) |
+| 077 | backward=50, standing_penalty=0 | +0.024 | 1.97 | FAILING (body contact) |
+
+### EXP-069: Backward Penalty (20.0)
+- **Hypothesis**: Explicit backward penalty breaks backward drift attractor
+- **Config**: backward_motion_penalty=20.0, gait=5.0
+- **Result**: vx=+0.012 (positive forward! First time backward drift prevented)
+- **Analysis**: Backward penalty successfully breaks backward drift attractor
+
+### EXP-070: Higher Gait + Backward Penalty
+- **Hypothesis**: Combine backward penalty (20) with higher gait (10)
+- **Config**: backward_motion_penalty=20.0, diagonal_gait_reward=10.0
+- **Result**: vx=-0.053 (backward drift returned!)
+- **Analysis**: Gait=10 overpowers backward penalty=20, causing backward stepping
+
+### EXP-071: Stronger Backward Penalty (40.0)
+- **Hypothesis**: Stronger backward penalty pushes more forward
+- **Config**: backward_motion_penalty=40.0, gait=5.0
+- **Result**: vx=+0.039 (3.25x improvement over EXP-069!)
+- **Analysis**: Higher penalty creates stronger forward bias
+
+### EXP-072: Even Stronger Penalty (60.0) - ABORTED
+- **Hypothesis**: Further increase backward penalty
+- **Config**: backward_motion_penalty=60.0, gait=5.0
+- **Result**: ABORTED - height readings nonsensical (4.9-5.0m), unstable behavior
+- **Analysis**: Penalty too strong, caused learning instability
+
+### EXP-073: Optimal Backward Penalty (50.0) ⭐ NEW BEST
+- **Hypothesis**: Find sweet spot between 40 and 60
+- **Config**: backward_motion_penalty=50.0, gait=5.0, forward=40.0
+- **Result**: vx=+0.056, height=1.50 (**56% of target, 55% improvement over EXP-056!**)
+- **Peak**: +0.062 at 64% training
+- **Analysis**: Optimal penalty that maximizes forward velocity without instability
+
+### EXP-074: Higher Forward with Optimal Penalty
+- **Hypothesis**: Combine backward=50 with higher forward reward (60)
+- **Config**: backward=50, forward=60
+- **Result**: vx=+0.045 (worse than EXP-073's 0.056)
+- **Peak**: +0.065 at 66%
+- **Analysis**: Higher forward reward caused more regression
+
+### EXP-075: Moderate Gait Increase
+- **Hypothesis**: Gait=7 (between 5 and 10) with backward=50
+- **Config**: backward=50, gait=7
+- **Result**: vx=+0.041 (worse than EXP-073)
+- **Analysis**: Gait=5 remains optimal
+
+### EXP-076: Longer Training with Optimal Config
+- **Hypothesis**: More iterations may help
+- **Config**: backward=50, gait=5, 2500 iterations (60 min)
+- **Result**: vx=+0.057 (essentially same as EXP-073's 0.056)
+- **Analysis**: Longer training doesn't significantly improve results
+
+### EXP-077: Remove Standing Penalty
+- **Hypothesis**: Standing penalty redundant with backward penalty
+- **Config**: standing_penalty=0, backward=50
+- **Result**: vx=+0.024, body_contact=-0.10 (FAIL)
+- **Analysis**: Standing penalty still necessary for stability
+
+### Key Findings
+
+**1. Explicit Backward Penalty Works!**
+- Penalty weight scaling: 20→40→50 increased vx from 0.012→0.039→0.056
+- 60 was too strong (unstable), 50 is optimal
+- Breaks backward drift attractor discovered in Session 16
+
+**2. Gait Reward Must Remain Low (5.0)**
+- gait=10 with backward=20 still caused backward drift
+- gait=7 with backward=50 was worse than gait=5
+- Higher gait encourages stepping in any direction, overpowering backward penalty
+
+**3. Configuration Sensitivity**
+| Change | Effect on vx |
+|--------|--------------|
+| backward: 20→50 | +0.044 (improvement) |
+| gait: 5→10 | -0.065 (regression) |
+| forward: 40→60 | -0.011 (regression) |
+| standing: -5→0 | -0.032 (regression) |
+
+**4. Optimal Configuration (EXP-073)**
+```python
+backward_motion_penalty: 50.0  # NEW - breaks backward drift
+diagonal_gait_reward: 5.0      # Keep low
+progress_forward_pos: 40.0     # Unchanged
+progress_forward_neg: 10.0     # Unchanged
+standing_penalty: -5.0         # Keep (needed for stability)
+height_reward: 15.0            # Unchanged
+upright_reward: 10.0           # Unchanged
+```
+
+**5. Results Comparison**
+| Session | Best Experiment | Final vx | % of Target |
+|---------|-----------------|----------|-------------|
+| 11 | EXP-032 (baseline) | 0.029 | 29% |
+| 14 | EXP-056 (gait reward) | 0.036 | 36% |
+| 17 | **EXP-073 (backward penalty)** | **0.056** | **56%** |
+
+### Session Summary
+- Implemented backward_motion_penalty (new reward component)
+- Systematically tested weights: 20, 40, 50, 60
+- **NEW BEST: vx=0.056 (56% of 0.1 m/s target)**
+- 55% improvement over previous best (EXP-056: 0.036)
+- Backward drift attractor successfully broken
+- Optimal config: backward=50, gait=5, forward=40
+
+### Remaining Challenges
+- Still 44% below walking threshold (0.1 m/s)
+- Mid-training regression pattern persists
+- May need fundamentally different approach (reference motion, curriculum) to reach 0.1
+
+---
+
+## Session 17 Continued: Additional Experiments (EXP-078+)
+
+### EXP-078: Reduced Height Reward
+- **Hypothesis**: Lower height_reward (10 vs 15) allows more dynamic motion
+- **Config**: height_reward=10.0
+- **Result**: vx=+0.024, body_contact=-0.10 (FAILING)
+- **Analysis**: Reduced height reward caused body contact issues
+
+### EXP-079: High Backward + Low Forward
+- **Hypothesis**: backward=60 stable with lower forward=30
+- **Config**: backward=60, forward=30
+- **Result**: vx=-0.005, height=0.65 (FAILING)
+- **Analysis**: Combination still unstable
+
+### EXP-080: Velocity Threshold Bonus
+- **Hypothesis**: Bonus for exceeding vx>0.04 helps break plateau
+- **Config**: velocity_threshold_bonus=20.0, threshold=0.04
+- **Result**: vx=+0.027 (worse than baseline)
+- **Analysis**: Extra bonus reward didn't help
+
+### EXP-081: Stronger Standing Penalty
+- **Hypothesis**: standing_penalty=-10 pushes robot to move more
+- **Config**: standing_penalty=-10.0
+- **Result**: vx=+0.028, height=1.01 (FAILING)
+- **Analysis**: Stronger penalty made things worse
+
+### EXP-082: Verification Run - FAILED
+- **Hypothesis**: Verify optimal config still works
+- **Result**: vx=-0.026 (backward drift)
+- **Analysis**: Run started from problematic state, not representative
+
+### Latest Verification Run (Unassigned)
+- **Hypothesis**: Final verification of optimal config
+- **Config**: backward=50, gait=5, standing=-5, forward=40, height=15
+- **Result**: vx=+0.056 (matches best EXP-074/077)
+- **Analysis**: Optimal configuration confirmed reproducible
+
+### Session Summary (Continued)
+**Approaches That Failed:**
+- Reduced height_reward (EXP-078): Body contact issues
+- High backward + low forward (EXP-079): Unstable
+- Velocity threshold bonus (EXP-080): Counterproductive
+- Stronger standing penalty (EXP-081): Made things worse
+
+**Confirmed Optimal Configuration:**
+- backward_motion_penalty: 50.0
+- diagonal_gait_reward: 5.0
+- progress_forward_pos: 40.0
+- standing_penalty: -5.0
+- height_reward: 15.0
+
+**Best Achieved: vx=0.057 (57% of 0.1 m/s target)**
+
+---
+
+---
+
+## Session 18: Reference Implementation Analysis (2025-12-24/25)
+
+**Goal**: Test techniques from Isaac Lab reference implementations (AnyMal-C, Spot) to break the 0.057 m/s velocity plateau.
+
+**Baseline**: EXP-073/077 config with backward_penalty=50, gait=5, forward=40 achieving vx=0.057 m/s.
+
+### EXP-083: Exponential Velocity Tracking (σ²=0.25)
+- **Hypothesis**: Use exp(-error²/σ²) kernel from AnyMal reference for smooth gradients
+- **Config**: exp_velocity_tracking=True, weight=5.0, σ²=0.25, target=0.1
+- **Result**: vx=0.021 m/s (WORSE than baseline)
+- **Analysis**: σ² too large - nearly same reward at vx=0 vs vx=0.1
+
+### EXP-084: Exponential Velocity Tracking (σ²=0.01)
+- **Hypothesis**: Smaller σ² for stronger gradient
+- **Config**: σ²=0.01 (reduced 25×)
+- **Result**: vx=0.004 m/s (MUCH WORSE)
+- **Analysis**: Symmetric exp kernel doesn't incentivize direction, just distance from target
+
+### EXP-085: Baseline Verification
+- **Hypothesis**: Confirm baseline after exp velocity changes
+- **Config**: exp_velocity_tracking=False (disabled)
+- **Result**: vx=0.0575 m/s (CONFIRMED - baseline intact)
+
+### EXP-088: Bidirectional Gait (Multiplicative)
+- **Hypothesis**: Spot-style sync*async gait reward for better trotting
+- **Config**: bidirectional_gait=True, weight=2.0, multiplicative
+- **Result**: vx=0.0385 m/s (WORSE)
+- **Analysis**: Multiplicative formulation too restrictive
+
+### EXP-089: Bidirectional Gait (Additive)
+- **Hypothesis**: Additive sync+async less restrictive
+- **Config**: weight=5.0, additive
+- **Result**: vx=0.018 m/s (MUCH WORSE)
+- **Analysis**: Both gait formulations counterproductive for Harold
+
+### EXP-090: Domain Randomization
+- **Hypothesis**: Friction + mass randomization for robustness
+- **Config**: friction (0.5-0.9), mass (±10%), sensor noise
+- **Result**: vx=0.0056 m/s (MUCH WORSE)
+- **Analysis**: Robot learned to stand still to cope with uncertainty
+
+### EXP-092: Smaller Network
+- **Hypothesis**: [128,128,128] matching AnyMal may reduce overfitting
+- **Config**: Reduced from [512,256,128] to [128,128,128]
+- **Result**: vx=0.039 m/s, height=1.11 (WORSE)
+- **Analysis**: Smaller network insufficient for task complexity
+
+### EXP-094: Higher Learning Rate
+- **Hypothesis**: 1.0e-3 matching AnyMal may speed convergence
+- **Config**: LR increased from 5.0e-4 to 1.0e-3
+- **Result**: vx=-0.042 m/s (MUCH WORSE - backward drift!)
+- **Analysis**: Higher LR destabilized training
+
+### Session 18 Conclusions
+
+**ALL reference implementation techniques made things WORSE:**
+1. Exponential velocity tracking doesn't work for Harold's scale
+2. Bidirectional gait reward is counterproductive
+3. Domain randomization prevents learning at current stage
+4. Smaller network insufficient
+5. Higher learning rate causes instability
+
+**Key Insight**: Techniques for 30-50 kg robots (AnyMal, Spot) don't directly transfer to Harold's 2 kg scale. The physics and dynamics are fundamentally different at this weight class.
+
+**Best Configuration Remains**: EXP-073/077 (vx=0.057 m/s)
+

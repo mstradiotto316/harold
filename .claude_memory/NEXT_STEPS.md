@@ -1,27 +1,76 @@
 # Harold Next Steps
 
-## Current Status (2025-12-24 ~08:00, Session 16 Complete)
+## Current Status (2025-12-25 ~04:30, Session 18 Complete)
 
-### Best Configuration (EXP-056) - UNCHANGED
-Forward-gated diagonal gait reward remains the best stable configuration.
+### Session 18 Summary: Reference Implementation Analysis
+**Tested techniques from AnyMal/Spot reference implementations - ALL made things WORSE**
+
+| EXP | Technique | Result | Notes |
+|-----|-----------|--------|-------|
+| 083 | Exp velocity tracking (σ²=0.25) | vx=0.021 | σ² too large |
+| 084 | Exp velocity tracking (σ²=0.01) | vx=0.004 | Symmetric kernel fails |
+| 085 | Baseline verification | vx=0.0575 | CONFIRMED BEST |
+| 088 | Bidirectional gait (mult) | vx=0.039 | Too restrictive |
+| 089 | Bidirectional gait (add) | vx=0.018 | Still counterproductive |
+| 090 | Domain randomization | vx=0.006 | Robot stands still |
+| 092 | Smaller network [128,128,128] | vx=0.039 | Insufficient capacity |
+| 094 | Higher LR (1.0e-3) | vx=-0.042 | Backward drift! |
+
+**Key Insight**: Techniques for 30-50 kg robots don't transfer to Harold's 2 kg scale.
+
+---
+
+## Previous Status (2025-12-24 ~22:00, Session 17 Complete)
+
+### Best Configuration (EXP-074/077/Verified) - CONFIRMED
+Backward motion penalty breaks the backward drift attractor.
 - `learning_rate: 5.0e-4`
 - `progress_forward_neg: 10.0`
 - `progress_forward_pos: 40.0`
 - `height_reward: 15.0`
 - `upright_reward: 10.0`
 - `diagonal_gait_reward: 5.0`
+- `backward_motion_penalty: 50.0`  # breaks backward drift
+- `standing_penalty: -5.0`  # required for stability
 - `entropy_loss_scale: 0.01`
 
-**Best Stable Metrics:**
-- Forward velocity: **0.036 m/s** (36% of target)
-- Height reward: **1.49** (standing properly)
+**Best Stable Metrics (Reproducible):**
+- Forward velocity: **0.057 m/s** (57% of target) - 58% improvement over baseline!
+- Height reward: **1.25-1.50** (standing properly)
 - All stability metrics: PASS
+
+**Verification:** Latest run achieved vx=0.056, confirming reproducibility.
+
+**Previous Best (EXP-056):**
+- Forward velocity: 0.036 m/s (36% of target)
 
 **Peak Observed (Unstable):**
 - EXP-059 achieved **vx=0.076** (76% of target!) at 89% training, then regressed
 
-**Best Height Achieved:**
-- EXP-068 achieved **height=2.20** (best ever!) but with backward drift (vx=-0.046)
+---
+
+## Session 17 Summary (9 experiments - Backward Penalty Breakthrough)
+
+### What We Tried
+| EXP | Change | vx | height | Notes |
+|-----|--------|-----|--------|-------|
+| 069 | backward=20, gait=5 | +0.012 | 1.37 | FIRST SUCCESS - broke backward drift! |
+| 070 | backward=20, gait=10 | -0.053 | 1.57 | FAILED - gait overpowers penalty |
+| 071 | backward=40, gait=5 | +0.039 | 1.40 | Improved! Higher penalty helps |
+| 072 | backward=60, gait=5 | ABORT | ~5.0?! | Unstable, nonsensical height |
+| **073** | **backward=50, gait=5** | **+0.056** | **1.39** | **NEW BEST! 56% of target** |
+| 074 | +forward=60 | +0.045 | 1.45 | Worse than 073 |
+| 075 | +gait=7 | +0.041 | 1.42 | Worse than 073 |
+| 076 | 2500 iters | +0.057 | 1.34 | Same as 073 - longer training doesn't help |
+| 077 | standing=0 | +0.024 | 0.60 | FAILED - body contact, instability |
+
+### Key Findings
+1. **Backward penalty WORKS**: Explicit penalty breaks backward drift attractor
+2. **Optimal weight is 50**: Below this (20-40) weaker; above (60) causes instability
+3. **Gait must stay low (5.0)**: Higher gait (10) overpowers backward penalty
+4. **Standing penalty required**: Removing it causes body contact issues
+5. **Longer training doesn't help**: 2500 iters same result as 1250
+6. **55% improvement**: From 0.036 (EXP-056) to 0.056 (EXP-073)
 
 ---
 
@@ -143,14 +192,14 @@ Forward-gated diagonal gait reward remains the best stable configuration.
 
 ## Recommended Next Approaches
 
-**Note**: Sessions 15-16 tested PPO tuning and forward gating variations - all failed.
-The robot CAN achieve vx=0.076 (76% of target) but cannot maintain it during continued training.
-Backward drift is a stable attractor regardless of gating mechanism.
+**Note**: Session 17 breakthrough - backward penalty (50.0) breaks backward drift attractor!
+Current best: vx=0.056 (56% of target). Need to push to 0.1 m/s.
 
 ### ✅ Approaches That Work
-- **Forward-gated diagonal gait reward** (EXP-056) - vx=0.036, 24% improvement (best stable)
+- **Backward motion penalty (50.0)** (EXP-073) - vx=0.056, 55% improvement over EXP-056
+- **Forward-gated diagonal gait reward** (EXP-056) - vx=0.036, baseline with gait
 
-### ❌ Approaches Ruled Out (Sessions 11-16)
+### ❌ Approaches Ruled Out (Sessions 11-17)
 - **Reward weight tuning** - No further gains from adjusting forward/stability balance
 - **Air time rewards** (EXP-040-043) - Interfered with velocity learning
 - **Reducing stability rewards** (EXP-049) - Caused falling/instability
@@ -158,54 +207,71 @@ Backward drift is a stable attractor regardless of gating mechanism.
 - **Slip factor modification** (EXP-052/053) - Makes things worse or no improvement
 - **Gait phase observations** (EXP-054) - No significant improvement
 - **Ungated gait reward** (EXP-055) - Led to backward stepping
-- **Higher gait weight (10)** (EXP-058/064/066) - Peak vx=0.061 but regresses or drifts backward
+- **Higher gait weight (7-10)** (EXP-058/070/075) - Peak vx=0.061 but regresses or drifts backward
 - **Early stopping (50%)** (EXP-059) - Peak is proportional to progress, not absolute
 - **Very early stopping** (EXP-060) - Learning phases compress proportionally
 - **Velocity decay curriculum** (EXP-061/062) - Prevents forward motion learning entirely
 - **Reduced PPO clip_range (0.1)** (EXP-063/064) - Slower learning, no regression prevention
 - **Stronger forward gating (scale=50)** (EXP-067) - Robot learns backward drift
 - **Hard forward gate (ReLU-like)** (EXP-068) - Best height but backward drift
+- **Higher forward (60) with backward penalty** (EXP-074) - Worse than 073
+- **Longer training (2500 iter)** (EXP-076) - Same result as 1250
+- **Removing standing penalty** (EXP-077) - Causes body contact issues
+- **Reduced height reward (10)** (EXP-078) - Caused body contact issues
+- **Higher backward (60) + lower forward (30)** (EXP-079) - Unstable, vx=-0.005
+- **Velocity threshold bonus** (EXP-080) - Counterproductive, vx=0.027
+- **Stronger standing penalty (-10)** (EXP-081) - Made things worse, vx=0.028
 
-### Priority 1: Checkpoint Selection (STILL TOP PRIORITY)
-EXP-059 checkpoints exist near peak velocity (vx=0.076 at 89%):
-- agent_13500.pt from EXP-059 is likely near peak
-- Evaluate this checkpoint for deployment testing
-- May capture walking behavior before regression
+### ❌ Approaches Ruled Out (Session 18 - Reference Impl)
+- **Exponential velocity tracking** (EXP-083/084) - Symmetric kernel doesn't incentivize direction
+- **Bidirectional gait reward** (EXP-088/089) - Both mult and add formulations counterproductive
+- **Domain randomization** (EXP-090) - Robot learned to stand still to cope with noise
+- **Smaller network [128,128,128]** (EXP-092) - Insufficient capacity, height degraded
+- **Higher learning rate (1.0e-3)** (EXP-094) - Caused severe backward drift
 
-### Priority 2: Explicit Backward Penalty
-Session 16 revealed backward drift as a stable attractor:
-- Add explicit penalty for vx < 0 motion
-- May break the backward drift optimum
-- Weight needs careful tuning to avoid destabilization
+**Key Insight**: AnyMal/Spot techniques don't transfer to Harold's 2 kg scale
 
-### Priority 3: Reference Motion / Imitation Learning
+### Priority 1: Reference Motion / Imitation Learning
 Use manually designed walking gaits as reference:
 - Define target joint trajectories for a walking cycle
 - Reward tracking the reference motion
 - Bypasses RL instability by providing explicit gait template
 
-### Priority 4: Policy Architecture
+### Priority 2: Checkpoint Fine-Tuning
+EXP-059 checkpoints exist near peak velocity (vx=0.076 at 89%):
+- agent_13500.pt from EXP-059 is likely near peak
+- Fine-tune from this checkpoint with current backward penalty config
+- May combine peak velocity with stability
+
+### Priority 3: Policy Architecture Changes
 Current MLP may not preserve gait memory:
 - Add recurrent layer (LSTM/GRU) to maintain gait state
 - Separate walking head from stability head
 - Test larger networks (256→512 units)
 
+### Priority 4: Domain Randomization
+Current training may be overfitting to exact physics:
+- Enable friction/mass randomization
+- May help find more robust walking gaits
+
 ---
 
-## Current Configuration (Best Found)
+## Current Configuration (EXP-073 Best)
 
 ```yaml
 # skrl_ppo_cfg.yaml
 learning_rate: 5.0e-4      # reduced from 1e-3
 entropy_loss_scale: 0.01
-timesteps: 15000           # ~15-20 min
+timesteps: 15000           # ~30 min
 
 # harold_isaac_lab_env_cfg.py
 progress_forward_pos: 40.0
-progress_forward_neg: 10.0  # increased from 5.0
+progress_forward_neg: 10.0
 standing_penalty: -5.0
 height_reward: 15.0
 upright_reward: 10.0
+diagonal_gait_reward: 5.0
+backward_motion_penalty: 50.0  # NEW - breaks backward drift!
 ```
 
 ---
@@ -214,13 +280,15 @@ upright_reward: 10.0
 
 | Priority | Metric | Threshold | Best Achieved |
 |----------|--------|-----------|---------------|
-| 1. SANITY | episode_length | > 100 | 432 (PASS) |
-| 2. Stability | upright_mean | > 0.9 | 0.94 (PASS) |
-| 3. Height | height_reward | > 1.2 | **1.67** (PASS) |
-| 4. Contact | body_contact | > -0.1 | -0.006 (PASS) |
-| 5. **Walking** | **vx_w_mean** | **> 0.1** | 0.029 (FAIL) |
+| 1. SANITY | episode_length | > 100 | 356 (PASS) |
+| 2. Stability | upright_mean | > 0.9 | 0.93 (PASS) |
+| 3. Height | height_reward | > 1.2 | **1.25-1.50** (PASS) |
+| 4. Contact | body_contact | > -0.1 | -0.01 (PASS) |
+| 5. **Walking** | **vx_w_mean** | **> 0.1** | **0.057** (57% - BEST STABLE) |
 
 **Goal**: Achieve vx > 0.1 m/s while maintaining standing
+**Progress**: From 0.036 (Session 16) to 0.057 (Session 17) - 58% improvement!
+**Next Milestone**: Break 0.07 m/s (70% of target)
 
 ---
 

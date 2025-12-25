@@ -12,6 +12,8 @@ models:
     network:
       - name: net
         input: STATES
+        # EXP-092: Smaller [128,128,128] gave vx=0.039 with height=1.11 (WORSE)
+        # Reverted to original
         layers: [512, 256, 128]
         activations: elu
     output: ACTIONS
@@ -36,7 +38,7 @@ agent:
   mini_batches: 8            # 196k/8 ≈ 24k samples/mini-batch (adjusted for 8192 envs)
   discount_factor: 0.99      # gamma
   lambda: 0.95               # tau
-  learning_rate: 5.0e-4      # Revert to optimal LR from EXP-032
+  learning_rate: 5.0e-4      # Reverted - higher LR caused backward drift (EXP-094)
   learning_rate_scheduler: KLAdaptiveLR  # adaptive LR schedule
   learning_rate_scheduler_kwargs:
     kl_threshold: 0.01      # match Anymal example

@@ -47,14 +47,14 @@ class RewardsCfg:
     # - EXP-052/053: Slip factor experiments → no improvement
     # - EXP-054: Add gait phase (sin/cos) to observation space
     # Hypothesis: Phase signal helps policy coordinate leg movements
-    progress_forward_pos: float = 40.0   # Keep optimal from EXP-032
+    progress_forward_pos: float = 40.0   # Reverted to optimal from EXP-073
     progress_forward_neg: float = 10.0   # Keep optimal from EXP-032
-    standing_penalty: float = -5.0      # Best from EXP-021
+    standing_penalty: float = -5.0      # Reverted from EXP-081 (stronger penalty made things worse)
 
     # Stability rewards - EXP-032 optimal values
     # EXP-049 showed reducing these causes instability (SANITY_FAIL)
     upright_reward: float = 10.0        # Keep upright incentive
-    height_reward: float = 15.0         # Reverted from EXP-049's 8.0
+    height_reward: float = 15.0         # Reverted from EXP-078's 10 (caused body contact issues)
 
     # Penalties
     torque_penalty: float = -0.005      # Gentle energy regularizer
@@ -81,8 +81,42 @@ class RewardsCfg:
     # EXP-055 (ungated): vx=+0.022 (worse - no direction bias)
     # EXP-056 (gated, weight=5.0): vx=+0.036 (BEST final, 24% better than baseline)
     # EXP-058 (gated, weight=10.0): peak vx=0.061 at 43%, regressed to 0.018
-    diagonal_gait_reward: float = 5.0   # EXP-056 (best stable): weight=5.0 with sigmoid forward gate
+    diagonal_gait_reward: float = 5.0   # Optimal: gait=5 (EXP-073 best config)
     gait_phase_tolerance: float = 0.3   # Phase window where contact is rewarded (0-1 scale)
+
+    # EXP-088/089: Bidirectional gait reward (Spot-style)
+    # Spot uses both sync AND async components:
+    # - Sync: Diagonal pairs (FL+BR, FR+BL) should have matching contact/air times
+    # - Async: Same-side legs (FL vs FR, BL vs BR) should be out of phase
+    # EXP-088: Multiplicative (sync*async), weight=2.0 → vx=0.0385 (WORSE)
+    # EXP-089: Additive (sync+async), weight=5.0 → vx=0.018 (MUCH WORSE)
+    # CONCLUSION: Bidirectional gait reward is counterproductive for Harold
+    bidirectional_gait: bool = False  # DISABLED - counterproductive
+    bidirectional_gait_weight: float = 5.0
+    bidirectional_gait_sigma: float = 0.1
+    bidirectional_gait_additive: bool = True
+
+    # EXP-069: Explicit backward penalty to break backward drift attractor
+    # Session 16 discovered backward drift is a stable optimum - robot consistently learns
+    # to drift backward (vx < 0) regardless of forward gating mechanism.
+    # This adds a strong explicit penalty for backward motion beyond progress_forward_neg.
+    # The penalty is proportional to backward velocity magnitude.
+    backward_motion_penalty: float = 50.0  # EXP-073: Optimal value (reverted from 60)
+
+    # EXP-080: Velocity threshold bonus - DISABLED, made things worse
+    # Robot stuck at ~0.056 m/s, bonus didn't help break plateau
+    velocity_threshold_bonus: float = 0.0  # DISABLED - counterproductive
+    velocity_bonus_threshold: float = 0.04  # Speed threshold (unused)
+
+    # EXP-083/084/085: Exponential velocity tracking (from AnyMal/Spot reference)
+    # EXP-083: σ²=0.25 was too large - vx=0.021 (WORSE than baseline)
+    # EXP-084: σ²=0.01 gave vx=0.004 (MUCH WORSE)
+    # Analysis: Symmetric exp kernel doesn't incentivize forward motion well
+    # EXP-085: DISABLED - return to linear rewards, try bidirectional gait instead
+    exp_velocity_tracking: bool = False  # DISABLED - doesn't work for Harold's scale
+    exp_velocity_weight: float = 5.0     # Weight for exp tracking reward
+    exp_velocity_sigma_sq: float = 0.01  # Variance parameter (σ²)
+    exp_velocity_target: float = 0.1     # Target forward velocity (m/s)
 
 
 @configclass
@@ -149,22 +183,27 @@ class DomainRandomizationCfg:
     """
     
     # === MASTER SWITCHES ===
-    enable_randomization: bool = False
+    # EXP-090: Domain randomization made training HARDER - vx=0.0056 (MUCH WORSE)
+    # Robot learned to stand still to cope with uncertainty
+    # DISABLED - need to establish walking first, then add randomization
+    enable_randomization: bool = False  # DISABLED
     randomize_on_reset: bool = False
     randomize_per_step: bool = False
     
     # === PHYSICS RANDOMIZATION ===
-    randomize_friction: bool = False  # Keep friction stable in Phase-0
-    friction_range: tuple = (0.4, 1.0)        # Range for static/dynamic friction (match rough task)
-                                              # Base: 0.7, Range allows slippery to grippy surfaces
-    
+    # EXP-090: Enable friction randomization with conservative range
+    randomize_friction: bool = True   # ENABLED for EXP-090
+    friction_range: tuple = (0.5, 0.9)        # Conservative range (was 0.4-1.0)
+                                              # Base: 0.7, slight variation
+
     randomize_restitution: bool = False       # Randomize bounce characteristics
     restitution_range: tuple = (0.0, 0.2)     # Keep low for realistic ground contact
-    
+
     # === ROBOT PROPERTIES RANDOMIZATION ===
-    randomize_mass: bool = False              # Randomize body and link masses
-    mass_range: tuple = (0.85, 1.15)          # ±15% mass variation (1.7-2.3kg total)
-                                              # Conservative to prevent drastic dynamics changes
+    # EXP-090: Enable mass randomization with conservative range
+    randomize_mass: bool = True               # ENABLED for EXP-090
+    mass_range: tuple = (0.9, 1.1)            # ±10% mass variation (conservative)
+                                              # Was ±15%, reduced for stability
     
     randomize_com: bool = False               # Randomize center of mass offsets
     com_offset_range: tuple = (-0.02, 0.02)   # ±2cm COM shift in X/Y/Z

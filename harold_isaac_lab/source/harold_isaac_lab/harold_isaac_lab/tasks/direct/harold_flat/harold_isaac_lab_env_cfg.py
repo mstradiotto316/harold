@@ -47,14 +47,14 @@ class RewardsCfg:
     # - EXP-052/053: Slip factor experiments → no improvement
     # - EXP-054: Add gait phase (sin/cos) to observation space
     # Hypothesis: Phase signal helps policy coordinate leg movements
-    progress_forward_pos: float = 40.0   # Reverted to optimal from EXP-073
+    progress_forward_pos: float = 40.0   # EXP-103: 45 was worse than 40, reverting
     progress_forward_neg: float = 10.0   # Keep optimal from EXP-032
-    standing_penalty: float = -5.0      # Reverted from EXP-081 (stronger penalty made things worse)
+    standing_penalty: float = -5.0      # EXP-098: Reverted to -5 (sp=-3 slowed down robot)
 
     # Stability rewards - EXP-032 optimal values
     # EXP-049 showed reducing these causes instability (SANITY_FAIL)
     upright_reward: float = 10.0        # Keep upright incentive
-    height_reward: float = 15.0         # Reverted from EXP-078's 10 (caused body contact issues)
+    height_reward: float = 20.0         # EXP-102: 25 was worse than 20, reverting
 
     # Penalties
     torque_penalty: float = -0.005      # Gentle energy regularizer
@@ -81,7 +81,7 @@ class RewardsCfg:
     # EXP-055 (ungated): vx=+0.022 (worse - no direction bias)
     # EXP-056 (gated, weight=5.0): vx=+0.036 (BEST final, 24% better than baseline)
     # EXP-058 (gated, weight=10.0): peak vx=0.061 at 43%, regressed to 0.018
-    diagonal_gait_reward: float = 5.0   # Optimal: gait=5 (EXP-073 best config)
+    diagonal_gait_reward: float = 5.0   # EXP-104: gait=3 same as 5, keeping 5
     gait_phase_tolerance: float = 0.3   # Phase window where contact is rewarded (0-1 scale)
 
     # EXP-088/089: Bidirectional gait reward (Spot-style)
@@ -101,7 +101,7 @@ class RewardsCfg:
     # to drift backward (vx < 0) regardless of forward gating mechanism.
     # This adds a strong explicit penalty for backward motion beyond progress_forward_neg.
     # The penalty is proportional to backward velocity magnitude.
-    backward_motion_penalty: float = 50.0  # EXP-073: Optimal value (reverted from 60)
+    backward_motion_penalty: float = 75.0  # EXP-102: 75 is optimal (70 and 80 both caused drift)
 
     # EXP-080: Velocity threshold bonus - DISABLED, made things worse
     # Robot stuck at ~0.056 m/s, bonus didn't help break plateau
@@ -191,8 +191,8 @@ class DomainRandomizationCfg:
     randomize_per_step: bool = False
     
     # === PHYSICS RANDOMIZATION ===
-    # EXP-090: Enable friction randomization with conservative range
-    randomize_friction: bool = True   # ENABLED for EXP-090
+    # EXP-090: Domain randomization made training WORSE - DISABLED
+    randomize_friction: bool = False  # DISABLED - caused vx=0.0056 (robot stood still)
     friction_range: tuple = (0.5, 0.9)        # Conservative range (was 0.4-1.0)
                                               # Base: 0.7, slight variation
 
@@ -200,8 +200,8 @@ class DomainRandomizationCfg:
     restitution_range: tuple = (0.0, 0.2)     # Keep low for realistic ground contact
 
     # === ROBOT PROPERTIES RANDOMIZATION ===
-    # EXP-090: Enable mass randomization with conservative range
-    randomize_mass: bool = True               # ENABLED for EXP-090
+    # EXP-090: Domain randomization made training WORSE - DISABLED
+    randomize_mass: bool = False              # DISABLED - caused robot to stand still
     mass_range: tuple = (0.9, 1.1)            # ±10% mass variation (conservative)
                                               # Was ±15%, reduced for stability
     

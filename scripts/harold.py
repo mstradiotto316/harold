@@ -610,11 +610,13 @@ def build_train_command(num_envs: int, iterations: int, checkpoint: str | None =
 
     Encapsulates command construction and benchmark-based defaults.
     """
-    # Benchmark results (2025-12-22):
-    #   2048 envs: 20.9 it/s, 1.03M samples/s, GPU 4.0GB, RAM 7GB
-    #   4096 envs: 19.6 it/s, 1.93M samples/s, GPU 4.5GB, RAM 8GB
-    #   6144 envs: 16.6 it/s, 2.45M samples/s, GPU 5.0GB, RAM 8GB  <- RECOMMENDED
-    #   8192 envs: 14.7 it/s, 2.88M samples/s, GPU 5.5GB, RAM 9GB
+    # Benchmark results (2025-12-25, 64GB RAM):
+    #   4096 envs: 18.0 it/s, 1.77M samples/s, GPU 4.3GB, RAM  8GB
+    #   6144 envs: 15.2 it/s, 2.25M samples/s, GPU 5.0GB, RAM  9GB
+    #   8192 envs: 12.9 it/s, 2.54M samples/s, GPU 5.6GB, RAM  9GB  <- DEFAULT
+    #  10000 envs: 11.3 it/s, 2.71M samples/s, GPU 6.0GB, RAM 10GB
+    #  12000 envs: 10.6 it/s, 3.05M samples/s, GPU 6.4GB, RAM 10GB
+    #  16384 envs:  8.7 it/s, 3.43M samples/s, GPU 7.6GB, RAM 11GB  <- MAX THROUGHPUT
     cmd = [
         'python', str(PROJECT_ROOT / 'harold_isaac_lab' / 'scripts' / 'skrl' / 'train.py'),
         '--task=Template-Harold-Direct-flat-terrain-v0',
@@ -1170,7 +1172,7 @@ def main():
     train_parser.add_argument('--hypothesis', type=str, help='Hypothesis being tested (stored with experiment)')
     train_parser.add_argument('--tags', type=str, help='Comma-separated tags for categorization')
     train_parser.add_argument('--no-watchdog', action='store_true', help='Disable memory watchdog (not recommended)')
-    train_parser.add_argument('--num-envs', type=int, default=6144, help='Number of environments (default: 6144, use 4096 if memory-constrained)')
+    train_parser.add_argument('--num-envs', type=int, default=8192, help='Number of environments (default: 8192)')
 
     # status
     status_parser = subparsers.add_parser('status', help='Check training status and metrics')

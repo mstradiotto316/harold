@@ -24,7 +24,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 TRAIN_SCRIPT = PROJECT_ROOT / 'harold_isaac_lab' / 'scripts' / 'skrl' / 'train.py'
 
 # Test configurations
-ENV_COUNTS = [2048, 4096, 6144, 8192]
+ENV_COUNTS = [4096, 6144, 8192, 10000, 12000, 16384]
 ITERATIONS = 100  # Enough for stable measurement
 WARMUP_SKIP = 30  # Skip first N for warmup
 
@@ -235,7 +235,7 @@ def main():
         print(f"  Optimal num_envs: {best_config['num_envs']}")
         print(f"  Throughput: {best_config['avg_its']:.1f} it/s ({best_samples/1e6:.2f}M samples/s)")
         print(f"  Peak GPU: {best_config['peak_gpu_mb']} MB / 16376 MB ({100*best_config['peak_gpu_mb']/16376:.0f}%)")
-        print(f"  Peak RAM: {best_config['peak_ram_gb']} GB / 31 GB ({100*best_config['peak_ram_gb']/31:.0f}%)")
+        print(f"  Peak RAM: {best_config['peak_ram_gb']} GB / 63 GB ({100*best_config['peak_ram_gb']/63:.0f}%)")
 
         # Calculate expected training time for 100k timesteps
         time_100k = 100000 / best_config['avg_its']

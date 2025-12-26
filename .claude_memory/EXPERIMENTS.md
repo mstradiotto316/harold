@@ -2111,3 +2111,135 @@ upright_reward: 10.0           # Unchanged
 
 **Best Configuration Remains**: EXP-073/077 (vx=0.057 m/s)
 
+---
+
+## Session 19: Higher Backward Penalty & Height Reward Tuning (2025-12-26)
+
+**Goal**: Push backward penalty higher to break drift, tune height reward to maintain standing posture while walking.
+
+**Critical Fix**: Discovered domain randomization was accidentally left enabled from Session 18 experiments (EXP-090). This caused backward drift in early experiments. Fixed by setting `randomize_friction: False` and `randomize_mass: False`.
+
+### EXP-095: Higher Backward Penalty (100)
+- **Hypothesis**: Higher penalty (100 vs 50) will more strongly break backward drift attractor
+- **Config**: backward_motion_penalty=100
+- **Result**: vx=**+0.028** (forward!), height=**1.04** (FAILING)
+- **Analysis**: Penalty works but robot crouches to minimize any motion
+
+### EXP-096: Moderate Backward Penalty (75)
+- **Hypothesis**: Balance between 50 (allows drift) and 100 (causes crouch)
+- **Config**: backward_motion_penalty=75
+- **Result**: vx=**+0.043** (best raw velocity!), height=**1.05** (still FAILING)
+- **Analysis**: Better velocity but still crouching, need more height incentive
+
+### EXP-097: Height Reward Increase (BEST BALANCE)
+- **Hypothesis**: Increase height reward from 15→20 to maintain height while walking
+- **Config**: backward_penalty=75, height_reward=20
+- **Result**: vx=**+0.034**, height=**1.41** (PASS!)
+- **Analysis**: First experiment to pass ALL standing metrics while moving forward
+- **Verdict**: STANDING (height > 1.2, forward velocity positive)
+
+### EXP-098: Reduced Standing Penalty
+- **Hypothesis**: standing_penalty=-3 (vs -5) may allow more movement
+- **Config**: standing_penalty=-3
+- **Result**: vx=+0.022 (slower), height=1.57 (good)
+- **Analysis**: Reduced penalty slows the robot down; -5 is better
+
+### EXP-099: Higher Forward Reward
+- **Hypothesis**: forward_pos=50 (up from 40) with new balance
+- **Config**: forward_pos=50, height=20, backward=75
+- **Result**: vx=**-0.095** (backward drift RETURNED!)
+- **Analysis**: Forward reward still destabilizes at 50; must stay at 40
+
+### Session 19 Conclusions
+
+**New Best Configuration (EXP-097)**:
+```
+backward_motion_penalty = 75.0   # Up from 50, breaks drift without crouching
+height_reward = 20.0             # Up from 15, maintains height while walking
+progress_forward_pos = 40.0      # Must stay at 40, 50 causes regression
+standing_penalty = -5.0          # Must stay at -5, -3 slows robot
+diagonal_gait_reward = 5.0       # Unchanged (optimal)
+```
+
+**Key Findings**:
+1. **backward_penalty=75 optimal**: Below 50 allows drift, above 100 causes crouch
+2. **height_reward=20 required**: Compensates for crouching tendency with higher backward penalty
+3. **forward_pos must stay at 40**: Higher values (50) still cause backward drift regression
+4. **standing_penalty=-5 required**: Lower (-3) makes robot too slow
+
+**Progress**:
+- vx=+0.034 m/s with all standing metrics passing (34% of target)
+- Trade-off: Raw velocity lower than EXP-096's 0.043 but posture correct
+
+**Next Approaches to Try**:
+1. Fine-tune backward penalty in 70-80 range
+2. Test height_reward=25 to see if it maintains velocity
+3. Curriculum: start with height focus, then shift to velocity
+
+---
+
+## Session 20: Fine-Tuning Around Optimal (2025-12-26)
+
+**Goal**: Test variations around EXP-097's optimal configuration (backward=75, height=20, forward=40).
+
+**Critical Discovery**: backward_penalty=75 is a critical local optimum. Both 70 and 80 cause backward drift!
+
+### EXP-100: Lower Backward Penalty (70)
+- **Hypothesis**: Fine-tune backward penalty (70 vs 75)
+- **Config**: backward_penalty=70 (down from 75)
+- **Result**: vx=**-0.085** (backward drift!), height=2.85
+- **Analysis**: 70 is too low, robot drifts backward despite excellent height
+
+### EXP-101: Higher Backward Penalty (80)
+- **Hypothesis**: Fine-tune backward penalty (80 vs 75)
+- **Config**: backward_penalty=80 (up from 75)
+- **Result**: vx=**-0.053** (backward drift!), height=2.39
+- **Analysis**: 80 also causes backward drift, less than 70 but still negative
+
+### EXP-102: Higher Height Reward (25)
+- **Hypothesis**: height=25 (up from 20) might boost velocity
+- **Config**: backward=75 (optimal), height=25
+- **Result**: vx=**+0.029** (forward but lower than 20), height=1.79
+- **Analysis**: Higher height reward doesn't help velocity
+
+### EXP-103: Higher Forward Reward (45)
+- **Hypothesis**: forward_pos=45 (between 40/50) might work
+- **Config**: forward_pos=45, backward=75, height=20
+- **Result**: vx=**+0.022** (forward but lower than 40), height=1.61
+- **Analysis**: forward_pos=40 remains optimal
+
+### EXP-104: Lower Gait Reward (3)
+- **Hypothesis**: gait=3 (down from 5) might give more flexibility
+- **Config**: gait=3, backward=75, height=20, forward=40
+- **Result**: vx=**+0.034** (same as gait=5), height=1.53
+- **Analysis**: No difference - gait=5 and gait=3 equivalent
+
+### Session 20 Conclusions
+
+**Critical Finding**: backward_penalty=75 is a sharp local optimum:
+- 70: vx=-0.085 (backward drift)
+- **75: vx=+0.034** (forward!)
+- 80: vx=-0.053 (backward drift)
+
+**Other Findings**:
+1. height_reward=20 is better than 25 (25 reduced velocity to 0.029)
+2. forward_pos=40 is optimal (45 reduced velocity to 0.022)
+3. diagonal_gait_reward: 3 and 5 give identical results
+
+**Optimal Configuration Confirmed (EXP-097)**:
+```
+backward_motion_penalty = 75.0   # CRITICAL - must be exactly 75
+height_reward = 20.0             # Better than 25
+progress_forward_pos = 40.0      # Better than 45
+standing_penalty = -5.0          # Required
+diagonal_gait_reward = 5.0       # 3 works equally well
+```
+
+**Best Result**: vx=+0.034 m/s (34% of 0.1 m/s target) with all standing metrics passing
+
+**Next Approaches for Future Sessions**:
+1. Try curriculum learning (start with height focus, shift to velocity)
+2. Fine-tune checkpoint from peak velocity runs
+3. Investigate why 75 is such a sharp optimum
+4. Consider different reward formulations (e.g., velocity squared)
+

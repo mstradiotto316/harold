@@ -832,3 +832,102 @@ Session 16 achieved the best height ever (2.20 in EXP-068) but with the worst ve
 **Root cause**: 6144 envs + overnight run accumulates memory. Swap couldn't be cleared without sudo.
 
 **Recommendation**: Use 4096 envs for overnight runs, or ensure system starts clean.
+
+---
+
+## 2025-12-25: RAM Upgrade & New Benchmarks
+
+### Hardware Upgrade
+RAM upgraded from 32GB to 64GB DDR4, eliminating memory as a bottleneck.
+
+### Comprehensive Benchmark Results (64GB RAM)
+
+| Envs | it/s | Samples/s | GPU MB | GPU % | RAM GB | RAM % |
+|------|------|-----------|--------|-------|--------|-------|
+| 4096 | 18.0 | 1.77M | 4296 | 26% | 8 | 13% |
+| 6144 | 15.2 | 2.25M | 5007 | 31% | 9 | 14% |
+| **8192** | **12.9** | **2.54M** | **5563** | **34%** | **9** | **14%** |
+| 10000 | 11.3 | 2.71M | 5961 | 36% | 10 | 16% |
+| 12000 | 10.6 | 3.05M | 6443 | 39% | 10 | 16% |
+| 16384 | 8.7 | 3.43M | 7591 | 46% | 11 | 17% |
+
+**Key Findings:**
+1. **No OOM at any level** - Even 16384 envs uses only 17% of RAM
+2. **GPU is now the bottleneck** - Not RAM
+3. **1.94x throughput** at 16384 vs 4096 (3.43M vs 1.77M samples/s)
+4. **8192 recommended** for fast iteration (12.9 it/s, ~97 min for 1250 iter)
+5. **16384 available** for maximum throughput when time permits
+
+### Time per 1250 Iterations (Standard Experiment)
+| Envs | Time |
+|------|------|
+| 4096 | ~69 min |
+| 6144 | ~82 min |
+| 8192 | ~97 min |
+| 16384 | ~143 min |
+
+### Updated Recommendation
+- **Default**: 8192 envs (13% more throughput than 6144, similar wall-clock time)
+- **Max throughput**: 16384 envs when running fewer, longer experiments
+- **Memory watchdog**: Now rarely triggers with 64GB headroom
+
+---
+
+## 2025-12-26: Session 19-20 - Critical Discovery
+
+### backward_penalty=75 is a SHARP Local Optimum
+
+Session 20 revealed that backward_motion_penalty has an extremely narrow optimal range:
+
+| backward_penalty | vx | Direction |
+|-----------------|-----|-----------|
+| 50 | +0.057 | Forward (old best, Session 17) |
+| 70 | **-0.085** | BACKWARD DRIFT |
+| **75** | **+0.034** | **FORWARD** |
+| 80 | **-0.053** | BACKWARD DRIFT |
+| 100 | +0.028 | Forward but crouched |
+
+**Key Insight**: Both 70 AND 80 cause backward drift. The optimal value is exactly 75.
+
+This suggests the reward landscape has a very narrow "forward motion valley" surrounded by "backward drift attractors" on both sides.
+
+### Optimal Configuration Locked (EXP-097)
+
+After extensive testing, the optimal configuration is:
+```python
+backward_motion_penalty = 75.0   # CRITICAL - must be exactly 75
+height_reward = 20.0             # 25 was worse (0.029 vs 0.034)
+progress_forward_pos = 40.0      # 45 was worse (0.022 vs 0.034)
+standing_penalty = -5.0          # Required for stability
+diagonal_gait_reward = 5.0       # 3 works equally well
+```
+
+**Best Achieved**: vx=+0.034 m/s (34% of 0.1 target) with all metrics passing
+
+### Why 75 Works
+
+Hypothesis: backward_penalty=75 provides exactly the right "push" to break the backward drift attractor without overcorrecting into crouching behavior.
+
+- **Too low (≤70)**: Robot drifts backward because the penalty isn't strong enough
+- **Just right (75)**: Robot moves forward with proper posture
+- **Too high (≥80)**: Robot overcorrects by minimizing all motion, causing secondary backward drift
+
+### Updated Hypothesis Status
+
+| ID | Hypothesis | Status |
+|----|------------|--------|
+| H40 | Explicit backward penalty needed to break drift optimum | **CONFIRMED** (Session 17) |
+| **H42** | backward_penalty has a narrow optimal range (75) | **CONFIRMED** (Session 20) |
+| **H43** | Higher height/forward rewards don't improve velocity | **CONFIRMED** (Session 20) |
+| H44 | Curriculum learning may break the 0.034 ceiling | TO TEST |
+| H45 | Fine-tuning from peak velocity checkpoints | TO TEST |
+
+### Implications for Future Work
+
+1. **Don't fine-tune backward_penalty** - The optimal is known (75)
+2. **Different approaches needed** - Simple reward tuning has reached its limit
+3. **Consider fundamentally different methods**:
+   - Curriculum learning (height first, then velocity)
+   - Checkpoint fine-tuning from peak runs
+   - Reference motion / imitation learning
+   - Policy architecture changes (LSTM for gait memory)

@@ -89,14 +89,14 @@ harold compare EXP-014 EXP-015               # Side-by-side
 ## System Specs
 - **GPU**: NVIDIA GeForce RTX 4080 (16GB)
 - **CPU**: Intel Core i7-8700K @ 3.70GHz (6 cores, 12 threads)
-- **RAM**: 32 GB
+- **RAM**: 64 GB DDR4 (upgraded 2025-12-25)
 - **Simulation boot time**: ~14 seconds
 
 ## Training Configuration
 - **Target duration**: 30-60 minutes per experiment (fast iteration > long runs)
-- **Environment count**: 6144 (recommended), 4096 (fallback if unstable)
+- **Environment count**: 8192 (recommended), up to 16384 for max throughput
 - **Video recording**: MANDATORY - never disable
-- **Memory watchdog**: Auto-starts, kills at RAM>95% or Swap>70% (safety net)
+- **Memory watchdog**: Auto-starts, kills at RAM>95% or Swap>70% (safety net, rarely triggers with 64GB RAM)
 - **Kill detection**: `harold status` shows `KILLED_BY_WATCHDOG` if triggered
 
 ## Active Hypotheses

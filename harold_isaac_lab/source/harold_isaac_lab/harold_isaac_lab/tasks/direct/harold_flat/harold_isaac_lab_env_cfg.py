@@ -128,6 +128,64 @@ class GaitCfg:
 
 
 @configclass
+class ScriptedGaitCfg:
+    """Configuration for scripted walking gait (Phase 1 verification).
+
+    Phase 1 RESULT: FAILED - Robot cannot stand with open-loop control.
+    Harold requires reactive balance control that only RL can provide.
+    This config is kept for reference but scripted_gait.enabled should stay False.
+    """
+
+    # Master switch - KEEP FALSE (Phase 1 proved open-loop doesn't work)
+    enabled: bool = False
+
+    # Gait parameters - with stiffness=1200, legs can now extend
+    # Session 21: vx=+0.057 m/s achieved with stiffness=800
+    frequency: float = 0.5  # 0.5 Hz gait (slower to match real servo response)
+    swing_thigh: float = 0.40    # Thigh back during swing
+    stance_thigh: float = 0.90   # Thigh forward during stance (increased range)
+    stance_calf: float = -0.90   # More extended stance
+    swing_calf: float = -1.40    # Bent during swing (was -1.55, reduced to match HW CALF_MAX=80°)
+    shoulder_amplitude: float = 0.05  # Reduced shoulder motion
+    duty_cycle: float = 0.6
+
+
+@configclass
+class CPGCfg:
+    """Central Pattern Generator configuration for Phase 2.
+
+    The CPG provides a structured walking BASE trajectory.
+    The RL policy outputs CORRECTIONS/RESIDUALS to adjust the trajectory.
+
+    Architecture:
+        target_joints = CPG_base_trajectory + policy_output * residual_scale
+
+    This keeps the 12D action space but interprets it as corrections to CPG.
+    When policy_output = 0, robot follows pure CPG trajectory.
+    Policy learns to provide balance corrections while CPG provides structure.
+    """
+
+    # Enable CPG-based action space
+    enabled: bool = False  # Set True via env var HAROLD_CPG=1
+
+    # Base gait parameters
+    base_frequency: float = 1.0  # Hz - base stepping frequency
+    duty_cycle: float = 0.6      # Fraction of cycle in stance (60% stance, 40% swing)
+
+    # Trajectory amplitudes around athletic pose (thigh=0.70, calf=-1.00)
+    # NOTE: athletic_calf changed from -1.40 to -1.00 to give room for foot lift
+    # These amplitudes now have proper clearance from joint limits
+    thigh_amplitude: float = 0.35  # ±0.35 rad (~20°) for forward/back leg swing
+    calf_amplitude: float = 0.45   # ±0.45 rad (~26°) for foot lift/extension
+    shoulder_amplitude: float = 0.03  # Small lateral oscillation
+
+    # Residual scaling - how much the policy can adjust the CPG trajectory
+    # Smaller = policy provides small balance corrections
+    # Larger = policy has more control, may override CPG
+    residual_scale: float = 0.2  # Moderate correction authority for balance
+
+
+@configclass
 class TerminationCfg:
     """Episode termination thresholds (shared with rough terrain)."""
 
@@ -300,13 +358,19 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
 
     # Reward configuration
     rewards = RewardsCfg()
-    
+
     # Gait configuration
     gait = GaitCfg()
-    
+
+    # Scripted gait configuration (Phase 1 - FAILED, kept for reference)
+    scripted_gait = ScriptedGaitCfg()
+
+    # CPG configuration (Phase 2 - structured action space)
+    cpg = CPGCfg()
+
     # Termination configuration
     termination = TerminationCfg()
-    
+
     # Domain randomization configuration
     domain_randomization = DomainRandomizationCfg()
 

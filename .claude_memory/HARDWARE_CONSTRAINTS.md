@@ -16,12 +16,12 @@ Source: `firmware/ST3215 Servo.pdf`, `firmware/docs/Communication_Protocol_User_
 
 | Parameter | Real Hardware | Simulation | Status |
 |-----------|--------------|------------|--------|
-| **Max Torque** | 30 kg·cm (2.94 Nm) @12V | 2.0 Nm | Conservative |
+| **Max Torque** | 30 kg·cm (2.94 Nm) @12V | 2.8 Nm | 95% of max |
 | Idle Current | 180 mA | N/A | - |
 | Stall Current | 2.7 A | N/A | - |
 | Voltage | 6-12.6V (12V recommended) | N/A | - |
 
-**Note**: Simulation uses 2.0 Nm effort limit, which is ~68% of hardware max. This conservative margin is intentional for safety.
+**Note**: Simulation uses 2.8 Nm effort limit (95% of hardware max). Session 21 discovered that stiffness (not just effort limit) was the critical factor - increased from 200 to 1200 for realistic servo tracking.
 
 ### Position & Speed
 
@@ -84,10 +84,12 @@ Source: `firmware/ST3215 Servo.pdf`, `firmware/docs/Communication_Protocol_User_
 
 | Parameter | Current | Max Safe | Reason |
 |-----------|---------|----------|--------|
-| `effort_limit` | 2.0 Nm | 2.5 Nm | Leave margin below 2.94 Nm hardware max |
-| `stiffness` | 200 | 400 | Higher causes oscillation on real servos |
-| `damping` | 75 | 150 | Higher causes sluggish response |
+| `effort_limit` | 2.8 Nm | 2.94 Nm | Currently at 95% of hardware max |
+| `stiffness` | 1200 | TBD | Session 21: Higher values needed for sim accuracy |
+| `damping` | 50 | TBD | Session 21: Lower ratio for responsiveness |
 | `action_scale` | 0.5 | 1.0 | Larger may hit joint limits with some poses |
+
+**Session 21 Discovery**: Original stiffness=200 was FAR too low. Servos couldn't extend legs under load. Real robot does pushups fine, so sim was inaccurate. Stiffness=1200 with damping=50 matches real servo behavior. Sim-to-real testing needed to validate these values on hardware.
 
 ### MUST PRESERVE (Sim-to-Real Critical)
 

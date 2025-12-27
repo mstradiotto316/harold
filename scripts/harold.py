@@ -683,7 +683,13 @@ def cmd_train(args):
         print(f"  Checkpoint: {args.checkpoint}")
 
     # Launch training in background
-    shell_cmd = f"source {ENV_PATH} && cd {PROJECT_ROOT} && {' '.join(cmd)} > {LOG_FILE} 2>&1 &"
+    # Add environment variable prefix if CPG mode is enabled
+    env_prefix = ""
+    if getattr(args, 'cpg', False):
+        env_prefix = "HAROLD_CPG=1 "
+        print(f"  CPG Mode: enabled (Phase 2 structured action space)")
+
+    shell_cmd = f"source {ENV_PATH} && cd {PROJECT_ROOT} && {env_prefix}{' '.join(cmd)} > {LOG_FILE} 2>&1 &"
     process = subprocess.Popen(
         ['bash', '-c', shell_cmd + f" echo $! > {PID_FILE}"],
         cwd=PROJECT_ROOT,
@@ -1173,6 +1179,7 @@ def main():
     train_parser.add_argument('--tags', type=str, help='Comma-separated tags for categorization')
     train_parser.add_argument('--no-watchdog', action='store_true', help='Disable memory watchdog (not recommended)')
     train_parser.add_argument('--num-envs', type=int, default=8192, help='Number of environments (default: 8192)')
+    train_parser.add_argument('--cpg', action='store_true', help='Enable CPG mode (Phase 2 structured action space)')
 
     # status
     status_parser = subparsers.add_parser('status', help='Check training status and metrics')

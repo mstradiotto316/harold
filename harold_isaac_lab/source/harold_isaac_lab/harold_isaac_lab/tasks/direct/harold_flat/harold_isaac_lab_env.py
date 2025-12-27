@@ -49,15 +49,37 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
     def __init__(self, cfg: HaroldIsaacLabEnvCfg, render_mode: str | None = None, **kwargs):
         """Initialize the Harold RL environment with configuration and state buffers.
-        
+
         Sets up action/observation buffers, joint limits, contact sensors, terrain,
         and visualization markers. Initializes reward tracking and debugging outputs.
-        
+
+        Environment Variables:
+            HAROLD_SCRIPTED_GAIT: Set to "1" to enable scripted walking gait mode
+            HAROLD_SCRIPTED_GAIT_FREQ: Override gait frequency (default: 1.0 Hz)
+
         Args:
             cfg: Environment configuration containing robot, terrain, and training parameters
             render_mode: Rendering mode - 'human' enables GUI visualization, None for headless
             **kwargs: Additional keyword arguments passed to DirectRLEnv parent class
         """
+        # --- Environment variable overrides ---
+        # Scripted gait (Phase 1 - FAILED, kept for debugging)
+        if os.getenv("HAROLD_SCRIPTED_GAIT", "0") == "1":
+            cfg.scripted_gait.enabled = True
+            print("=" * 60)
+            print("SCRIPTED GAIT MODE ENABLED (Phase 1 - for debugging only)")
+            print("WARNING: Phase 1 proved open-loop control doesn't work!")
+            print("=" * 60)
+
+        # CPG mode (Phase 2 - structured action space)
+        if os.getenv("HAROLD_CPG", "0") == "1":
+            cfg.cpg.enabled = True
+            print("=" * 60)
+            print("CPG MODE ENABLED (Phase 2)")
+            print("Policy outputs corrections to CPG base trajectory.")
+            print(f"Base frequency: {cfg.cpg.base_frequency} Hz")
+            print(f"Residual scale: {cfg.cpg.residual_scale}")
+            print("=" * 60)
 
         super().__init__(cfg, render_mode, **kwargs)
 
@@ -133,6 +155,17 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         # --- Observation & State Trackers ---
         self._time = torch.zeros(self.num_envs, device=self.device)
+
+        # --- CPG State (Phase 2) ---
+        # CPG phase tracks position in the gait cycle (0 to 1, repeating)
+        self._cpg_phase = torch.zeros(self.num_envs, device=self.device)
+
+        # Athletic pose values (center of CPG oscillation)
+        # NOTE: Calf adjusted from -1.40 to -1.00 to give room for foot lift
+        # With calf at -1.40, calf_amplitude > 0.17 would hit the -1.57 joint limit
+        # With calf at -1.00, we have ±0.57 rad of room for oscillation
+        self._athletic_thigh = 0.70   # Default thigh angle
+        self._athletic_calf = -1.00   # Less bent to allow foot lift during swing
         self._decimation_counter = 0
 
         # --- Optional policy logging for sim-to-real dataset capture ---
@@ -352,26 +385,39 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         """Process and validate policy actions before physics simulation.
-        
+
         Takes raw policy outputs and scales them around the default pose using per-joint
         ranges. This allows natural motion without fighting gravity. Actions are processed
         at policy frequency (20Hz) but applied at physics frequency (360Hz).
-        
+
+        If scripted_gait is enabled, policy actions are ignored and a predefined
+        walking trajectory is used instead (for Phase 1 verification).
+
         Args:
             actions: Raw policy actions tensor [num_envs, 12] in normalized range [-1, 1]
-            
+
         Processing Pipeline:
             1. Copy actions to internal buffer
             2. Scale by action_scale * per_joint_range around default pose
             3. Clamp to joint angle limits for hardware safety
             4. Store target deltas for next observation
             5. Store processed actions for physics application
-            
+
         Safety Features:
             - Joint limits prevent mechanical damage: shoulders ±20°, others ±45°
             - Action scaling allows tuning of policy output sensitivity
             - Clamping ensures actions never exceed safe operating ranges
         """
+        # --- Check for scripted gait mode (Phase 1 - FAILED, debugging only) ---
+        if self.cfg.scripted_gait.enabled:
+            self._apply_scripted_gait()
+            return
+
+        # --- Check for CPG mode (Phase 2 - structured action space) ---
+        if self.cfg.cpg.enabled:
+            self._apply_cpg_action(actions)
+            return
+
         # --- Action copy ---
         self._actions.copy_(actions)
 
@@ -382,7 +428,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             self._actions_smooth = torch.zeros_like(self._actions)
         beta = getattr(self.cfg, "action_filter_beta", 0.2)
         self._actions_smooth = (1.0 - beta) * self._actions_smooth + beta * self._actions
-        
+
         # --- Apply action noise and delays if domain randomization is enabled ---
         if self.cfg.domain_randomization.enable_randomization:
             actions_to_use = self._add_action_noise(self._actions_smooth)
@@ -398,9 +444,324 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             self._JOINT_ANGLE_MIN,
             self._JOINT_ANGLE_MAX,
         )
-        
+
         # --- Store target delta for next observation ---
         self._prev_target_delta = self._processed_actions - self._robot.data.default_joint_pos
+
+    def _apply_cpg_action(self, actions: torch.Tensor) -> None:
+        """Apply CPG-based action processing (Phase 2).
+
+        The CPG generates a base walking trajectory. The policy's 12D output
+        is interpreted as CORRECTIONS to this trajectory, providing:
+        1. Walking structure from the CPG
+        2. Reactive balance control from the policy
+
+        Architecture:
+            target = CPG_base + policy_output * residual_scale * joint_range
+
+        Args:
+            actions: Policy output tensor [num_envs, 12] in range [-1, 1]
+        """
+        cfg = self.cfg.cpg
+
+        # --- Update CPG phase ---
+        # Phase advances based on time and frequency
+        self._cpg_phase = (self._time * cfg.base_frequency) % 1.0
+
+        # --- Compute CPG base trajectory ---
+        cpg_targets = self._compute_cpg_base_trajectory()
+
+        # --- Apply policy corrections ---
+        # Store actions for logging
+        self._actions.copy_(actions)
+
+        # Smooth the actions
+        if not hasattr(self, "_actions_smooth"):
+            self._actions_smooth = torch.zeros_like(self._actions)
+        beta = getattr(self.cfg, "action_filter_beta", 0.2)
+        self._actions_smooth = (1.0 - beta) * self._actions_smooth + beta * self._actions
+
+        # Compute corrections: policy output scaled by residual_scale and joint_range
+        corrections = cfg.residual_scale * self._joint_range * self._actions_smooth
+
+        # Combine CPG base + policy corrections
+        target = cpg_targets + corrections
+
+        # Clamp to joint limits
+        self._processed_actions = torch.clamp(
+            target,
+            self._JOINT_ANGLE_MIN,
+            self._JOINT_ANGLE_MAX,
+        )
+
+        # Store target delta for observation
+        self._prev_target_delta = self._processed_actions - self._robot.data.default_joint_pos
+
+    def _compute_cpg_base_trajectory(self) -> torch.Tensor:
+        """Compute the CPG base trajectory for all joints.
+
+        Generates a diagonal trot gait pattern:
+        - FL + BR are in phase (pair 0)
+        - FR + BL are 180° out of phase (pair 1)
+
+        Each leg oscillates around the athletic pose with smooth sinusoidal motion.
+
+        Returns:
+            Joint targets tensor [num_envs, 12]
+        """
+        cfg = self.cfg.cpg
+        duty = cfg.duty_cycle
+
+        # Phase for each diagonal pair
+        phase = self._cpg_phase.unsqueeze(-1)  # [num_envs, 1]
+        phase_pair0 = phase  # FL + BR
+        phase_pair1 = (phase + 0.5) % 1.0  # FR + BL (180° offset)
+
+        # Compute leg trajectories for each pair
+        thigh_0, calf_0 = self._cpg_leg_trajectory(phase_pair0, cfg)  # FL, BR
+        thigh_1, calf_1 = self._cpg_leg_trajectory(phase_pair1, cfg)  # FR, BL
+
+        # Small shoulder oscillation for lateral balance
+        shoulder_0 = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_pair0)
+        shoulder_1 = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_pair1)
+
+        # Assemble joint targets [shoulders(4), thighs(4), calves(4)]
+        targets = torch.zeros(self.num_envs, 12, device=self.device)
+
+        # Shoulders: FL, FR, BL, BR
+        targets[:, 0] = shoulder_0.squeeze(-1)   # FL (pair 0)
+        targets[:, 1] = -shoulder_1.squeeze(-1)  # FR (pair 1, inverted for lateral)
+        targets[:, 2] = shoulder_1.squeeze(-1)   # BL (pair 1)
+        targets[:, 3] = -shoulder_0.squeeze(-1)  # BR (pair 0, inverted)
+
+        # Thighs: FL, FR, BL, BR
+        targets[:, 4] = thigh_0.squeeze(-1)  # FL (pair 0)
+        targets[:, 5] = thigh_1.squeeze(-1)  # FR (pair 1)
+        targets[:, 6] = thigh_1.squeeze(-1)  # BL (pair 1)
+        targets[:, 7] = thigh_0.squeeze(-1)  # BR (pair 0)
+
+        # Calves: FL, FR, BL, BR
+        targets[:, 8] = calf_0.squeeze(-1)   # FL (pair 0)
+        targets[:, 9] = calf_1.squeeze(-1)   # FR (pair 1)
+        targets[:, 10] = calf_1.squeeze(-1)  # BL (pair 1)
+        targets[:, 11] = calf_0.squeeze(-1)  # BR (pair 0)
+
+        return targets
+
+    def _cpg_leg_trajectory(self, phase: torch.Tensor, cfg) -> tuple[torch.Tensor, torch.Tensor]:
+        """Compute smooth leg trajectory for CPG.
+
+        Uses sinusoidal oscillation around the athletic pose.
+
+        Args:
+            phase: Gait phase [0, 1) tensor of shape [num_envs, 1]
+            cfg: CPGCfg with trajectory parameters
+
+        Returns:
+            Tuple of (thigh_angle, calf_angle) tensors
+        """
+        # Sinusoidal oscillation for smooth motion
+        # Phase 0 = start of stance, Phase 0.5 = start of swing
+
+        # Thigh: oscillates around athletic_thigh
+        # Stance: extends backward (smaller angle) for propulsion
+        # Swing: flexes forward (larger angle) for recovery
+        thigh_offset = cfg.thigh_amplitude * torch.sin(2 * math.pi * phase)
+        thigh = self._athletic_thigh + thigh_offset
+
+        # Calf: oscillates around athletic_calf
+        # Lift during swing phase (more negative angle)
+        # Cosine offset so lift happens during swing (phase 0.5-1.0)
+        calf_offset = cfg.calf_amplitude * torch.cos(2 * math.pi * phase)
+        calf = self._athletic_calf + calf_offset
+
+        return thigh, calf
+
+    def _apply_scripted_gait(self) -> None:
+        """Apply scripted walking gait trajectory (Phase 1 verification).
+
+        Generates a predefined diagonal trot pattern to verify that the robot's
+        physics simulation can support walking. This bypasses the policy entirely.
+
+        Gait Pattern:
+            - Diagonal trot: FL+BR alternate with FR+BL
+            - Smooth sinusoidal transitions between stance and swing
+            - Configurable frequency, amplitude, and duty cycle
+
+        Joint Order: [shoulders(4), thighs(4), calves(4)]
+            - Shoulders: FL, FR, BL, BR (indices 0-3)
+            - Thighs: FL, FR, BL, BR (indices 4-7)
+            - Calves: FL, FR, BL, BR (indices 8-11)
+        """
+        cfg = self.cfg.scripted_gait
+
+        # Diagnostic output every 50 steps (2.5 seconds at 20Hz)
+        if not hasattr(self, "_scripted_gait_step_count"):
+            self._scripted_gait_step_count = 0
+            self._scripted_gait_vx_sum = 0.0
+            self._scripted_gait_height_sum = 0.0
+            self._scripted_gait_upright_sum = 0.0
+
+        self._scripted_gait_step_count += 1
+        vx = self._robot.data.root_lin_vel_w[0, 0].item()
+        height = self._robot.data.root_pos_w[0, 2].item()
+        upright = -self._robot.data.projected_gravity_b[0, 2].item()
+        self._scripted_gait_vx_sum += vx
+        self._scripted_gait_height_sum += height
+        self._scripted_gait_upright_sum += upright
+
+        if self._scripted_gait_step_count % 50 == 0:
+            avg_vx = self._scripted_gait_vx_sum / 50
+            avg_height = self._scripted_gait_height_sum / 50
+            avg_upright = self._scripted_gait_upright_sum / 50
+            in_warmup = self._time[0].item() < 2.0
+            mode = "WARMUP" if in_warmup else "GAIT"
+
+            # Show current joint positions for debugging
+            joint_pos = self._robot.data.joint_pos[0]
+            thighs = joint_pos[4:8].cpu().numpy()
+            calves = joint_pos[8:12].cpu().numpy()
+
+            print(f"[SCRIPTED GAIT {mode}] Step {self._scripted_gait_step_count}: "
+                  f"vx={avg_vx:.4f} m/s, height={avg_height:.4f} m, upright={avg_upright:.3f}", flush=True)
+            print(f"  Thighs: {thighs}, Calves: {calves}", flush=True)
+
+            self._scripted_gait_vx_sum = 0.0
+            self._scripted_gait_height_sum = 0.0
+            self._scripted_gait_upright_sum = 0.0
+
+        # Compute gait phase from time (0 to 1, repeating)
+        phase = (self._time * cfg.frequency) % 1.0  # [num_envs]
+
+        # Check for static pose test mode (hold pose indefinitely, no gait)
+        static_test = os.getenv("HAROLD_STATIC_TEST", "0") == "1"
+
+        # Warmup period: hold standing pose for first 3 seconds to stabilize
+        # In static test mode, warmup is forever (no gait phase)
+        warmup_time = 9999.0 if static_test else 3.0  # seconds
+        in_warmup = (self._time < warmup_time).all()
+
+        # DEBUG: Show what mode we're in
+        if self._scripted_gait_step_count == 1:
+            print(f"[DEBUG] Initial time: {self._time[0].item():.3f}s, warmup_time: {warmup_time}", flush=True)
+
+        if in_warmup:
+            # During warmup, hold pose that matches gait mid-stance for smooth transition
+            # Use average of stance/swing thigh and stance calf
+            mid_thigh = (cfg.stance_thigh + cfg.swing_thigh) / 2.0
+            targets = torch.tensor(
+                [
+                    0.0, 0.0, 0.0, 0.0,                             # Shoulders: neutral
+                    mid_thigh, mid_thigh, mid_thigh, mid_thigh,     # Thighs: mid-stance
+                    cfg.stance_calf, cfg.stance_calf, cfg.stance_calf, cfg.stance_calf  # Calves: stance
+                ],
+                device=self.device,
+                dtype=torch.float32
+            ).unsqueeze(0).expand(self.num_envs, -1)
+            if self._scripted_gait_step_count % 20 == 0:
+                print(f"[DEBUG WARMUP] t={self._time[0].item():.2f}s, holding gait-matched pose (thigh={mid_thigh:.2f}, calf={cfg.stance_calf:.2f})", flush=True)
+        else:
+            # After warmup, apply the gait pattern
+
+            # Diagonal pair phases:
+            # Pair 0 (FL + BR): phase offset 0.0
+            # Pair 1 (FR + BL): phase offset 0.5
+            phase_fl_br = phase
+            phase_fr_bl = (phase + 0.5) % 1.0
+
+            # Compute leg trajectories for each diagonal pair
+            thigh_fl, calf_fl = self._compute_leg_trajectory(phase_fl_br, cfg)
+            thigh_br, calf_br = self._compute_leg_trajectory(phase_fl_br, cfg)
+            thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl, cfg)
+            thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl, cfg)
+
+            # Shoulder oscillation for balance (small amplitude)
+            # Left legs swing out (+) during their swing phase, right legs swing in (-)
+            shoulder_fl = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)
+            shoulder_br = -cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)
+            shoulder_fr = -cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fr_bl)
+            shoulder_bl = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fr_bl)
+
+            # Assemble joint targets
+            # Order: [shoulders(4), thighs(4), calves(4)]
+            targets = torch.zeros(self.num_envs, 12, device=self.device)
+
+            # Shoulders (indices 0-3): FL, FR, BL, BR
+            targets[:, 0] = shoulder_fl
+            targets[:, 1] = shoulder_fr
+            targets[:, 2] = shoulder_bl
+            targets[:, 3] = shoulder_br
+
+            # Thighs (indices 4-7): FL, FR, BL, BR
+            targets[:, 4] = thigh_fl
+            targets[:, 5] = thigh_fr
+            targets[:, 6] = thigh_bl
+            targets[:, 7] = thigh_br
+
+            # Calves (indices 8-11): FL, FR, BL, BR
+            targets[:, 8] = calf_fl
+            targets[:, 9] = calf_fr
+            targets[:, 10] = calf_bl
+            targets[:, 11] = calf_br
+
+        # Clamp to joint limits
+        self._processed_actions = torch.clamp(
+            targets,
+            self._JOINT_ANGLE_MIN,
+            self._JOINT_ANGLE_MAX,
+        )
+
+        # Store for observation (even though we're not using policy)
+        self._prev_target_delta = self._processed_actions - self._robot.data.default_joint_pos
+
+    def _compute_leg_trajectory(self, phase: torch.Tensor, cfg) -> tuple[torch.Tensor, torch.Tensor]:
+        """Compute smooth leg trajectory based on gait phase.
+
+        Args:
+            phase: Gait phase for this leg [0, 1) tensor of shape [num_envs]
+            cfg: ScriptedGaitCfg with trajectory parameters
+
+        Returns:
+            Tuple of (thigh_angle, calf_angle) tensors
+
+        Trajectory Design:
+            - Stance (0 to duty_cycle): Leg on ground, gradually extends backward
+            - Swing (duty_cycle to 1): Leg in air, flexes forward then extends down
+            - Sinusoidal interpolation for smooth transitions
+        """
+        duty = cfg.duty_cycle
+
+        # Determine if in stance or swing phase
+        in_stance = phase < duty
+
+        # Stance phase progress (0 to 1 within stance)
+        stance_progress = phase / duty
+
+        # Swing phase progress (0 to 1 within swing)
+        swing_progress = (phase - duty) / (1.0 - duty)
+
+        # Thigh trajectory
+        # Stance: starts at swing_thigh (just landed), extends to stance_thigh (pushes back)
+        # Swing: starts at stance_thigh (just lifted), flexes to swing_thigh (recovery)
+        thigh_stance = cfg.swing_thigh + (cfg.stance_thigh - cfg.swing_thigh) * (
+            (1 - torch.cos(stance_progress * math.pi)) / 2
+        )
+        thigh_swing = cfg.stance_thigh + (cfg.swing_thigh - cfg.stance_thigh) * (
+            (1 - torch.cos(swing_progress * math.pi)) / 2
+        )
+        thigh = torch.where(in_stance, thigh_stance, thigh_swing)
+
+        # Calf trajectory
+        # Stance: relatively constant (ground contact)
+        # Swing: lifts during first half, lowers during second half
+        calf_stance = torch.full_like(phase, cfg.stance_calf)
+
+        # Swing calf: parabolic lift profile (up then down)
+        swing_lift = torch.sin(swing_progress * math.pi)  # 0 -> 1 -> 0
+        calf_swing = cfg.stance_calf + (cfg.swing_calf - cfg.stance_calf) * swing_lift
+        calf = torch.where(in_stance, calf_stance, calf_swing)
+
+        return thigh, calf
 
     def _apply_action(self) -> None:
         """Apply processed joint targets to robot and update visualization.

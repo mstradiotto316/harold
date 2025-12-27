@@ -1,6 +1,64 @@
 # Harold Next Steps
 
-## Current Status (2025-12-26, Session 20 Complete)
+## Current Status (2025-12-26, Session 21 Complete)
+
+### 🎉 BREAKTHROUGH: Scripted Gait Works! vx=+0.141 m/s
+
+**The "Phase 1 failed" conclusion was WRONG.** Problem was simulation PD gains, not physics.
+
+| Setting | Old | New | Impact |
+|---------|-----|-----|--------|
+| stiffness | 200 | **1200** | Legs now extend under load |
+| damping | 75 | **50** | More responsive |
+| effort_limit | 2.0 | **2.8** | 95% of hardware max |
+
+**Scripted Diagonal Trot Results**:
+- **vx = +0.141 m/s** (141% of 0.1 m/s target!)
+- Height = 0.174 m (proper standing)
+- Thighs oscillating 0.45 to 0.80 rad
+- Calves oscillating -0.92 to -1.36 rad
+
+**Working Gait Parameters**:
+```python
+frequency: 1.0 Hz
+swing_thigh: 0.40      # Leg back during swing
+stance_thigh: 0.90     # Leg forward during stance
+stance_calf: -0.90     # Extended during stance
+swing_calf: -1.55      # Bent during swing
+```
+
+---
+
+## PRIORITY 1: Re-train RL with New PD Gains
+
+The previous 100+ RL experiments used stiffness=200 which prevented leg extension.
+With stiffness=1200, the robot can now physically achieve walking poses.
+
+**Immediate Next Experiment**:
+```bash
+# Use new actuator settings (already in harold.py)
+harold train --hypothesis "RL training with stiffness=1200 PD gains" --tags "pd_fix,retrain"
+```
+
+**Expected Outcome**: RL should now be able to discover walking gaits since:
+1. Legs can physically extend (stiffness was the blocker)
+2. Scripted gait proves the physics work
+3. Existing reward structure (EXP-097) was correct
+
+---
+
+## PRIORITY 2: Validate on Hardware
+
+The new PD gains (stiffness=1200, damping=50) need hardware validation:
+1. Do these values cause oscillation on real servos?
+2. Is the simulated behavior matching real robot pushups?
+3. May need to tune gains based on real-world testing
+
+---
+
+## Previous Session Summaries (For Reference)
+
+---
 
 ### Session 20 Summary: Fine-Tuning Around Optimal
 **Critical Discovery: backward_penalty=75 is a SHARP local optimum!**

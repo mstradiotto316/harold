@@ -931,3 +931,94 @@ Hypothesis: backward_penalty=75 provides exactly the right "push" to break the b
    - Checkpoint fine-tuning from peak runs
    - Reference motion / imitation learning
    - Policy architecture changes (LSTM for gait memory)
+
+---
+
+## 2025-12-26: Session 21 - Actuator Torque Analysis
+
+### Root Cause: Insufficient Torque for Extended Leg Poses
+
+**Discovery**: When testing scripted walking gaits, extended leg poses (calf=-0.50) caused the robot to fall forward. Analysis revealed:
+
+1. **Torque requirement scales with leg extension**:
+   - Athletic crouch (calf=-1.40): ~1.5 Nm required (OK)
+   - Extended stance (calf=-0.50): ~3.0 Nm required (exceeds limit!)
+
+2. **Original effort_limit was too conservative**:
+   - Simulation used 2.0 Nm (68% of hardware max)
+   - This prevented extended leg poses needed for walking
+
+3. **Solution**: Increased effort_limit from 2.0 to 2.5 Nm (85% of hardware max)
+   - Hardware max: 2.94 Nm
+   - New simulation limit: 2.5 Nm
+   - Maintains 15% safety margin for sim-to-real
+
+### Static Pose Test Results
+
+After increasing effort_limit:
+- Robot CAN hold athletic crouch (calf=-1.40): ✓
+- Robot CAN hold extended stance (calf=-0.50): Testing in progress
+
+### Scripted Gait Implementation
+
+Added scripted walking mode for physics validation:
+- Environment variable: `HAROLD_SCRIPTED_GAIT=1`
+- Static test mode: `HAROLD_STATIC_TEST=1`
+- Diagonal trot pattern (FL+BR vs FR+BL)
+- Configurable via `ScriptedGaitCfg`
+
+Current gait parameters:
+```python
+frequency: 0.5 Hz      # Slow gait
+swing_thigh: 1.10      # Leg forward after swing
+stance_thigh: 0.40     # Leg back during stance
+stance_calf: -0.50     # Extended during stance
+swing_calf: -1.50      # Bent to lift foot during swing
+```
+
+### CRITICAL BREAKTHROUGH: PD Stiffness Was the Problem
+
+**Discovery**: Even with effort_limit=2.8 Nm, calves were stuck at -1.57 (joint limit) when targeting -1.10. The real robot does pushups fine, so simulation was wrong.
+
+**Root Cause**: Default stiffness=200 was far too low for the implicit actuator model.
+
+**Solution**: Increased stiffness from 200 → 1200
+
+| Stiffness | Damping | Calf Tracking | Height | vx |
+|-----------|---------|---------------|--------|-----|
+| 200 | 75 | Stuck at -1.57 | 0.126 m | ~0 |
+| 300 | 90 | Stuck at -1.57 | 0.128 m | ~0 |
+| 800 | 40 | -1.15 to -1.41 | 0.173 m | +0.057 m/s |
+| **1200** | **50** | **-0.92 to -1.36** | **0.174 m** | **+0.141 m/s** |
+
+**Final actuator settings**:
+```python
+effort_limit_sim = 2.8  # 95% of 2.94 Nm hardware max
+stiffness = 1200.0      # High for real servo-like tracking
+damping = 50.0          # Low damping ratio for responsiveness
+```
+
+### Scripted Gait SUCCESS
+
+With correct PD gains, scripted diagonal trot achieves **vx = +0.141 m/s** (141% of 0.1 m/s target!)
+
+Working gait parameters:
+```python
+frequency: 1.0 Hz
+swing_thigh: 0.40       # Leg back during swing
+stance_thigh: 0.90      # Leg forward during stance
+stance_calf: -0.90      # Extended during stance
+swing_calf: -1.55       # Bent during swing (foot lifted)
+```
+
+**Key Insight**: The previous "Phase 1 failed - Harold requires reactive balance" conclusion was WRONG. It was a simulation tuning issue, not a physics limitation.
+
+### Updated Hypotheses (Session 21)
+
+| ID | Hypothesis | Status |
+|----|------------|--------|
+| **H46** | Effort limit 2.0 Nm insufficient for walking | **CONFIRMED** |
+| **H47** | Increasing effort_limit enables extended poses | **PARTIALLY** - helps but stiffness was key |
+| **H48** | Scripted gait can prove physics work (open-loop) | **CONFIRMED** ✓ |
+| **H49** | Stiffness=200 is too low for implicit actuators | **CONFIRMED** ✓ |
+| **H50** | Stiffness=1200 enables realistic servo tracking | **CONFIRMED** ✓ |

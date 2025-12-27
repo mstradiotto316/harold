@@ -78,12 +78,11 @@ HAROLD_V4_CFG = ArticulationCfg(
         )
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        # EXP-015: Raised spawn height (0.24 -> 0.30) and neutral shoulders (±0.20 -> 0.0)
-        # to test hypothesis that spawn pose causes forward lean
+        # Spawn height slightly above target standing height
         pos=(0.0, 0.0, 0.30),
         rot=(1.0, 0.0, 0.0, 0.0),
         joint_pos={
-            # Neutral shoulders - no lateral bias
+            # Neutral shoulders (RL training uses neutral spawn, athletic in reset)
             'fl_shoulder_joint': 0.0,
             'fr_shoulder_joint': 0.0,
             'bl_shoulder_joint': 0.0,
@@ -104,9 +103,12 @@ HAROLD_V4_CFG = ArticulationCfg(
     actuators={
         "all_joints": ImplicitActuatorCfg(
             joint_names_expr=[".*"],
-            effort_limit_sim=2.0, #1.0,  #2.5,
-            stiffness=200.0, #750,
-            damping=75.0, #100.0,
+            # FeeTech ST3215 servo: max 2.94 Nm @ 12V
+            # Session 22: Real robot has more "give" than sim with stiffness=1200
+            # Reducing stiffness to match real servo softness for better sim-to-real
+            effort_limit_sim=2.8,
+            stiffness=400.0,   # Reduced from 1200 to match real robot "softness"
+            damping=40.0,      # Reduced proportionally
         ),
     },
 )

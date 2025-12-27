@@ -2243,3 +2243,103 @@ diagonal_gait_reward = 5.0       # 3 works equally well
 3. Investigate why 75 is such a sharp optimum
 4. Consider different reward formulations (e.g., velocity squared)
 
+
+---
+
+## Session 21: PD Stiffness Breakthrough (2025-12-26)
+
+### 🎉 BREAKTHROUGH: Scripted Gait Achieves vx=+0.141 m/s (141% of Target!)
+
+**The "Phase 1 failed" conclusion was WRONG.** Problem was simulation PD gains, not robot physics.
+
+### Background
+Initial CPG experiments (EXP-105 to 107) showed marginal improvement but couldn't achieve target velocity. User feedback was critical: "I think this might be a stiffness and dampening problem. The real world robot is not this weak. I have test scripts that make the robot do pushups no problem."
+
+### Root Cause Discovery
+
+| Parameter | Original | Final | Impact |
+|-----------|----------|-------|--------|
+| stiffness | 200 | **1200** | Legs now extend under load |
+| damping | 75 | **50** | More responsive tracking |
+| effort_limit | 2.0 | **2.8** | 95% of hardware max |
+
+**Diagnosis**: Isaac Lab's implicit actuator model requires much higher stiffness than initially set. With stiffness=200, servos couldn't generate enough force to extend legs under the robot's weight. Real servos can do pushups, so sim was inaccurate.
+
+### Stiffness Progression (Scripted Diagonal Trot)
+
+| Stiffness | Damping | vx (m/s) | Height (m) | Notes |
+|-----------|---------|----------|------------|-------|
+| 200 | 75 | -0.01 | 0.126 | Calves stuck at -1.57, robot squatting |
+| 800 | 75 | **+0.057** | 0.173 | First forward motion! |
+| 1200 | 50 | **+0.141** | 0.174 | **EXCEEDS TARGET by 41%!** |
+
+### CPG Experiments (Pre-Breakthrough)
+
+These experiments used the incorrect stiffness=200 configuration:
+
+### EXP-105: CPG Small Amplitudes
+- **Config**: thigh=±0.12 rad, calf=±0.15 rad, freq=1.5Hz, residual=0.3
+- **Result**: vx=0.031, height=1.35 (STANDING)
+- **Analysis**: With correct PD gains, would likely perform better
+
+### EXP-106: CPG Large Amplitudes
+- **Config**: thigh=±0.4 rad, calf=±0.5 rad, freq=0.8Hz, residual=0.15
+- **Result**: vx=0.016, height=0.95 (FAILING)
+- **Analysis**: Joint limit clamping + weak stiffness
+
+### EXP-107: Fixed Athletic Pose
+- **Config**: athletic_calf=-1.00, thigh=±0.35 rad, calf=±0.45 rad
+- **Result**: vx=0.041, height=1.26 (STANDING)
+- **Analysis**: Best CPG result with old PD gains
+
+### Scripted Gait Validation (Post-Breakthrough)
+
+**Final Gait Parameters (with stiffness=1200)**:
+```python
+frequency: 1.0 Hz         # 1 second cycle
+swing_thigh: 0.40         # Leg back during swing
+stance_thigh: 0.90        # Leg forward during stance
+stance_calf: -0.90        # Extended during stance
+swing_calf: -1.55         # Bent during swing (foot lifted)
+shoulder_amplitude: 0.05
+duty_cycle: 0.6
+```
+
+**Observed Joint Tracking**:
+- Thighs: 0.45 to 0.80 rad (tracking well)
+- Calves: -0.92 to -1.36 rad (no longer stuck at limit)
+- Height: 0.174 m (proper standing)
+- Pattern: Diagonal trot (FL+BR, FR+BL)
+
+### Session 21 Key Findings
+
+1. **PD Stiffness was the Bottleneck**
+   - Original stiffness=200 was FAR too low
+   - Servos couldn't extend legs under 2 kg load
+   - All 100+ previous RL experiments were handicapped by this
+
+2. **Scripted Gait Validates Physics**
+   - vx=+0.141 m/s with pure open-loop control
+   - Proves robot CAN walk - RL should be able to discover this
+
+3. **Effort Limit was NOT the Issue**
+   - Increasing effort_limit from 2.0→2.8 alone didn't help
+   - Stiffness was the critical parameter
+
+4. **Hardware Validation Needed**
+   - stiffness=1200 and damping=50 need real-world testing
+   - May cause oscillation on physical servos
+
+### Implications for Future Training
+
+All previous RL experiments (EXP-001 to EXP-107) used stiffness=200, which:
+- Prevented legs from extending under load
+- Forced robot into low crouch postures
+- Made walking physically impossible
+
+With stiffness=1200:
+- Legs can now fully extend
+- Robot can achieve proper standing height
+- RL should be able to discover walking gaits
+
+**Priority 1**: Re-run RL training with corrected PD gains (stiffness=1200, damping=50, effort_limit=2.8)

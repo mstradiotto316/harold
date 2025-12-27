@@ -25,40 +25,45 @@ Train a stable forward walking gait for the Harold quadruped robot.
 | USD model | `part_files/V4/harold_8.usd` |
 | Best checkpoint | `logs/skrl/harold_direct/terrain_62/checkpoints/best_agent.pt` |
 
-## Current State (2025-12-24 ~08:00, Session 16 Complete)
+## Current State (2025-12-26, Session 21 Complete)
 
-**Best stable: EXP-056 vx=0.036 | Peak observed: EXP-059 vx=0.076 (unstable) | Best height: EXP-068 height=2.20**
+**🎉 BREAKTHROUGH: Scripted gait achieves vx=+0.141 m/s (141% of target!)**
 
-- 68 experiments completed (EXP-001 to EXP-068)
-- **Best stable (EXP-056)**: vx=0.036 m/s, height=1.49 (36% of walking target)
-- **Peak observed (EXP-059)**: vx=0.076 at 89% training, then regressed (76% of target!)
-- **Best height (EXP-068)**: height=2.20 but with backward drift (vx=-0.046)
-- Robot stands properly with all stability metrics PASS
-- **Session 16**: Tested PPO tuning and forward gating - all failed, backward drift discovered
+### Session 21 Critical Discovery
 
-### Key Findings (Session 16)
-1. **Backward drift is a stable attractor**: Robot consistently learns backward drift regardless of gating
-2. **PPO clip_range tuning failed**: Reduced clip (0.1) slowed learning, didn't prevent regression
-3. **Height vs velocity trade-off**: Best height (2.20) came with worst velocity (-0.046)
-4. **Forward gating variations failed**: sigmoid scale=50 and hard gate (ReLU) both caused backward drift
+**The "Phase 1 failed" conclusion was WRONG.** Harold CAN walk with open-loop scripted control.
+
+**Root Cause**: PD stiffness=200 was far too low for Isaac Lab's implicit actuator model. Servos couldn't extend legs under load, causing all walking attempts to fail.
+
+**Solution**: Increased stiffness from 200 → 1200, damping from 75 → 50
+
+| Setting | Old | New | Result |
+|---------|-----|-----|--------|
+| stiffness | 200 | 1200 | Legs now extend under load |
+| damping | 75 | 50 | More responsive tracking |
+| effort_limit | 2.0 | 2.8 | 95% of hardware max |
+
+**Scripted Gait Results** (Phase 1 validation):
+- **vx = +0.141 m/s** (141% of 0.1 m/s target!)
+- Height = 0.174 m (proper standing)
+- Diagonal trot pattern working
+
+### Previous Best Results
+- **Best RL stable (EXP-097)**: vx=0.034 m/s with backward_penalty=75
+- **Peak observed (EXP-059)**: vx=0.076 at 89% training (regressed)
+- ~100 experiments completed across 20 sessions
 
 ### Approach Status
 | Approach | Status |
 |----------|--------|
-| Reward weight tuning | ❌ Exhausted |
-| Air time rewards | ❌ Made things worse |
-| Reduce stability | ❌ Caused instability |
-| Higher forward (>40) | ❌ Causes SANITY_FAIL |
-| Slip factor modification | ❌ No improvement or worse |
-| Gait phase observations | ❌ No improvement |
-| **Contact-based gait reward** | ✅ **WORKS** (vx=0.036, best stable) |
-| Early stopping (50%/25%) | ❌ Peak proportional to progress |
-| Velocity decay curriculum | ❌ Prevents forward motion |
-| PPO clip_range tuning | ❌ Slower learning, same regression |
-| Forward gating variations | ❌ Causes backward drift |
-| **Checkpoint selection** | 🔲 TO TEST (Priority 1) |
-| **Explicit backward penalty** | 🔲 TO TEST (Priority 2) |
-| **Reference motion** | 🔲 TO TEST (Priority 3) |
+| **PD gain tuning (stiffness)** | ✅ **CRITICAL FIX** - stiffness 200→1200 |
+| **Scripted gait validation** | ✅ **SUCCESS** - vx=0.141 m/s achieved |
+| Contact-based gait reward | ✅ Works (vx=0.036 with old PD gains) |
+| Explicit backward penalty | ✅ Works (75 is optimal) |
+| Reward weight tuning | ❌ Exhausted (0.034 max with old PD) |
+| PPO/curriculum tuning | ❌ Not the bottleneck |
+| **Re-train RL with new PD gains** | 🔲 **PRIORITY 1** |
+| **CPG-based action space** | 🔲 Priority 2 (may not be needed now) |
 
 ### Best Configuration (EXP-056)
 ```python

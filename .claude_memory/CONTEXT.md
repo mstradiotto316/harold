@@ -25,24 +25,33 @@ Train a stable forward walking gait for the Harold quadruped robot.
 | USD model | `part_files/V4/harold_8.usd` |
 | Hardware gait script | `firmware/scripted_gait_test_1/scripted_gait_test_1.ino` |
 
-## Current State (2025-12-26, Session 22 Complete)
+## Current State (2025-12-27, Session 23 Complete)
 
-**🎉 MAJOR MILESTONE: Real robot walking forward with scripted gait!**
+**Session 23: Found stiffness=600 is better than 400 for RL learning**
 
-### Session 22 Achievements
+### Session 23 Key Finding
 
-1. **Sim-to-Real Parameter Alignment**: Synchronized simulation and hardware gait parameters
-2. **Real Robot Walking Forward**: Scripted gait makes hardware walk forward (feet dragging, but stable)
-3. **Simulation Softened**: Reduced PD stiffness to match real servo "softness"
+| Stiffness | Height | vx (final) | vx (peak) | Verdict |
+|-----------|--------|------------|-----------|---------|
+| 400 | 0.74 | 0.024 | 0.024 | FAILING |
+| 600 | 1.54 | 0.027 | 0.047 | STANDING |
 
-### Key Parameter Changes (Session 22)
+**Stiffness=400 (sim-to-real aligned) was too soft for RL**:
+- Robot couldn't maintain height (0.74 vs 1.2 threshold)
+- Learning was unstable with short episodes
 
-| Parameter | Session 21 | Session 22 | Reason |
-|-----------|------------|------------|--------|
-| PD stiffness | 1200 | **400** | Real servos have more "give" |
-| PD damping | 50 | **40** | Proportional reduction |
-| Gait frequency | 1.0 Hz | **0.5 Hz** | Slower to match real servo response |
-| Thigh trajectory | +sin | **-sin** | Fixed walking direction (was backwards) |
+**Stiffness=600 is significantly better**:
+- Height: 0.74 → 1.54 (+108%)
+- Peak vx: 0.024 → 0.047 (+96%)
+- Robot stands properly, learns better
+
+### Current Actuator Configuration (harold.py)
+
+| Parameter | Value | Reason |
+|-----------|-------|--------|
+| stiffness | 600 | Session 23: Better than 400 for RL learning |
+| damping | 45 | Proportional to stiffness |
+| effort_limit | 2.8 | 95% of hardware max |
 
 ### Scripted Gait Parameters (Aligned Sim ↔ Hardware)
 
@@ -94,12 +103,11 @@ With stiffness=400, frequency=0.5 Hz:
 |----------|--------|
 | **Sim-to-real alignment** | ✅ **COMPLETE** - Parameters matched |
 | **Real robot scripted gait** | ✅ **WALKING FORWARD** |
-| **Softer PD gains** | ✅ Applied (stiffness 1200→400) |
-| PD gain tuning (stiffness) | ✅ Critical fix identified |
+| Stiffness tuning for RL | ⏳ **IN PROGRESS** - 600 better than 400, testing 800 next |
 | Scripted gait validation | ✅ Success in sim and hardware |
-| Contact-based gait reward | ✅ Works (vx=0.036 with old PD gains) |
+| Contact-based gait reward | ✅ Works (diagonal gait reward) |
 | Explicit backward penalty | ✅ Works (75 is optimal) |
-| **Re-train RL with new PD gains** | 🔲 **PRIORITY 1** |
+| **Continue stiffness sweep** | 🔲 **PRIORITY 1** - Test 800, 1000 |
 | **Domain randomization (floor friction)** | 🔲 **PRIORITY 2** |
 
 ---

@@ -1,169 +1,130 @@
 # Harold Next Steps
 
-## Current Status (2025-12-26, Session 22 Complete)
+## QUICK START FOR NEXT AGENT
 
-### 🎉 MILESTONE: Real Robot Walking Forward!
+**Session 23 found stiffness=600 is better than 400 for RL learning. Continue experiments.**
 
-Session 22 achieved sim-to-real alignment and the real robot now walks forward with scripted gait.
+### Immediate Action
+```bash
+# 1. Check for orphan processes
+python scripts/harold.py ps
 
-**Key Discoveries:**
-1. **Simulation was too stiff** - Real servos have more "give" than stiffness=1200
-2. **Thigh phase was inverted** - Changed from +sin to -sin for forward walking
-3. **Floor surface matters** - Hardwood vs carpet shows significant differences
+# 2. Current stiffness is 600 - continue testing or try 800
+python scripts/harold.py train \
+  --hypothesis "Stiffness=800 further testing sim-to-real balance" \
+  --tags "stiffness800,sim2real,session24"
+
+# 3. Monitor progress
+python scripts/harold.py status
+```
+
+### Session 23 Key Finding: Stiffness=400 Was Too Soft
+
+| Stiffness | Height | vx (final) | vx (peak) | Verdict |
+|-----------|--------|------------|-----------|---------|
+| 400 | 0.74 | 0.024 | 0.024 | FAILING |
+| 600 | 1.54 | 0.027 | 0.047 | STANDING |
+
+**Stiffness=600 is significantly better**:
+- Height: 0.74 -> 1.54 (108% improvement!)
+- Peak vx: 0.024 -> 0.047 (96% improvement!)
+- Robot stands properly instead of crouching
 
 ---
 
-## PRIORITY 1: Train RL with Aligned Parameters
+## Current Training Configuration
 
-Now that sim-to-real is aligned, train RL policies with the new settings:
-
+### Actuators (harold.py) - CURRENTLY stiffness=600
 ```python
-# harold.py actuator settings (current)
-stiffness = 400.0    # Matches real servo softness
-damping = 40.0       # Proportional reduction
+stiffness = 600.0    # Session 23: Better than 400, testing middle ground
+damping = 45.0       # Proportional to stiffness
 effort_limit = 2.8   # 95% of hardware max
 ```
 
-**Immediate Experiment:**
-```bash
-harold train --hypothesis "RL training with stiffness=400 (sim-to-real aligned)" --tags "sim2real,retrain"
-```
-
-**Expected Outcome:** RL should learn walking gaits that transfer to real hardware because:
-1. Simulation servo response matches real robot
-2. Scripted gait proves both sim and real can walk forward
-3. Reward structure (backward_penalty=75) is validated
-
----
-
-## PRIORITY 2: Domain Randomization for Floor Surfaces
-
-Real robot showed significant variation across floor types. Add friction randomization:
-
+### Rewards (harold_isaac_lab_env_cfg.py) - ALREADY OPTIMAL
 ```python
-# Proposed friction randomization
-friction_range = (0.6, 1.2)  # Simulate different floor surfaces
+progress_forward_pos = 40.0      # Optimal from EXP-103
+progress_forward_neg = 10.0      # Optimal from EXP-032
+backward_motion_penalty = 75.0   # CRITICAL - must be exactly 75
+diagonal_gait_reward = 5.0       # Forward-gated stepping reward
+height_reward = 20.0             # Maintains posture
+standing_penalty = -5.0          # Prevents standing still
 ```
-
-This will make trained policies robust to:
-- Hardwood floors (lower friction)
-- Short carpet (medium friction)
-- Long carpet (higher friction, may cause foot dragging)
-
----
-
-## PRIORITY 3: Improve Foot Clearance
-
-Real robot drags feet during walking. Options:
-1. **Increase swing_calf bend** - Lift feet higher during swing phase
-2. **Adjust calf trajectory timing** - Ensure foot is fully lifted before thigh moves forward
-3. **Add foot clearance reward** - Reward feet being above ground during swing
-
----
-
-## Current Actuator Configuration
-
-```python
-# harold.py (Session 22 aligned settings)
-actuators={
-    "all_joints": ImplicitActuatorCfg(
-        joint_names_expr=[".*"],
-        effort_limit_sim=2.8,   # 95% of 2.94 Nm hardware max
-        stiffness=400.0,        # Reduced from 1200 to match real servo softness
-        damping=40.0,           # Proportional reduction
-    ),
-},
-```
-
----
-
-## Current Gait Configuration
-
-```python
-# ScriptedGaitCfg (Session 22 aligned)
-frequency: float = 0.5          # 0.5 Hz (2 second cycle)
-swing_thigh: float = 0.40       # Thigh back during swing
-stance_thigh: float = 0.90      # Thigh forward during stance
-stance_calf: float = -0.90      # Extended during stance
-swing_calf: float = -1.40       # Bent during swing (matched to HW 80° limit)
-shoulder_amplitude: float = 0.05
-duty_cycle: float = 0.6
-```
-
----
-
-## Hardware Script Status
-
-`firmware/scripted_gait_test_1/scripted_gait_test_1.ino`:
-- ✅ Parameters aligned with simulation
-- ✅ Walking forward (confirmed on real robot)
-- ✅ Auto-start (no Enter key required)
-- ✅ Slow transitions (prevents servo overload)
-- ✅ -sin thigh trajectory (correct walking direction)
-
----
-
-## Sign Convention Reference
-
-**Simulation → Hardware conversion:**
-```
-hardware_degrees = -sim_radians × (180/π)
-```
-
-| Joint | Sim Convention | Hardware Convention |
-|-------|----------------|---------------------|
-| Thigh | + = forward | - = forward |
-| Calf | - = bent | + = bent |
-
----
-
-## 5-Metric Validation
-
-| Priority | Metric | Threshold | Best Achieved |
-|----------|--------|-----------|---------------|
-| 1. SANITY | episode_length | > 100 | 356 (PASS) |
-| 2. Stability | upright_mean | > 0.9 | 0.93 (PASS) |
-| 3. Height | height_reward | > 1.2 | 1.41 (PASS) |
-| 4. Contact | body_contact | > -0.1 | -0.01 (PASS) |
-| 5. **Walking** | **vx_w_mean** | **> 0.1** | **0.04** (scripted, soft settings) |
-
-**Goal**: Achieve vx > 0.1 m/s with RL policy that transfers to real hardware.
 
 ---
 
 ## Experiment Queue
 
-1. **EXP-NEXT**: RL training with stiffness=400
-   - Hypothesis: Softer simulation enables transferable walking policy
-   - Tags: sim2real, stiffness400
+### PRIORITY 1: Continue Stiffness Sweep
 
-2. **Friction Randomization**: Add floor surface variation
-   - Hypothesis: Domain randomization improves real-world robustness
-   - Tags: domain_rand, friction
+**Hypothesis**: There's an optimal stiffness between 600 and 1200 for learning.
 
-3. **Foot Clearance**: Improve swing phase lift
-   - Hypothesis: Higher foot clearance reduces dragging
-   - Tags: foot_clearance, gait_tuning
+| Stiffness | Tested? | Result |
+|-----------|---------|--------|
+| 400 | Yes (Session 23) | FAILING, height=0.74, vx=0.024 |
+| 600 | Yes (Session 23) | STANDING, height=1.54, vx=0.027, peak=0.047 |
+| 800 | **NEXT** | ? |
+| 1000 | Pending | ? |
+| 1200 | Previous (stiff) | Good learning but poor sim-to-real |
+
+**Command**:
+```bash
+python scripts/harold.py train \
+  --hypothesis "Stiffness=800 testing sim-to-real balance" \
+  --tags "stiffness800,sim2real"
+```
+
+### PRIORITY 2: Early Stopping at Peak
+
+Session 23 observed peak vx=0.047 at 39% progress, regressing to 0.027 by end.
+
+**Hypothesis**: Saving checkpoint at peak and stopping early could preserve better policies.
+
+### PRIORITY 3: Increased Height Reward
+
+With softer stiffness, height reward may need to be higher to maintain posture.
 
 ---
 
-## Session 22 Summary
+## Key Context for Next Agent
 
-### What We Did
-1. Identified that simulation (stiffness=1200) was too stiff vs real robot
-2. Reduced stiffness 1200→400, damping 50→40
-3. Reduced gait frequency 1.0→0.5 Hz for real servo response
-4. Fixed thigh phase (+sin → -sin) to correct walking direction
-5. Aligned all parameters between simulation and hardware
-6. Confirmed real robot walks forward with scripted gait
+### Why stiffness=600?
+Session 23 tested stiffness=400 (sim-to-real aligned from Session 22) but found the robot couldn't maintain height (0.74) and learned poorly. Stiffness=600 achieved height=1.54 and peak vx=0.047 (47% of target).
 
-### What We Learned
-1. **PD stiffness is critical for sim-to-real** - Must match real servo response
-2. **Simple sinusoid != complex duty-cycle trajectory** - Phase alignment matters
-3. **Floor surface creates significant variation** - Need domain randomization
-4. **Feet dragging is common in early gaits** - Need to improve swing phase
+### Sim-to-Real Trade-off
+- **Real robot** (Session 22): Has "softness" that requires lower stiffness
+- **RL learning** (Session 23): Needs higher stiffness to maintain posture during learning
+- **Balance point**: Somewhere between 600-1200
 
-### Files Modified
-- `harold.py`: stiffness 1200→400, damping 50→40
-- `harold_isaac_lab_env_cfg.py`: frequency 1.0→0.5 Hz, swing_calf -1.55→-1.40
-- `scripted_gait_test_1.ino`: Parameters aligned, -sin trajectory, auto-start
+### Why backward_penalty=75?
+Session 20 discovered this is a SHARP local optimum. Both 70 and 80 cause backward drift. Do NOT tune this value.
+
+### The Regression Pattern
+Training consistently shows peak vx at 30-50% progress, then regression. Session 23 saw:
+- 39% progress: vx=0.047, height=1.51
+- 100% progress: vx=0.027, height=1.54
+
+---
+
+## Files Reference
+
+| Purpose | Path | Status |
+|---------|------|--------|
+| Actuator config | `harold.py` | stiffness=600 |
+| Reward config | `harold_isaac_lab_env_cfg.py` | Optimal weights |
+| PPO config | `agents/skrl_ppo_cfg.yaml` | LR=5e-4 |
+| Hardware script | `firmware/scripted_gait_test_1/` | Walks forward |
+
+---
+
+## 5-Metric Validation
+
+| Priority | Metric | Threshold | Meaning |
+|----------|--------|-----------|---------|
+| 1. SANITY | episode_length | > 100 | Not dying immediately |
+| 2. Stability | upright_mean | > 0.9 | Not falling over |
+| 3. Height | height_reward | > 1.2 | Standing properly |
+| 4. Contact | body_contact | > -0.1 | No body on ground |
+| 5. **Walking** | **vx_w_mean** | **> 0.1** | **Moving forward** |
+
+Use `python scripts/harold.py validate` to check all metrics.

@@ -107,8 +107,8 @@ HAROLD_V4_CFG = ArticulationCfg(
             # Session 22: Real robot has more "give" than sim with stiffness=1200
             # Reducing stiffness to match real servo softness for better sim-to-real
             effort_limit_sim=2.8,
-            stiffness=400.0,   # Reduced from 1200 to match real robot "softness"
-            damping=40.0,      # Reduced proportionally
+            stiffness=600.0,   # Session 23: Testing middle ground between 400 (too soft) and 1200 (too stiff)
+            damping=45.0,      # Proportional to stiffness
         ),
     },
 )

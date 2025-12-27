@@ -1022,3 +1022,100 @@ swing_calf: -1.55       # Bent during swing (foot lifted)
 | **H48** | Scripted gait can prove physics work (open-loop) | **CONFIRMED** ✓ |
 | **H49** | Stiffness=200 is too low for implicit actuators | **CONFIRMED** ✓ |
 | **H50** | Stiffness=1200 enables realistic servo tracking | **CONFIRMED** ✓ |
+
+---
+
+## 2025-12-26: Session 22 - Sim-to-Real Alignment SUCCESS
+
+### Real Robot Walking Forward
+
+**Major Milestone**: Real hardware now walks forward with scripted gait!
+
+The robot walks in a stable, controlled manner. Feet are dragging slightly but this is expected for early gait development.
+
+### Key Discovery: Simulation Was Too Stiff
+
+When comparing sim to real robot, the simulation appeared much more "rigid and responsive" while the real robot had more "give".
+
+**Root Cause**: Stiffness=1200 created unrealistically stiff servo response.
+
+**Solution**: Reduced stiffness from 1200 → 400
+
+| Setting | Before | After |
+|---------|--------|-------|
+| stiffness | 1200 | 400 |
+| damping | 50 | 40 |
+| frequency | 1.0 Hz | 0.5 Hz |
+
+### Key Discovery: Thigh Phase Was Inverted
+
+Both sim and real robot were walking BACKWARD initially.
+
+**Root Cause**: Hardware trajectory used `+sin` for thigh, but needed `-sin`.
+
+**Analysis**: The thigh motion was 90° out of phase with foot contact. The thigh was moving forward during ground contact, pushing the robot backward.
+
+**Solution**: Changed thigh trajectory from `+sin` to `-sin`:
+```cpp
+// OLD (walks backward)
+*thigh = thigh_mid + thigh_amp * sin_phase;
+
+// NEW (walks forward)
+*thigh = thigh_mid - thigh_amp * sin_phase;
+```
+
+### Key Discovery: Floor Surface Matters Significantly
+
+Real robot gait varies by floor type:
+- **Hardwood**: Lower friction, cleaner steps
+- **Short carpet**: Medium friction
+- **Long carpet**: Higher friction, more foot dragging
+
+**Implication**: Must add friction domain randomization to RL training.
+
+### Updated Hypotheses (Session 22)
+
+| ID | Hypothesis | Status |
+|----|------------|--------|
+| **H51** | Stiffness=1200 is too rigid for real servo | **CONFIRMED** ✓ |
+| **H52** | Stiffness=400 matches real servo softness | **CONFIRMED** ✓ |
+| **H53** | Thigh phase must be -sin for forward walking | **CONFIRMED** ✓ |
+| **H54** | Floor friction needs domain randomization | **OBSERVED** - to test |
+| **H55** | Feet dragging can be fixed with swing phase tuning | TO TEST |
+
+### Sign Convention Clarified
+
+**Simulation → Hardware conversion for thighs/calves:**
+```
+hardware_degrees = -sim_radians × (180/π)
+```
+
+This is because thighs and calves have `joint_sign = -1.0` in the hardware mapping.
+
+### Aligned Parameters (Final)
+
+**Simulation (ScriptedGaitCfg):**
+```python
+frequency: 0.5 Hz
+swing_thigh: 0.40 rad
+stance_thigh: 0.90 rad
+stance_calf: -0.90 rad
+swing_calf: -1.40 rad  # Matched to HW CALF_MAX=80°
+```
+
+**Hardware (scripted_gait_test_1.ino):**
+```cpp
+GAIT_FREQUENCY = 0.5f;
+BASE_STANCE_THIGH = -51.6f;  // sim: +0.90 rad
+BASE_SWING_THIGH = -22.9f;   // sim: +0.40 rad
+BASE_STANCE_CALF = 51.6f;    // sim: -0.90 rad
+BASE_SWING_CALF = 80.0f;     // sim: -1.40 rad
+// Uses -sin for thigh trajectory
+```
+
+### Lessons Learned
+
+1. **Sim-to-real requires matching servo response, not just joint limits**
+2. **Simple sinusoid approximation requires careful phase alignment**
+3. **Real-world surface variation is significant - domain randomization needed**
+4. **Iterative testing between sim and hardware is essential**

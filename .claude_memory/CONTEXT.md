@@ -23,19 +23,58 @@ Train a stable forward walking gait for the Harold quadruped robot.
 | Flat task config | `harold_isaac_lab/source/.../tasks/direct/harold_flat/harold_isaac_lab_env_cfg.py` |
 | Robot asset | `harold_isaac_lab/source/.../tasks/direct/harold_flat/harold.py` |
 | USD model | `part_files/V4/harold_8.usd` |
-| Best checkpoint | `logs/skrl/harold_direct/terrain_62/checkpoints/best_agent.pt` |
+| Hardware gait script | `firmware/scripted_gait_test_1/scripted_gait_test_1.ino` |
 
-## Current State (2025-12-26, Session 21 Complete)
+## Current State (2025-12-26, Session 22 Complete)
 
-**🎉 BREAKTHROUGH: Scripted gait achieves vx=+0.141 m/s (141% of target!)**
+**🎉 MAJOR MILESTONE: Real robot walking forward with scripted gait!**
 
-### Session 21 Critical Discovery
+### Session 22 Achievements
 
-**The "Phase 1 failed" conclusion was WRONG.** Harold CAN walk with open-loop scripted control.
+1. **Sim-to-Real Parameter Alignment**: Synchronized simulation and hardware gait parameters
+2. **Real Robot Walking Forward**: Scripted gait makes hardware walk forward (feet dragging, but stable)
+3. **Simulation Softened**: Reduced PD stiffness to match real servo "softness"
 
-**Root Cause**: PD stiffness=200 was far too low for Isaac Lab's implicit actuator model. Servos couldn't extend legs under load, causing all walking attempts to fail.
+### Key Parameter Changes (Session 22)
 
-**Solution**: Increased stiffness from 200 → 1200, damping from 75 → 50
+| Parameter | Session 21 | Session 22 | Reason |
+|-----------|------------|------------|--------|
+| PD stiffness | 1200 | **400** | Real servos have more "give" |
+| PD damping | 50 | **40** | Proportional reduction |
+| Gait frequency | 1.0 Hz | **0.5 Hz** | Slower to match real servo response |
+| Thigh trajectory | +sin | **-sin** | Fixed walking direction (was backwards) |
+
+### Scripted Gait Parameters (Aligned Sim ↔ Hardware)
+
+```python
+# Simulation (ScriptedGaitCfg)
+frequency: 0.5 Hz
+swing_thigh: 0.40 rad    # Thigh back during swing
+stance_thigh: 0.90 rad   # Thigh forward during stance
+stance_calf: -0.90 rad   # Extended during stance
+swing_calf: -1.40 rad    # Bent during swing (matched to HW CALF_MAX=80°)
+
+# Hardware conversion: hardware_deg = -sim_rad × (180/π)
+```
+
+### Critical Discovery: Floor Surface Matters
+
+Real robot gait performance varies significantly by floor type:
+- Hardwood vs short carpet vs long carpet show different behaviors
+- This must be addressed in training via domain randomization
+
+### Simulation Performance
+
+With stiffness=400, frequency=0.5 Hz:
+- **vx = +0.04 m/s** forward (down from 0.14 m/s with stiff settings)
+- Height = 0.163 m
+- Softer, more realistic servo response
+
+---
+
+## Previous Session Summary (Session 21)
+
+**Root Cause Found**: PD stiffness=200 was far too low. Increased to 1200 enabled walking.
 
 | Setting | Old | New | Result |
 |---------|-----|-----|--------|
@@ -43,40 +82,29 @@ Train a stable forward walking gait for the Harold quadruped robot.
 | damping | 75 | 50 | More responsive tracking |
 | effort_limit | 2.0 | 2.8 | 95% of hardware max |
 
-**Scripted Gait Results** (Phase 1 validation):
-- **vx = +0.141 m/s** (141% of 0.1 m/s target!)
+**Scripted Gait Results** (Session 21, stiff settings):
+- vx = +0.141 m/s (141% of 0.1 m/s target!)
 - Height = 0.174 m (proper standing)
-- Diagonal trot pattern working
 
-### Previous Best Results
-- **Best RL stable (EXP-097)**: vx=0.034 m/s with backward_penalty=75
-- **Peak observed (EXP-059)**: vx=0.076 at 89% training (regressed)
-- ~100 experiments completed across 20 sessions
+---
 
-### Approach Status
+## Approach Status
+
 | Approach | Status |
 |----------|--------|
-| **PD gain tuning (stiffness)** | ✅ **CRITICAL FIX** - stiffness 200→1200 |
-| **Scripted gait validation** | ✅ **SUCCESS** - vx=0.141 m/s achieved |
+| **Sim-to-real alignment** | ✅ **COMPLETE** - Parameters matched |
+| **Real robot scripted gait** | ✅ **WALKING FORWARD** |
+| **Softer PD gains** | ✅ Applied (stiffness 1200→400) |
+| PD gain tuning (stiffness) | ✅ Critical fix identified |
+| Scripted gait validation | ✅ Success in sim and hardware |
 | Contact-based gait reward | ✅ Works (vx=0.036 with old PD gains) |
 | Explicit backward penalty | ✅ Works (75 is optimal) |
-| Reward weight tuning | ❌ Exhausted (0.034 max with old PD) |
-| PPO/curriculum tuning | ❌ Not the bottleneck |
 | **Re-train RL with new PD gains** | 🔲 **PRIORITY 1** |
-| **CPG-based action space** | 🔲 Priority 2 (may not be needed now) |
+| **Domain randomization (floor friction)** | 🔲 **PRIORITY 2** |
 
-### Best Configuration (EXP-056)
-```python
-learning_rate = 5.0e-4
-progress_forward_pos = 40.0
-progress_forward_neg = 10.0
-height_reward = 15.0
-upright_reward = 10.0
-diagonal_gait_reward = 5.0  # NEW - forward-gated
-entropy_loss_scale = 0.01
-```
+---
 
-### Harold CLI Observability System (COMPLETE)
+## Harold CLI Observability System (COMPLETE)
 ```bash
 # BEFORE starting: always check for orphan processes
 harold ps                                     # List processes (shows [ORPHAN] if any)
@@ -89,8 +117,6 @@ harold validate                               # Final metrics
 harold compare EXP-014 EXP-015               # Side-by-side
 ```
 
-**Process Safety**: The harness blocks concurrent training, but orphan processes can exist after crashes. Always run `harold ps` before starting new experiments.
-
 ## System Specs
 - **GPU**: NVIDIA GeForce RTX 4080 (16GB)
 - **CPU**: Intel Core i7-8700K @ 3.70GHz (6 cores, 12 threads)
@@ -101,16 +127,9 @@ harold compare EXP-014 EXP-015               # Side-by-side
 - **Target duration**: 30-60 minutes per experiment (fast iteration > long runs)
 - **Environment count**: 8192 (recommended), up to 16384 for max throughput
 - **Video recording**: MANDATORY - never disable
-- **Memory watchdog**: Auto-starts, kills at RAM>95% or Swap>70% (safety net, rarely triggers with 64GB RAM)
-- **Kill detection**: `harold status` shows `KILLED_BY_WATCHDOG` if triggered
-
-## Active Hypotheses
-1. Current reward structure may not incentivize stable forward locomotion
-2. Terrain curriculum may need tuning for gait stability
-3. Action filtering (EMA beta=0.4) smooths but may limit agility
+- **Memory watchdog**: Auto-starts, kills at RAM>95% or Swap>70%
 
 ## Key Parameters
 - Observation: 48D (velocities, gravity, joint states, commands, prev actions)
 - Action: 12D (joint position deltas, normalized [-1, 1])
-- Reward weights: forward_vel=80, lateral_vel=80, height=1, torque=-0.005, air_time=8
 - Termination: body contact, orientation loss (gravity_z > -0.5)

@@ -31,8 +31,8 @@ const uint32_t BUS_BAUD = 1000000;
 //   hardware_deg = -sim_rad * (180/π)
 // Thighs: sim +0.90/+0.40 rad → hw -51.6/-22.9 deg
 // Calves: sim -0.90/-1.40 rad → hw +51.6/+80.0 deg
-const float BASE_STANCE_THIGH = -51.6f;  // sim: +0.90 rad (leg forward during stance)
-const float BASE_SWING_THIGH  = -22.9f;  // sim: +0.40 rad (leg back during swing)
+const float BASE_STANCE_THIGH = -51.6f;  // sim: +0.90 rad
+const float BASE_SWING_THIGH  = -22.9f;  // sim: +0.40 rad
 const float BASE_STANCE_CALF  = 51.6f;   // sim: -0.90 rad (extended during stance)
 const float BASE_SWING_CALF   = 80.0f;   // sim: -1.40 rad (bent during swing, at CALF_MAX)
 const float BASE_SHOULDER_AMP = 2.9f;    // sim: 0.05 rad
@@ -176,13 +176,15 @@ void computeLegTrajectory(float phase, float* shoulder, float* thigh, float* cal
   float sin_phase = sinf(phase * 2.0f * M_PI);
   float cos_phase = cosf(phase * 2.0f * M_PI);
 
-  // Thigh trajectory: use COS to sync with calf (foot contact pattern)
-  // At phase 0: foot DOWN (cos=1), thigh FORWARD (ready to push back)
-  // At phase 0.5: foot UP (cos=-1), thigh BACKWARD (recovering)
-  // This pushes the robot FORWARD during stance.
+  // Thigh trajectory: use -SIN to match simulation's forward walking
+  // The key is that thigh should move BACKWARD (toward STANCE) during ground contact
+  // Calf uses: calf = mid - amp*cos, so foot DOWN at phase 0, UP at phase 0.5
+  // Thigh needs: start at SWING (forward) when foot touches, end at STANCE (back) at liftoff
+  // Using -SIN: at phase 0 -> mid, phase 0.25 -> STANCE (back), phase 0.5 -> mid
+  // This puts the backward motion during the first half of stance
   float thigh_mid = (STANCE_THIGH + SWING_THIGH) / 2.0f;
   float thigh_amp = (SWING_THIGH - STANCE_THIGH) / 2.0f;
-  *thigh = thigh_mid + thigh_amp * cos_phase;  // Changed: sin -> cos
+  *thigh = thigh_mid - thigh_amp * sin_phase;  // -SIN for forward walking
 
   float calf_mid = (STANCE_CALF + SWING_CALF) / 2.0f;
   float calf_amp = (SWING_CALF - STANCE_CALF) / 2.0f;

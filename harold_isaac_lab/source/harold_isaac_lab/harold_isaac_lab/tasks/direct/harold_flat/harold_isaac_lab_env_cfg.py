@@ -142,8 +142,9 @@ class ScriptedGaitCfg:
     # Gait parameters - with stiffness=1200, legs can now extend
     # Session 21: vx=+0.057 m/s achieved with stiffness=800
     frequency: float = 0.5  # 0.5 Hz gait (slower to match real servo response)
+    # Original values - these made the sim walk forward at 0.04 m/s
     swing_thigh: float = 0.40    # Thigh back during swing
-    stance_thigh: float = 0.90   # Thigh forward during stance (increased range)
+    stance_thigh: float = 0.90   # Thigh forward during stance
     stance_calf: float = -0.90   # More extended stance
     swing_calf: float = -1.40    # Bent during swing (was -1.55, reduced to match HW CALF_MAX=80°)
     shoulder_amplitude: float = 0.05  # Reduced shoulder motion

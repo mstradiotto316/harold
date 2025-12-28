@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export terrain_64_2 PPO policy to TorchScript and ONNX."""
+"""Export Harold CPG policy to TorchScript and ONNX for RPi 5 deployment."""
 import argparse
 import json
 import math
@@ -9,7 +9,8 @@ from pathlib import Path
 import torch
 
 # --- Constants from training config ---
-OBS_DIM = 48
+# Session 24: Updated to 50D (includes gait phase sin/cos)
+OBS_DIM = 50
 ACTION_DIM = 12
 JOINT_ORDER = [
     "fl_shoulder_joint",
@@ -155,8 +156,8 @@ def export_policy(checkpoint_path: Path, output_dir: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export Harold PPO policy")
-    parser.add_argument("--checkpoint", type=Path, default=Path("logs/skrl/harold_direct/terrain_64_2/checkpoints/best_agent.pt"))
-    parser.add_argument("--output", type=Path, default=Path("deployment_artifacts/terrain_64_2"))
+    parser.add_argument("--checkpoint", type=Path, required=True, help="Path to best_agent.pt checkpoint")
+    parser.add_argument("--output", type=Path, default=Path("deployment/policy"), help="Output directory for ONNX and metadata")
     args = parser.parse_args()
 
     export_policy(args.checkpoint, args.output)

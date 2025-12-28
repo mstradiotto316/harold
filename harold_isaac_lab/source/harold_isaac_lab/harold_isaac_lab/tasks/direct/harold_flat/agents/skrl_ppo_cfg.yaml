@@ -38,7 +38,7 @@ agent:
   mini_batches: 8            # 196k/8 ≈ 24k samples/mini-batch (adjusted for 8192 envs)
   discount_factor: 0.99      # gamma
   lambda: 0.95               # tau
-  learning_rate: 5.0e-4      # Reverted - higher LR caused backward drift (EXP-094)
+  learning_rate: 5.0e-4      # Session 23: 3e-4 was SANITY_FAIL, 5e-4 optimal
   learning_rate_scheduler: KLAdaptiveLR  # adaptive LR schedule
   learning_rate_scheduler_kwargs:
     kl_threshold: 0.01      # match Anymal example

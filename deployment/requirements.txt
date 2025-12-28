@@ -1,0 +1,13 @@
+# Harold Deployment - Raspberry Pi 5 Dependencies
+# Tested on Python 3.11
+
+# Core inference
+onnxruntime>=1.16.0      # ONNX model inference (CPU only)
+numpy>=1.24.0            # Array operations
+
+# Hardware communication
+pyserial>=3.5            # ESP32 serial communication
+smbus2>=0.4.0            # I2C for MPU6050 (RPi 5 compatible)
+
+# Configuration
+pyyaml>=6.0              # YAML config files

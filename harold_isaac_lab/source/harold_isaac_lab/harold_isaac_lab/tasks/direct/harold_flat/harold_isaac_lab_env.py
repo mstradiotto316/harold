@@ -63,12 +63,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             **kwargs: Additional keyword arguments passed to DirectRLEnv parent class
         """
         # --- Environment variable overrides ---
-        # Scripted gait (Phase 1 - FAILED, kept for debugging)
+        # Scripted gait mode - validated in Session 21-22
         if os.getenv("HAROLD_SCRIPTED_GAIT", "0") == "1":
             cfg.scripted_gait.enabled = True
             print("=" * 60)
-            print("SCRIPTED GAIT MODE ENABLED (Phase 1 - for debugging only)")
-            print("WARNING: Phase 1 proved open-loop control doesn't work!")
+            print("SCRIPTED GAIT MODE ENABLED")
+            print("Session 21: vx=+0.141 m/s achieved (141% of target)")
+            print("Session 22: Real robot walks forward with this gait")
             print("=" * 60)
 
         # CPG mode (Phase 2 - structured action space)
@@ -79,6 +80,38 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             print("Policy outputs corrections to CPG base trajectory.")
             print(f"Base frequency: {cfg.cpg.base_frequency} Hz")
             print(f"Residual scale: {cfg.cpg.residual_scale}")
+            print("=" * 60)
+
+        # Command tracking mode (for controllability)
+        if os.getenv("HAROLD_CMD_TRACK", "0") == "1":
+            cfg.rewards.command_tracking_enabled = True
+            print("=" * 60)
+            print("COMMAND TRACKING MODE ENABLED")
+            print("Policy will learn to follow commanded velocity.")
+            print(f"Tracking weight: {cfg.rewards.command_tracking_weight}")
+            print(f"Tracking sigma: {cfg.rewards.command_tracking_sigma} m/s")
+            print("=" * 60)
+
+        # Variable command mode (for speed control)
+        if os.getenv("HAROLD_VAR_CMD", "0") == "1":
+            cfg.commands.variable_commands = True
+            print("=" * 60)
+            print("VARIABLE COMMAND MODE ENABLED")
+            print(f"vx range: [{cfg.commands.vx_min}, {cfg.commands.vx_max}] m/s")
+            print(f"vy range: [{cfg.commands.vy_min}, {cfg.commands.vy_max}] m/s")
+            print(f"yaw range: [{cfg.commands.yaw_min}, {cfg.commands.yaw_max}] rad/s")
+            print(f"Zero velocity probability: {cfg.commands.zero_velocity_prob}")
+            print("=" * 60)
+
+        # Dynamic command mode (commands change mid-episode)
+        if os.getenv("HAROLD_DYN_CMD", "0") == "1":
+            cfg.commands.dynamic_commands = True
+            # Dynamic implies variable commands
+            cfg.commands.variable_commands = True
+            print("=" * 60)
+            print("DYNAMIC COMMAND MODE ENABLED")
+            print(f"Command change interval: {cfg.commands.command_change_interval}s")
+            print(f"Command change probability: {cfg.commands.command_change_prob}")
             print("=" * 60)
 
         super().__init__(cfg, render_mode, **kwargs)
@@ -96,6 +129,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         
         # --- Command Tensor for Velocity Tracking (X, Y, Yaw) ---
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
+
+        # --- Dynamic Command Timer (Phase 3) ---
+        # Tracks time since last command change for each environment
+        self._command_timer = torch.zeros(self.num_envs, device=self.device)
 
         # --- Joint Angle Limits ---
         self._JOINT_ANGLE_MAX = torch.tensor(self.cfg.joint_angle_max, device=self.device)
@@ -253,6 +290,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "velocity_threshold_bonus",
             "exp_velocity_reward",
             "bidirectional_gait_reward",
+            "command_tracking",
         ]
 
         # --- Diagonal Gait Tracking (EXP-055) ---
@@ -271,6 +309,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "progress_pos",
             "progress_neg",
             "rear_support_bonus_mean",
+            "cmd_vx_error",  # |vx - cmd_vx| for command tracking
         ]
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
@@ -408,6 +447,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             - Action scaling allows tuning of policy output sensitivity
             - Clamping ensures actions never exceed safe operating ranges
         """
+        # --- Dynamic command update (Phase 3) ---
+        self._update_dynamic_commands()
+
         # --- Check for scripted gait mode (Phase 1 - FAILED, debugging only) ---
         if self.cfg.scripted_gait.enabled:
             self._apply_scripted_gait()
@@ -471,6 +513,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # --- Compute CPG base trajectory ---
         cpg_targets = self._compute_cpg_base_trajectory()
 
+        # Store for potential reward computation (CPG tracking reward)
+        self._cpg_base_targets = cpg_targets.clone()
+
         # --- Apply policy corrections ---
         # Store actions for logging
         self._actions.copy_(actions)
@@ -500,82 +545,58 @@ class HaroldIsaacLabEnv(DirectRLEnv):
     def _compute_cpg_base_trajectory(self) -> torch.Tensor:
         """Compute the CPG base trajectory for all joints.
 
+        Session 24: NOW USES the same trajectory computation as ScriptedGaitCfg,
+        which has been validated to work in simulation (vx=+0.141 m/s) and on
+        real hardware (walking forward).
+
         Generates a diagonal trot gait pattern:
         - FL + BR are in phase (pair 0)
         - FR + BL are 180° out of phase (pair 1)
-
-        Each leg oscillates around the athletic pose with smooth sinusoidal motion.
 
         Returns:
             Joint targets tensor [num_envs, 12]
         """
         cfg = self.cfg.cpg
-        duty = cfg.duty_cycle
 
-        # Phase for each diagonal pair
-        phase = self._cpg_phase.unsqueeze(-1)  # [num_envs, 1]
-        phase_pair0 = phase  # FL + BR
-        phase_pair1 = (phase + 0.5) % 1.0  # FR + BL (180° offset)
+        # Phase for each diagonal pair - same as scripted gait
+        phase_fl_br = self._cpg_phase  # [num_envs]
+        phase_fr_bl = (self._cpg_phase + 0.5) % 1.0  # 180° offset
 
-        # Compute leg trajectories for each pair
-        thigh_0, calf_0 = self._cpg_leg_trajectory(phase_pair0, cfg)  # FL, BR
-        thigh_1, calf_1 = self._cpg_leg_trajectory(phase_pair1, cfg)  # FR, BL
+        # Use the PROVEN trajectory method from ScriptedGaitCfg
+        # This is the exact same computation that achieves vx=+0.141 m/s
+        thigh_fl, calf_fl = self._compute_leg_trajectory(phase_fl_br, cfg)
+        thigh_br, calf_br = self._compute_leg_trajectory(phase_fl_br, cfg)
+        thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl, cfg)
+        thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl, cfg)
 
-        # Small shoulder oscillation for lateral balance
-        shoulder_0 = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_pair0)
-        shoulder_1 = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_pair1)
+        # Shoulder oscillation for balance (same as scripted gait)
+        shoulder_fl = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)
+        shoulder_br = -cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)
+        shoulder_fr = -cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fr_bl)
+        shoulder_bl = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fr_bl)
 
         # Assemble joint targets [shoulders(4), thighs(4), calves(4)]
         targets = torch.zeros(self.num_envs, 12, device=self.device)
 
-        # Shoulders: FL, FR, BL, BR
-        targets[:, 0] = shoulder_0.squeeze(-1)   # FL (pair 0)
-        targets[:, 1] = -shoulder_1.squeeze(-1)  # FR (pair 1, inverted for lateral)
-        targets[:, 2] = shoulder_1.squeeze(-1)   # BL (pair 1)
-        targets[:, 3] = -shoulder_0.squeeze(-1)  # BR (pair 0, inverted)
+        # Shoulders (indices 0-3): FL, FR, BL, BR
+        targets[:, 0] = shoulder_fl
+        targets[:, 1] = shoulder_fr
+        targets[:, 2] = shoulder_bl
+        targets[:, 3] = shoulder_br
 
-        # Thighs: FL, FR, BL, BR
-        targets[:, 4] = thigh_0.squeeze(-1)  # FL (pair 0)
-        targets[:, 5] = thigh_1.squeeze(-1)  # FR (pair 1)
-        targets[:, 6] = thigh_1.squeeze(-1)  # BL (pair 1)
-        targets[:, 7] = thigh_0.squeeze(-1)  # BR (pair 0)
+        # Thighs (indices 4-7): FL, FR, BL, BR
+        targets[:, 4] = thigh_fl
+        targets[:, 5] = thigh_fr
+        targets[:, 6] = thigh_bl
+        targets[:, 7] = thigh_br
 
-        # Calves: FL, FR, BL, BR
-        targets[:, 8] = calf_0.squeeze(-1)   # FL (pair 0)
-        targets[:, 9] = calf_1.squeeze(-1)   # FR (pair 1)
-        targets[:, 10] = calf_1.squeeze(-1)  # BL (pair 1)
-        targets[:, 11] = calf_0.squeeze(-1)  # BR (pair 0)
+        # Calves (indices 8-11): FL, FR, BL, BR
+        targets[:, 8] = calf_fl
+        targets[:, 9] = calf_fr
+        targets[:, 10] = calf_bl
+        targets[:, 11] = calf_br
 
         return targets
-
-    def _cpg_leg_trajectory(self, phase: torch.Tensor, cfg) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute smooth leg trajectory for CPG.
-
-        Uses sinusoidal oscillation around the athletic pose.
-
-        Args:
-            phase: Gait phase [0, 1) tensor of shape [num_envs, 1]
-            cfg: CPGCfg with trajectory parameters
-
-        Returns:
-            Tuple of (thigh_angle, calf_angle) tensors
-        """
-        # Sinusoidal oscillation for smooth motion
-        # Phase 0 = start of stance, Phase 0.5 = start of swing
-
-        # Thigh: oscillates around athletic_thigh
-        # Stance: extends backward (smaller angle) for propulsion
-        # Swing: flexes forward (larger angle) for recovery
-        thigh_offset = cfg.thigh_amplitude * torch.sin(2 * math.pi * phase)
-        thigh = self._athletic_thigh + thigh_offset
-
-        # Calf: oscillates around athletic_calf
-        # Lift during swing phase (more negative angle)
-        # Cosine offset so lift happens during swing (phase 0.5-1.0)
-        calf_offset = cfg.calf_amplitude * torch.cos(2 * math.pi * phase)
-        calf = self._athletic_calf + calf_offset
-
-        return thigh, calf
 
     def _apply_scripted_gait(self) -> None:
         """Apply scripted walking gait trajectory (Phase 1 verification).
@@ -939,8 +960,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # - Sufficient information for closed-loop control without redundancy
         
         # Compute gait phase based on cumulative time
-        # Phase cycles at gait frequency (default 2.0 Hz from GaitCfg)
-        gait_freq = self.cfg.gait.frequency  # Hz
+        # When CPG is enabled, use CPG frequency for consistency with base trajectory
+        if self.cfg.cpg.enabled:
+            gait_freq = self.cfg.cpg.base_frequency  # 0.5 Hz (matches CPG)
+        else:
+            gait_freq = self.cfg.gait.frequency  # 2.0 Hz (default)
         gait_phase = 2.0 * math.pi * gait_freq * self._time  # radians
         gait_phase_sin = torch.sin(gait_phase).unsqueeze(-1)  # [num_envs, 1]
         gait_phase_cos = torch.cos(gait_phase).unsqueeze(-1)  # [num_envs, 1]
@@ -1285,6 +1309,28 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         else:
             exp_velocity_reward = torch.zeros_like(vx)
 
+        # Command tracking reward - rewards matching commanded velocity
+        # Uses actual commanded velocity from self._commands instead of fixed target
+        if getattr(rewards_cfg, 'command_tracking_enabled', False):
+            cmd_weight = getattr(rewards_cfg, 'command_tracking_weight', 10.0)
+            cmd_sigma = getattr(rewards_cfg, 'command_tracking_sigma', 0.1)
+
+            # Get commanded vx (currently only tracking forward velocity)
+            cmd_vx = self._commands[:, 0]
+
+            # Compute velocity tracking error
+            vx_error = vx - cmd_vx
+
+            # Exponential reward: peak when actual matches command
+            # Gate by upright^2 to only reward when standing properly
+            command_tracking = cmd_weight * torch.exp(-torch.square(vx_error / cmd_sigma)) * upright_sq
+
+            # Optionally replace forward motion bias with command tracking
+            if getattr(rewards_cfg, 'command_tracking_replace_forward', True):
+                progress_forward = torch.zeros_like(vx)
+        else:
+            command_tracking = torch.zeros_like(vx)
+
         rewards = {
             "progress_forward": progress_forward,
             "upright_reward": upright * rewards_cfg.upright_reward,
@@ -1304,6 +1350,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "velocity_threshold_bonus": velocity_threshold_bonus,
             "exp_velocity_reward": exp_velocity_reward,
             "bidirectional_gait_reward": bidirectional_gait_reward,
+            "command_tracking": command_tracking,
         }
 
         total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
@@ -1323,6 +1370,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._episode_sums["progress_pos"] += progress_pos
         self._episode_sums["progress_neg"] += progress_neg
         self._episode_sums["rear_support_bonus_mean"] += rear_support_bonus
+        self._episode_sums["cmd_vx_error"] += torch.abs(vx - self._commands[:, 0])
 
         return total_reward
 
@@ -1417,10 +1465,40 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         num = len(env_ids)
         sampled_commands = torch.zeros_like(self._commands[env_ids])
-        sampled_commands[:, 0] = torch.empty(num, device=self.device).uniform_(0.25, 0.35)
+
+        # Check if variable command mode is enabled
+        cmd_cfg = getattr(self.cfg, 'commands', None)
+        if cmd_cfg is not None and getattr(cmd_cfg, 'variable_commands', False):
+            # Variable command sampling from configured ranges
+            # Sample vx uniformly from [vx_min, vx_max]
+            sampled_commands[:, 0] = torch.empty(num, device=self.device).uniform_(
+                cmd_cfg.vx_min, cmd_cfg.vx_max
+            )
+            # Sample vy uniformly from [vy_min, vy_max]
+            sampled_commands[:, 1] = torch.empty(num, device=self.device).uniform_(
+                cmd_cfg.vy_min, cmd_cfg.vy_max
+            )
+            # Sample yaw uniformly from [yaw_min, yaw_max]
+            sampled_commands[:, 2] = torch.empty(num, device=self.device).uniform_(
+                cmd_cfg.yaw_min, cmd_cfg.yaw_max
+            )
+
+            # Apply zero velocity probability for stopping behavior
+            zero_prob = getattr(cmd_cfg, 'zero_velocity_prob', 0.0)
+            if zero_prob > 0:
+                zero_mask = torch.rand(num, device=self.device) < zero_prob
+                sampled_commands[zero_mask, :] = 0.0
+        else:
+            # Default fixed command sampling (original behavior)
+            sampled_commands[:, 0] = torch.empty(num, device=self.device).uniform_(0.25, 0.35)
+
+        # Override for policy logging (consistent commands for evaluation)
         if self._policy_log_dir is not None:
             sampled_commands[:, 0] = 0.4
         self._commands[env_ids] = sampled_commands
+
+        # Reset command timers for dynamic command mode
+        self._command_timer[env_ids] = 0.0
 
         joint_pos = self._robot.data.default_joint_pos[env_ids]
         joint_vel = self._robot.data.default_joint_vel[env_ids]
@@ -1669,7 +1747,77 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             return delayed_actions
         
         return noisy_actions
-    
+
+    def _update_dynamic_commands(self) -> None:
+        """Update velocity commands periodically during episode (Phase 3).
+
+        When dynamic_commands is enabled, commands change every command_change_interval
+        seconds instead of only at episode reset. This teaches the policy to respond
+        to command changes (e.g., walk -> stop -> walk).
+
+        Uses the same sampling logic as _reset_idx for consistency.
+        """
+        cmd_cfg = getattr(self.cfg, 'commands', None)
+        if cmd_cfg is None or not getattr(cmd_cfg, 'dynamic_commands', False):
+            return
+
+        # Get physics timestep (dt * decimation = policy timestep)
+        dt = self.cfg.sim.dt * self.cfg.decimation
+
+        # Update command timers
+        self._command_timer += dt
+
+        # Check which environments need command updates
+        interval = cmd_cfg.command_change_interval
+        update_mask = self._command_timer >= interval
+
+        if not update_mask.any():
+            return
+
+        # Get indices of environments to update
+        update_ids = update_mask.nonzero(as_tuple=False).squeeze(-1)
+        num = len(update_ids)
+
+        if num == 0:
+            return
+
+        # Apply command change probability
+        change_prob = getattr(cmd_cfg, 'command_change_prob', 1.0)
+        if change_prob < 1.0:
+            prob_mask = torch.rand(num, device=self.device) < change_prob
+            update_ids = update_ids[prob_mask]
+            num = len(update_ids)
+            if num == 0:
+                # Reset timers but don't change commands
+                self._command_timer[update_mask] = 0.0
+                return
+
+        # Sample new commands (same logic as _reset_idx)
+        sampled_commands = torch.zeros(num, 3, device=self.device)
+
+        # Sample vx uniformly from [vx_min, vx_max]
+        sampled_commands[:, 0] = torch.empty(num, device=self.device).uniform_(
+            cmd_cfg.vx_min, cmd_cfg.vx_max
+        )
+        # Sample vy uniformly from [vy_min, vy_max]
+        sampled_commands[:, 1] = torch.empty(num, device=self.device).uniform_(
+            cmd_cfg.vy_min, cmd_cfg.vy_max
+        )
+        # Sample yaw uniformly from [yaw_min, yaw_max]
+        sampled_commands[:, 2] = torch.empty(num, device=self.device).uniform_(
+            cmd_cfg.yaw_min, cmd_cfg.yaw_max
+        )
+
+        # Apply zero velocity probability
+        zero_prob = getattr(cmd_cfg, 'zero_velocity_prob', 0.0)
+        if zero_prob > 0:
+            zero_mask = torch.rand(num, device=self.device) < zero_prob
+            sampled_commands[zero_mask, :] = 0.0
+
+        # Update commands and reset timers
+        self._commands[update_ids] = sampled_commands
+        self._command_timer[update_ids] = 0.0
+
     def _apply_external_forces(self) -> None:
         """Apply random external forces/torques to robot bodies.
         

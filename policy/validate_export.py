@@ -9,7 +9,8 @@ from pathlib import Path
 
 from export_policy import SharedPolicyValue, NormalizedPolicy
 
-OBS_DIM = 48
+# Session 24: Updated to 50D (includes gait phase sin/cos)
+OBS_DIM = 50
 
 
 def load_reference_policy(checkpoint: Path) -> NormalizedPolicy:
@@ -75,12 +76,12 @@ def compare_models(checkpoint: Path, ts_path: Path, onnx_path: Path, obs_path: P
 
 def main():
     parser = argparse.ArgumentParser(description="Validate exported policy against PyTorch reference")
-    parser.add_argument("--checkpoint", type=Path, default=Path("logs/skrl/harold_direct/terrain_64_2/checkpoints/best_agent.pt"))
-    parser.add_argument("--torchscript", type=Path, default=Path("deployment_artifacts/terrain_64_2/harold_policy.ts"))
-    parser.add_argument("--onnx", type=Path, default=Path("deployment_artifacts/terrain_64_2/harold_policy.onnx"))
+    parser.add_argument("--checkpoint", type=Path, required=True, help="Path to best_agent.pt checkpoint")
+    parser.add_argument("--torchscript", type=Path, default=Path("deployment/policy/harold_policy.ts"))
+    parser.add_argument("--onnx", type=Path, default=Path("deployment/policy/harold_policy.onnx"))
     parser.add_argument("--observations", type=Path, default=Path("simulation_logs/observations.log"))
     parser.add_argument("--num-samples", type=int, default=200, help="Number of samples from log to compare")
-    parser.add_argument("--output", type=Path, default=Path("deployment_artifacts/terrain_64_2/export_validation.json"))
+    parser.add_argument("--output", type=Path, default=Path("deployment/policy/export_validation.json"))
     args = parser.parse_args()
 
     metrics = compare_models(args.checkpoint, args.torchscript, args.onnx, args.observations, args.num_samples)

@@ -105,10 +105,11 @@ HAROLD_V4_CFG = ArticulationCfg(
             joint_names_expr=[".*"],
             # FeeTech ST3215 servo: max 2.94 Nm @ 12V
             # Session 22: Real robot has more "give" than sim with stiffness=1200
-            # Reducing stiffness to match real servo softness for better sim-to-real
+            # Session 24: RESTORED to 400/30 for sim-to-real alignment
+            # CPG provides walking structure, policy adds balance corrections
             effort_limit_sim=2.8,
-            stiffness=600.0,   # Session 23: Testing middle ground between 400 (too soft) and 1200 (too stiff)
-            damping=45.0,      # Proportional to stiffness
+            stiffness=400.0,   # Sim-to-real aligned (Session 22 validated on hardware)
+            damping=30.0,      # Proportional to stiffness
         ),
     },
 )

@@ -1,0 +1,88 @@
+# Hardware Configuration - Harold Robot
+# Matched to ESP32 firmware (HaroldStreamingControl)
+
+# ESP32 Communication
+esp32:
+  port: /dev/ttyUSB0     # USB serial port (may vary)
+  baud: 115200           # Baud rate
+  timeout_ms: 50         # Read timeout
+
+# IMU (MPU6050)
+imu:
+  bus: 1                 # I2C bus number
+  address: 0x68          # I2C address
+  sample_rate_hz: 100    # Sample rate for velocity estimation
+
+# Servo Configuration (FeeTech ST3215)
+servos:
+  # Servo IDs (1-indexed, matches firmware)
+  ids:
+    fl_shoulder: 1
+    fl_thigh: 2
+    fl_calf: 3
+    fr_shoulder: 4
+    fr_thigh: 5
+    fr_calf: 6
+    bl_shoulder: 7
+    bl_thigh: 8
+    bl_calf: 9
+    br_shoulder: 10
+    br_thigh: 11
+    br_calf: 12
+
+  # Joint order in policy output (RL convention)
+  joint_order:
+    - fl_shoulder
+    - fr_shoulder
+    - bl_shoulder
+    - br_shoulder
+    - fl_thigh
+    - fr_thigh
+    - bl_thigh
+    - br_thigh
+    - fl_calf
+    - fr_calf
+    - bl_calf
+    - br_calf
+
+  # Sign correction: RL -> hardware
+  # Thighs and calves are inverted relative to simulation
+  joint_sign:
+    shoulders: 1.0
+    thighs: -1.0
+    calves: -1.0
+
+  # Hardware direction (from firmware DIR array)
+  # Positive = servo increases with positive angle
+  direction:
+    1: 1    # FL shoulder
+    2: 1    # FL thigh
+    3: 1    # FL calf
+    4: -1   # FR shoulder
+    5: -1   # FR thigh
+    6: -1   # FR calf
+    7: 1    # BL shoulder
+    8: 1    # BL thigh
+    9: 1    # BL calf
+    10: -1  # BR shoulder
+    11: -1  # BR thigh
+    12: -1  # BR calf
+
+  # Safe joint limits (more conservative than simulation)
+  safe_limits_deg:
+    shoulder: [-25, 25]   # ±25° (sim allows ±30°)
+    thigh: [-55, 5]       # -55° to +5° (forward lean only)
+    calf: [-5, 80]        # -5° to +80° (extension safe)
+
+  # Servo parameters
+  units_per_deg: 11.378   # 4096 / 360
+  mid_position: 2047      # Servo mid-point
+  speed: 1600             # Units/sec for gait
+  acceleration: 100       # Units/sec² ramp
+
+# Safety thresholds
+safety:
+  load_warning: 70        # % load warning
+  load_critical: 90       # % load emergency stop
+  temperature_max: 50     # °C max servo temp
+  watchdog_ms: 250        # Command timeout

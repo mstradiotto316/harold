@@ -9,7 +9,8 @@ from pathlib import Path
 import numpy as np
 import onnxruntime as ort
 
-OBS_DIM = 48
+# Session 24: Updated to 50D (includes gait phase sin/cos)
+OBS_DIM = 50
 ACTION_DIM = 12
 UNITS_PER_DEG = 4096.0 / 360.0
 SERVO_MID = 2047
@@ -83,10 +84,10 @@ def radians_to_servo_units(rad: np.ndarray) -> np.ndarray:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Offline policy command pipeline")
     parser.add_argument("--observations", type=Path, default=Path("simulation_logs/observations.log"))
-    parser.add_argument("--policy", type=Path, default=Path("deployment_artifacts/terrain_64_2/harold_policy.onnx"))
-    parser.add_argument("--metadata", type=Path, default=Path("deployment_artifacts/terrain_64_2/policy_metadata.json"))
+    parser.add_argument("--policy", type=Path, default=Path("deployment/policy/harold_policy.onnx"))
+    parser.add_argument("--metadata", type=Path, default=Path("deployment/policy/policy_metadata.json"))
     parser.add_argument("--samples", type=int, default=500, help="Number of observations to replay (None for all)")
-    parser.add_argument("--output", type=Path, default=Path("deployment_artifacts/terrain_64_2/offline_commands.csv"))
+    parser.add_argument("--output", type=Path, default=Path("deployment/policy/offline_commands.csv"))
     args = parser.parse_args()
 
     joint_order, default_pose, joint_range, joint_limits, joint_sign = load_metadata(args.metadata)

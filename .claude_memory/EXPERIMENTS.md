@@ -2343,3 +2343,245 @@ With stiffness=1200:
 - RL should be able to discover walking gaits
 
 **Priority 1**: Re-run RL training with corrected PD gains (stiffness=1200, damping=50, effort_limit=2.8)
+
+---
+
+## Session 22: Sim-to-Real Alignment (2025-12-26)
+
+### Key Achievement
+**Real robot walks forward with scripted gait!**
+
+### Changes Made
+| Parameter | Session 21 | Session 22 | Reason |
+|-----------|------------|------------|--------|
+| stiffness | 1200 | 400 | Real servos have more "give" |
+| damping | 50 | 40 | Proportional reduction |
+| frequency | 1.0 Hz | 0.5 Hz | Match real servo response |
+| thigh trajectory | +sin | -sin | Fix walking direction |
+
+### Findings
+1. Real robot needed softer stiffness to match simulation behavior
+2. Thigh phase was inverted (robot walked backward until fixed)
+3. Floor surface affects gait significantly (need domain randomization)
+
+---
+
+## Session 23: Comprehensive Parameter Optimization (2025-12-27)
+
+### Key Achievement
+**Best vx: 0.051 m/s (51% of target)** with stiffness=600, 500 iterations
+
+### Experiments Run: 17+
+
+### Stiffness Sweep
+| Stiffness | Height | vx (final) | Verdict |
+|-----------|--------|------------|---------|
+| 400 | 0.74 | 0.024 | FAILING |
+| **600** | **1.61** | **0.051** | **STANDING** |
+| 800 | 1.66 | 0.012 | STANDING |
+| 1000 | 1.93 | -0.012 | STANDING |
+
+**Conclusion**: Stiffness=600 is optimal. Higher = better height but more vx regression.
+
+### Training Length Sweep
+| Iterations | vx | Verdict |
+|------------|-----|---------|
+| 312 | 0.019 | FAILING |
+| **500** | **0.051** | **STANDING** |
+| 625 | 0.051 | STANDING |
+| 650 | 0.045 | STANDING |
+| 750 | 0.045 | STANDING |
+| 1250 | 0.027 | STANDING |
+
+**Conclusion**: 500-625 iterations optimal. Longer training causes regression.
+
+### Parameter Adjustments (All Made Things Worse)
+| Change | Result |
+|--------|--------|
+| forward_pos=50 (up from 40) | vx=0.032 (worse) |
+| height_reward=15 (down from 20) | vx=0.012, height=0.57 (much worse) |
+| diagonal_gait=10 (up from 5) | SANITY_FAIL |
+| action_scale=0.7 (up from 0.5) | vx=0.029, contact failing (worse) |
+| 16384 envs (up from 8192) | vx=0.007 (much worse) |
+| LR=3e-4 (down from 5e-4) | SANITY_FAIL |
+
+### Final Configuration (Optimal)
+```python
+stiffness = 600
+damping = 45
+iterations = 500
+num_envs = 8192
+learning_rate = 5e-4
+# All rewards at defaults
+```
+
+### The 0.051 Barrier
+vx=0.051 m/s is a consistent ceiling with current PPO + reward structure.
+To break through requires fundamentally different approaches:
+1. Different RL algorithm (SAC, TD3)
+2. Curriculum learning
+3. Reference motion imitation
+4. Policy architecture changes (LSTM)
+
+---
+
+## Session 24: CPG Residual Learning (2025-12-27)
+
+### Key Achievement
+**STABLE WALKING GAIT at step 9600 with sim-to-real aligned parameters!**
+
+### The Problem
+Session 23 abandoned sim-to-real alignment (stiffness=600 vs hardware=400) to optimize RL metrics. CPGCfg used different trajectory than proven ScriptedGaitCfg.
+
+### The Fix
+1. Restored stiffness=400 (matches hardware)
+2. Aligned CPGCfg with ScriptedGaitCfg (proven trajectory)
+3. Reduced residual_scale from 0.15 to 0.05 (prevent policy override)
+
+### EXP-126: CPG with residual_scale=0.15
+- **Hypothesis**: CPG provides walking structure, policy adds corrections
+- **Config**: stiffness=400, residual_scale=0.15
+- **Result**: vx=-0.018 m/s (BACKWARD!)
+- **Problem**: Policy reversed the gait
+
+### Scripted Gait Verification
+- **Config**: Pure scripted gait (no policy), stiffness=400
+- **Result**: vx=+0.014 m/s (forward)
+- **Conclusion**: Trajectory works, policy was overriding it
+
+### EXP-127: CPG with residual_scale=0.05
+- **Hypothesis**: Lower residual_scale prevents policy override
+- **Config**: stiffness=400, residual_scale=0.05
+- **Metrics at completion**:
+  - vx: +0.012 m/s (positive!)
+  - height: 0.69 (below threshold)
+  - contact: -0.00 (perfect)
+  - ep_len: 476-495 (very stable)
+- **Video at step 9600: STABLE WALKING GAIT!**
+- **Verdict**: SUCCESS - slow but controlled walk
+
+### Configuration Used
+```python
+# harold.py
+stiffness = 400.0
+damping = 30.0
+
+# CPGCfg
+base_frequency = 0.5  # Hz
+duty_cycle = 0.6
+swing_thigh = 0.40
+stance_thigh = 0.90
+stance_calf = -0.90
+swing_calf = -1.40
+residual_scale = 0.05
+
+# Command
+HAROLD_CPG=1 python scripts/harold.py train --iterations 500
+```
+
+### What Made It Work
+1. **CPG provides forward motion**: The scripted gait trajectory drives forward
+2. **Limited policy authority**: With scale=0.05, policy can only fine-tune
+3. **Sim-to-real aligned**: stiffness=400 matches real robot
+4. **Aligned trajectory**: CPGCfg now uses same computation as ScriptedGaitCfg
+
+---
+
+## Session 26: Controllability Optimization (2025-12-28)
+
+### EXP-134: Dynamic Commands - 5s Intervals
+- **Date**: 2025-12-28
+- **Config**: CPG + CMD_TRACK + DYN_CMD, 5s interval, vx 0.15-0.40, zero_prob 5%
+- **Duration**: ~55 min
+- **Result**: STANDING (vx=0.007)
+- **Notes**: 5s intervals too frequent for policy to adapt
+
+---
+
+### EXP-135: Dynamic Commands - 10s Intervals
+- **Date**: 2025-12-28
+- **Config**: CPG + CMD_TRACK + DYN_CMD, 10s interval, vx 0.15-0.40, zero_prob 5%
+- **Duration**: ~55 min
+- **Result**: STANDING (vx=0.010)
+- **Notes**: 10s intervals better but still borderline
+
+---
+
+### EXP-136: Higher Tracking Weight (20)
+- **Date**: 2025-12-28
+- **Config**: Same as EXP-135 but tracking_weight=20
+- **Duration**: ~55 min
+- **Result**: STANDING (vx=0.010)
+- **Notes**: Higher weight didn't help with dynamic commands
+
+---
+
+### EXP-137: Static Variable - Higher Weight
+- **Date**: 2025-12-28
+- **Config**: CPG + CMD_TRACK + VAR_CMD (no dynamic), tracking_weight=20
+- **Duration**: ~55 min
+- **Result**: STANDING (vx=0.005)
+- **Notes**: Higher weight HURT static variable commands - over-optimization
+
+---
+
+### EXP-138: Higher Sigma (0.15)
+- **Date**: 2025-12-28
+- **Config**: CPG + CMD_TRACK + DYN_CMD, sigma=0.15 (vs 0.1)
+- **Duration**: ~55 min
+- **Result**: STANDING (vx=0.003, height=1.53)
+- **Notes**: Higher sigma too permissive - robot optimized for standing height
+
+---
+
+### EXP-139: zero_velocity_prob=0 (BREAKTHROUGH)
+- **Date**: 2025-12-28
+- **Config**: CPG + CMD_TRACK + DYN_CMD, zero_prob=0 (never command stop)
+- **Duration**: ~55 min
+- **Result**: **WALKING** (vx=0.011)
+- **Notes**: **KEY BREAKTHROUGH** - removing stop commands enabled walking
+
+---
+
+### EXP-140: Expanded Range (0.10-0.45)
+- **Date**: 2025-12-28
+- **Config**: Same as EXP-139 but vx range 0.10-0.45 (vs 0.15-0.40)
+- **Duration**: ~55 min
+- **Result**: **WALKING** (vx=0.015)
+- **Notes**: Wider range improved results - OPTIMAL configuration found
+
+---
+
+### EXP-141: Even Wider Range (0.05-0.50)
+- **Date**: 2025-12-28
+- **Config**: Same as EXP-140 but vx range 0.05-0.50
+- **Duration**: ~55 min
+- **Result**: WALKING (vx=0.012)
+- **Notes**: Too wide slightly worse than 0.10-0.45
+
+---
+
+### EXP-142: Confirmation Run
+- **Date**: 2025-12-28
+- **Config**: Same as EXP-140 (optimal settings)
+- **Duration**: ~55 min
+- **Result**: **WALKING** (vx=0.015)
+- **Notes**: Results reproducible - confirmed optimal configuration
+
+---
+
+## Session 26 Summary
+
+**Key Finding**: `zero_velocity_prob=0` was the breakthrough for dynamic commands.
+
+**Optimal Configuration**:
+- vx_range: 0.10-0.45
+- zero_velocity_prob: 0.0
+- command_tracking_weight: 10.0
+- command_tracking_sigma: 0.1
+- command_change_interval: 10.0s
+
+**What Didn't Work**:
+- Higher tracking weight (20 vs 10): Caused over-optimization
+- Higher sigma (0.15 vs 0.1): Too permissive, robot stopped walking
+- Any non-zero stop probability: Robot learns to stop

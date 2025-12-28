@@ -47,14 +47,14 @@ class RewardsCfg:
     # - EXP-052/053: Slip factor experiments → no improvement
     # - EXP-054: Add gait phase (sin/cos) to observation space
     # Hypothesis: Phase signal helps policy coordinate leg movements
-    progress_forward_pos: float = 40.0   # EXP-103: 45 was worse than 40, reverting
+    progress_forward_pos: float = 40.0   # Session 23: 50 was worse (vx=0.032), reverting to 40
     progress_forward_neg: float = 10.0   # Keep optimal from EXP-032
     standing_penalty: float = -5.0      # EXP-098: Reverted to -5 (sp=-3 slowed down robot)
 
     # Stability rewards - EXP-032 optimal values
     # EXP-049 showed reducing these causes instability (SANITY_FAIL)
     upright_reward: float = 10.0        # Keep upright incentive
-    height_reward: float = 20.0         # EXP-102: 25 was worse than 20, reverting
+    height_reward: float = 20.0         # Session 23: 15 was MUCH worse (height=0.57, vx=0.012)
 
     # Penalties
     torque_penalty: float = -0.005      # Gentle energy regularizer
@@ -81,7 +81,7 @@ class RewardsCfg:
     # EXP-055 (ungated): vx=+0.022 (worse - no direction bias)
     # EXP-056 (gated, weight=5.0): vx=+0.036 (BEST final, 24% better than baseline)
     # EXP-058 (gated, weight=10.0): peak vx=0.061 at 43%, regressed to 0.018
-    diagonal_gait_reward: float = 5.0   # EXP-104: gait=3 same as 5, keeping 5
+    diagonal_gait_reward: float = 5.0   # Session 23: 10 caused SANITY_FAIL, reverted to 5
     gait_phase_tolerance: float = 0.3   # Phase window where contact is rewarded (0-1 scale)
 
     # EXP-088/089: Bidirectional gait reward (Spot-style)
@@ -118,6 +118,70 @@ class RewardsCfg:
     exp_velocity_sigma_sq: float = 0.01  # Variance parameter (σ²)
     exp_velocity_target: float = 0.1     # Target forward velocity (m/s)
 
+    # Command tracking reward - Phase 1 of controllability
+    # Unlike exp_velocity_tracking (fixed target), this tracks COMMANDED velocity
+    # Uses self._commands[:, 0] as the target, allowing variable speed control
+    # Reward: exp(-|vx - cmd_vx|^2 / sigma^2) * weight
+    command_tracking_enabled: bool = False  # Enable via this flag
+    command_tracking_weight: float = 10.0   # Reward weight (20 was worse in EXP-137: vx=0.005)
+    command_tracking_sigma: float = 0.1     # Velocity error tolerance (EXP-138: 0.15 was too permissive, vx=0.003)
+    # Replace forward motion bias: when enabled, disable progress_forward rewards
+    # and use pure command tracking instead
+    command_tracking_replace_forward: bool = True
+
+
+@configclass
+class CommandCfg:
+    """Configuration for velocity command sampling.
+
+    Phase 2 of controllability: Variable command ranges for speed control.
+    Commands are sampled per-episode at reset, from uniform distributions.
+
+    Enable via: HAROLD_VAR_CMD=1
+    """
+
+    # Enable variable command sampling (otherwise uses fixed 0.25-0.35 range)
+    variable_commands: bool = False
+
+    # Forward velocity range (m/s)
+    # EXP-131: 0-0.5 with 10% zero was too hard (FAILING)
+    # EXP-132: 0.15-0.4 with 5% zero worked
+    # EXP-139: 0.15-0.4 with 0% zero achieved WALKING
+    # EXP-140: 0.10-0.45 achieved WALKING (vx=0.015) - OPTIMAL
+    # EXP-141: 0.05-0.50 achieved WALKING (vx=0.012) - slightly worse
+    vx_min: float = 0.10
+    vx_max: float = 0.45
+
+    # Lateral velocity range (m/s) - Phase 2+
+    # Note: Would need vy tracking reward and lat_vel_penalty modification
+    # to properly support lateral commands
+    vy_min: float = 0.0
+    vy_max: float = 0.0
+
+    # Yaw rate range (rad/s) - Phase 2+
+    # Set to 0 initially, expand later for turning
+    yaw_min: float = 0.0
+    yaw_max: float = 0.0
+
+    # Probability of sampling zero velocity (for stopping behavior)
+    # When triggered, sets vx=vy=yaw=0 regardless of ranges
+    # EXP-131: 10% was too much; EXP-139: try 0% (always forward)
+    zero_velocity_prob: float = 0.0
+
+    # Phase 3: Dynamic command updates during episode
+    # When enabled, commands change periodically instead of only at reset
+    # Enable via: HAROLD_DYN_CMD=1
+    dynamic_commands: bool = False
+
+    # Time between command changes (seconds)
+    # At 20 Hz policy rate, 10 seconds = 200 policy steps
+    # EXP-134: 5s was too short, robot achieved vx=0.007 (STANDING)
+    command_change_interval: float = 10.0
+
+    # Probability of command change at each interval
+    # 1.0 = always change, 0.5 = 50% chance to change
+    command_change_prob: float = 1.0
+
 
 @configclass
 class GaitCfg:
@@ -129,20 +193,23 @@ class GaitCfg:
 
 @configclass
 class ScriptedGaitCfg:
-    """Configuration for scripted walking gait (Phase 1 verification).
+    """Configuration for scripted walking gait.
 
-    Phase 1 RESULT: FAILED - Robot cannot stand with open-loop control.
-    Harold requires reactive balance control that only RL can provide.
-    This config is kept for reference but scripted_gait.enabled should stay False.
+    Session 21 RESULT: SUCCESS - Open-loop scripted gait achieves vx=+0.141 m/s
+    (141% of 0.1 m/s target!) with stiffness=1200.
+
+    Session 22 RESULT: SUCCESS - Real robot walks forward with this gait.
+    Aligned parameters: stiffness=400, frequency=0.5 Hz.
+    Sim achieves vx=+0.04 m/s with hardware-aligned soft settings.
+
+    Use HAROLD_SCRIPTED_GAIT=1 to enable for physics validation.
     """
 
-    # Master switch - KEEP FALSE (Phase 1 proved open-loop doesn't work)
+    # Master switch - enable via env var HAROLD_SCRIPTED_GAIT=1
     enabled: bool = False
 
-    # Gait parameters - with stiffness=1200, legs can now extend
-    # Session 21: vx=+0.057 m/s achieved with stiffness=800
-    frequency: float = 0.5  # 0.5 Hz gait (slower to match real servo response)
-    # Original values - these made the sim walk forward at 0.04 m/s
+    # Gait parameters validated on real hardware (Session 22)
+    frequency: float = 0.5  # 0.5 Hz gait (matches real servo response)
     swing_thigh: float = 0.40    # Thigh back during swing
     stance_thigh: float = 0.90   # Thigh forward during stance
     stance_calf: float = -0.90   # More extended stance
@@ -153,37 +220,38 @@ class ScriptedGaitCfg:
 
 @configclass
 class CPGCfg:
-    """Central Pattern Generator configuration for Phase 2.
+    """Central Pattern Generator configuration for residual learning.
 
-    The CPG provides a structured walking BASE trajectory.
-    The RL policy outputs CORRECTIONS/RESIDUALS to adjust the trajectory.
+    Session 24: NOW ALIGNED with ScriptedGaitCfg - uses the same duty-cycle based
+    trajectory that achieved vx=+0.141 m/s in sim and walks on real hardware.
 
     Architecture:
         target_joints = CPG_base_trajectory + policy_output * residual_scale
 
-    This keeps the 12D action space but interprets it as corrections to CPG.
-    When policy_output = 0, robot follows pure CPG trajectory.
-    Policy learns to provide balance corrections while CPG provides structure.
+    When policy_output = 0, robot follows the proven scripted gait trajectory.
+    Policy learns to provide balance corrections while CPG provides walking structure.
+
+    Enable via: HAROLD_CPG=1
     """
 
     # Enable CPG-based action space
     enabled: bool = False  # Set True via env var HAROLD_CPG=1
 
-    # Base gait parameters
-    base_frequency: float = 1.0  # Hz - base stepping frequency
-    duty_cycle: float = 0.6      # Fraction of cycle in stance (60% stance, 40% swing)
+    # Base gait parameters - ALIGNED WITH ScriptedGaitCfg (Session 22 validated)
+    base_frequency: float = 0.5  # Hz - same as ScriptedGaitCfg (was 1.0)
+    duty_cycle: float = 0.6      # 60% stance, 40% swing
 
-    # Trajectory amplitudes around athletic pose (thigh=0.70, calf=-1.00)
-    # NOTE: athletic_calf changed from -1.40 to -1.00 to give room for foot lift
-    # These amplitudes now have proper clearance from joint limits
-    thigh_amplitude: float = 0.35  # ±0.35 rad (~20°) for forward/back leg swing
-    calf_amplitude: float = 0.45   # ±0.45 rad (~26°) for foot lift/extension
-    shoulder_amplitude: float = 0.03  # Small lateral oscillation
+    # Trajectory parameters - EXACT COPY from ScriptedGaitCfg (proven on hardware)
+    swing_thigh: float = 0.40     # Thigh back during swing
+    stance_thigh: float = 0.90    # Thigh forward during stance
+    stance_calf: float = -0.90    # Extended during stance
+    swing_calf: float = -1.40     # Bent during swing (matched to HW CALF_MAX=80°)
+    shoulder_amplitude: float = 0.05  # Same as ScriptedGaitCfg
 
     # Residual scaling - how much the policy can adjust the CPG trajectory
-    # Smaller = policy provides small balance corrections
-    # Larger = policy has more control, may override CPG
-    residual_scale: float = 0.2  # Moderate correction authority for balance
+    # EXP-126: 0.15 allowed policy to reverse CPG motion (vx=-0.018)
+    # Lowering to 0.05 to limit policy authority - can only fine-tune, not override
+    residual_scale: float = 0.05  # Very conservative (was 0.15)
 
 
 @configclass
@@ -346,7 +414,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
     episode_length_s = 30.0
     decimation = 9
-    action_scale = 0.5
+    action_scale = 0.5  # Session 23: 0.7 was worse (vx=0.029, contact failing)
 
     # Space definitions
     # EXP-054: Added 2D gait phase (sin/cos) to help policy coordinate leg movements
@@ -368,6 +436,9 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
 
     # CPG configuration (Phase 2 - structured action space)
     cpg = CPGCfg()
+
+    # Command configuration (Phase 2 - variable velocity commands)
+    commands = CommandCfg()
 
     # Termination configuration
     termination = TerminationCfg()

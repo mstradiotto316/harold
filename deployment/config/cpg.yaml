@@ -1,0 +1,34 @@
+# CPG Configuration - Matched to simulation (Session 24)
+# DO NOT MODIFY without updating simulation CPGCfg
+
+# Gait timing
+frequency_hz: 0.5        # Gait frequency (2 second cycle)
+duty_cycle: 0.6          # 60% stance, 40% swing
+
+# Leg trajectory angles (radians)
+trajectory:
+  swing_thigh: 0.40      # Thigh angle during swing phase
+  stance_thigh: 0.90     # Thigh angle during stance phase
+  stance_calf: -0.90     # Calf angle during stance phase
+  swing_calf: -1.40      # Calf angle during swing phase
+  shoulder_amplitude: 0.05  # Shoulder oscillation amplitude
+
+# Residual learning
+residual_scale: 0.05     # Policy output multiplier (very conservative)
+
+# Control loop
+control:
+  rate_hz: 20            # Control frequency (50ms period)
+  action_filter_beta: 0.18  # EMA filter coefficient
+
+# Joint action ranges (for scaling policy output)
+joint_range:
+  shoulder: 0.30         # ±0.30 rad from default
+  thigh: 0.90            # ±0.90 rad from default
+  calf: 0.90             # ±0.90 rad from default
+
+# Default joint positions (athletic stance)
+default_pose:
+  shoulders: 0.0         # All shoulders at 0 rad
+  thighs: 0.3            # All thighs at 0.3 rad
+  calves: -0.75          # All calves at -0.75 rad

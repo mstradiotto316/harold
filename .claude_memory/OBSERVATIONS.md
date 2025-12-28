@@ -1119,3 +1119,212 @@ BASE_SWING_CALF = 80.0f;     // sim: -1.40 rad
 2. **Simple sinusoid approximation requires careful phase alignment**
 3. **Real-world surface variation is significant - domain randomization needed**
 4. **Iterative testing between sim and hardware is essential**
+
+---
+
+## 2025-12-27: Session 23 - The 0.051 Barrier
+
+### Discovery: Current Configuration Has Reached Its Limit
+
+After 17+ experiments systematically testing all parameters, vx=0.051 m/s is the consistent ceiling.
+
+### Optimal Configuration Locked
+```python
+stiffness = 600   # Too low (400) = can't stand; too high (800+) = regression
+damping = 45
+iterations = 500  # Shorter = undertrained; longer = regression
+num_envs = 8192   # More = worse learning
+learning_rate = 5e-4  # Lower = too slow
+```
+
+### Why 0.051 is the Ceiling
+
+1. **PPO Regression Pattern**: Peak vx at 30-50% training, then regression
+2. **Reward Structure Local Optimum**: Standing + slight drift maximizes reward
+3. **Trade-offs are Zero-Sum**: Higher forward reward → less stability → worse overall
+
+### Parameter Sensitivity Analysis
+
+| Parameter | Direction | Effect |
+|-----------|-----------|--------|
+| stiffness ↑ | Better height, worse vx |
+| stiffness ↓ | Worse height, marginally better vx |
+| iterations ↑ | More regression |
+| iterations ↓ | Undertraining |
+| forward_pos ↑ | Destabilizes learning |
+| height_reward ↓ | Robot crouches |
+| gait_reward ↑ | SANITY_FAIL |
+| action_scale ↑ | Body contact issues |
+| num_envs ↑ | Overfits faster |
+| learning_rate ↓ | Too slow |
+
+### Implications
+
+To achieve vx > 0.1 m/s, need fundamentally different approach:
+1. **Algorithm**: SAC/TD3 instead of PPO
+2. **Learning**: Curriculum (progressive difficulty)
+3. **Imitation**: Reference motion tracking
+4. **Architecture**: LSTM for gait memory
+
+### Stiffness-Learning Trade-off
+
+Session 23 revealed a fundamental trade-off:
+- **Sim-to-real fidelity** (stiffness=400): Real robot behavior, but hard to learn
+- **RL learning ability** (stiffness=1200): Easy to learn, but doesn't match real robot
+- **Sweet spot** (stiffness=600): Best of both - learnable AND somewhat realistic
+
+### Updated Hypotheses
+
+| ID | Hypothesis | Status |
+|----|------------|--------|
+| H56 | Stiffness=600 is optimal for learning | **CONFIRMED** |
+| H57 | 500 iterations prevents regression | **CONFIRMED** |
+| H58 | Parameter tuning has reached limits | **CONFIRMED** |
+| H59 | vx=0.051 is PPO ceiling with current rewards | **CONFIRMED** |
+| H60 | Need different algorithm to break barrier | TO TEST |
+
+---
+
+## 2025-12-27: Session 24 - CPG Residual Learning Breakthrough
+
+### CRITICAL INSIGHT: Don't Abandon Sim-to-Real Alignment
+
+Session 23 optimized for RL metrics (vx=0.051) but used stiffness=600, which doesn't match the real robot. Session 24 corrected this by restoring stiffness=400 and using CPG residual learning.
+
+### Discovery: Policy Can Reverse CPG Gait
+
+With residual_scale=0.15 (EXP-126):
+- CPG trajectory pushes forward (+0.014 m/s scripted alone)
+- Policy learned corrections that REVERSED the gait
+- Result: vx=-0.018 m/s (backward!)
+
+**Cause**: Policy had enough authority to override the base trajectory.
+
+**Solution**: Reduce residual_scale to 0.05 (EXP-127)
+- Policy can only make small balance corrections
+- Cannot override or reverse the gait
+- Result: vx=+0.012 m/s, stable walking in video at step 9600
+
+### CPG Alignment Critical
+
+The original CPGCfg used DIFFERENT trajectory generation than ScriptedGaitCfg:
+
+| Aspect | CPGCfg (old) | ScriptedGaitCfg (proven) |
+|--------|--------------|--------------------------|
+| Frequency | 1.0 Hz | 0.5 Hz |
+| Method | Sinusoidal oscillation | Duty-cycle stance/swing |
+| Amplitude | Around athletic pose | Explicit angles |
+
+**Fix**: Updated CPGCfg to exactly match ScriptedGaitCfg parameters and use the same trajectory computation method (`_compute_leg_trajectory()`).
+
+### residual_scale is Critical
+
+| Scale | Result | Analysis |
+|-------|--------|----------|
+| 0.20 | Not tested | Original default |
+| 0.15 | vx=-0.018 | Policy reversed gait |
+| 0.05 | vx=+0.012, WALKING | Sweet spot found |
+
+### Outdated Comments Corrected
+
+Found and fixed multiple outdated comments claiming scripted gait "FAILED":
+- ScriptedGaitCfg docstring said "Phase 1 FAILED"
+- Warning message said "open-loop control doesn't work"
+
+**Reality**: Session 21 achieved vx=+0.141 m/s (141% of target), Session 22 real robot walks forward.
+
+### Lessons Learned
+
+1. **Sim-to-real alignment trumps RL metrics**: Better to have a working sim-to-real transfer than a higher vx in sim only
+2. **CPG provides structure, policy provides corrections**: Don't let policy override the proven gait
+3. **Very low residual_scale (0.05) works**: Policy can still learn useful balance corrections
+4. **Verify base trajectory independently**: Test scripted gait alone before adding policy
+5. **Fix outdated documentation**: Wrong comments led to ignoring working solutions
+
+### Configuration That Works
+
+```python
+# Actuator (sim-to-real aligned)
+stiffness = 400.0
+damping = 30.0
+
+# CPG (aligned with proven ScriptedGaitCfg)
+base_frequency = 0.5  # Hz
+duty_cycle = 0.6
+swing_thigh = 0.40
+stance_thigh = 0.90
+stance_calf = -0.90
+swing_calf = -1.40
+residual_scale = 0.05  # Critical!
+```
+
+### Next Experiments to Try
+
+1. residual_scale=0.08 to give slightly more correction authority
+2. Increase height_reward to improve standing height
+3. Deploy to real hardware (parameters are aligned!)
+
+---
+
+## 2025-12-27: Session 24 Continued - RPi 5 Deployment Complete
+
+### Deployment Pipeline Created
+
+Replaced Jetson Nano with Raspberry Pi 5 (2GB RAM). Created complete inference pipeline:
+
+```
+deployment/
+├── policy/harold_policy.onnx      # 753KB, 50D→12D
+├── inference/
+│   ├── harold_controller.py       # Main 20 Hz control loop
+│   ├── cpg_generator.py           # CPG trajectory (matches sim exactly)
+│   ├── observation_builder.py     # IMU + servo → 50D obs
+│   └── action_converter.py        # Policy → servo commands
+├── drivers/
+│   ├── imu_reader_rpi5.py         # MPU6050 via smbus2
+│   └── esp32_serial.py            # USB serial 115200
+└── config/
+    ├── cpg.yaml                   # CPG params
+    └── hardware.yaml              # Servo IDs, signs, limits
+```
+
+### Key Technical Decisions
+
+1. **USB Serial vs SPI**: Chose USB Serial for simplicity (ESP32 firmware already supports it)
+2. **CPG on RPi 5**: Matches simulation exactly, avoids firmware complexity
+3. **smbus2 for I2C**: RPi 5 compatible (smbus has issues on newer kernels)
+
+### Legacy Cleanup
+
+Deleted deprecated deployment artifacts:
+- `deployment_artifacts/terrain_62/` - Old 48D policy
+- `deployment_artifacts/terrain_64_2/` - Incomplete
+
+Updated OBS_DIM from 48→50 in export scripts (gait phase sin/cos added in Session 24).
+
+### Observation Space Layout (50D)
+
+| Index | Component | Source |
+|-------|-----------|--------|
+| 0-2 | root_lin_vel_b | IMU accel integration |
+| 3-5 | root_ang_vel_b | IMU gyro |
+| 6-8 | projected_gravity | IMU accel (normalized) |
+| 9-20 | joint_pos - default | ESP32 telemetry |
+| 21-32 | joint_vel | Differentiate positions |
+| 33-35 | commands | Fixed [0.1, 0, 0] |
+| 36-47 | prev_target_delta | Previous output |
+| 48-49 | gait_phase sin/cos | CPG phase |
+
+### Tests Passing
+
+- CPG Generator: Phase tracking, trajectory computation ✓
+- Action Converter: Residual scaling, safety limits ✓
+- ONNX policy: Skipped (onnxruntime not in Isaac Lab env, will install on RPi 5)
+
+### Ready for Hardware
+
+Next step is physical deployment:
+1. Copy `deployment/` to RPi 5
+2. Install dependencies: `pip install -r requirements.txt`
+3. Connect ESP32 via USB, IMU via I2C
+4. Run `python inference/harold_controller.py`

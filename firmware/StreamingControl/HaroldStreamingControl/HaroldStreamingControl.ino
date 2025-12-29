@@ -43,16 +43,23 @@ const float DEFAULT_POSE[12] = {
  -0.75f,-0.75f,-0.75f,-0.75f
 };
 
-const float SHOULDER_LIMIT_DEG = 30.0f;
-const float LEG_LIMIT_DEG      = 90.0f;
+// Collision-safe limits (based on actual robot geometry, not servo limits)
+// These match scripted_gait_test_1 which is validated on hardware
+const float SHOULDER_MIN_DEG = -20.0f;
+const float SHOULDER_MAX_DEG =  20.0f;
+const float THIGH_MIN_DEG    = -55.0f;  // Forward lean limit
+const float THIGH_MAX_DEG    =   5.0f;  // Backward limit - HITS BODY beyond this!
+const float CALF_MIN_DEG     =  -5.0f;  // Extension limit
+const float CALF_MAX_DEG     =  80.0f;  // Bend limit
 
 const uint16_t SERVO_SPEED = 1600;
 const uint16_t SERVO_ACC   = 100;
+const uint16_t TORQUE_LIMIT = 1000;  // 100% max torque (0-1000 scale)
 const int SERVO_MID        = 2047;
 const float UNITS_PER_DEG  = 4096.0f / 360.0f;
 
 const unsigned long TELEMETRY_PERIOD_MS = 50;   // 20 Hz
-const unsigned long COMMAND_TIMEOUT_MS  = 25000;  // watchdog
+const unsigned long COMMAND_TIMEOUT_MS  = 250;    // watchdog (250ms safety timeout)
 
 // --- State ------------------------------------------------------------------
 bool streaming_enabled = false;
@@ -82,8 +89,17 @@ void radiansToServoTargets(const float input_rad[12], int16_t out_positions[12])
     float physical_rad = JOINT_SIGN[i] * input_rad[i];
     float deg = physical_rad * 180.0f / M_PI;
     float clamped_deg;
-    if (i < 4) clamped_deg = clamp(deg, -SHOULDER_LIMIT_DEG, SHOULDER_LIMIT_DEG);
-    else       clamped_deg = clamp(deg, -LEG_LIMIT_DEG, LEG_LIMIT_DEG);
+    // Apply collision-safe asymmetric limits per joint type
+    if (i < 4) {
+      // Shoulders (indices 0-3)
+      clamped_deg = clamp(deg, SHOULDER_MIN_DEG, SHOULDER_MAX_DEG);
+    } else if (i < 8) {
+      // Thighs (indices 4-7) - asymmetric! +5 max to avoid body collision
+      clamped_deg = clamp(deg, THIGH_MIN_DEG, THIGH_MAX_DEG);
+    } else {
+      // Calves (indices 8-11)
+      clamped_deg = clamp(deg, CALF_MIN_DEG, CALF_MAX_DEG);
+    }
     if (fabsf(deg - clamped_deg) > 0.05f) {
       Serial.printf("CLAMP joint %d: %.2f deg -> %.2f deg\n", i, deg, clamped_deg);
     }
@@ -113,6 +129,20 @@ void commandPose(const float pose_rad[12]) {
 
 void sendHandshake() {
   Serial.println("ARDUINO_READY");
+}
+
+void initServoTorque() {
+  // Set maximum torque limit for all servos to prevent slipping under load
+  // Register 48-49: TORQUE_LIMIT (0-1000 where 1000 = 100%)
+  Serial.println("Setting torque limits...");
+  for (int i = 1; i <= 12; ++i) {
+    int result = st.writeWord(i, 48, TORQUE_LIMIT);  // SMS_STS_TORQUE_LIMIT_L = 48
+    if (result < 0) {
+      Serial.printf("WARN: Failed to set torque for servo %d\n", i);
+    }
+    delay(5);  // Small delay between writes
+  }
+  Serial.printf("Torque limit set to %d/1000 for all servos\n", TORQUE_LIMIT);
 }
 
 ServoDiag readServoDiag(int index) {
@@ -263,6 +293,10 @@ void setup() {
   delay(500);
 
   Serial.println("BOOTING");
+
+  // Initialize servo torque limits BEFORE commanding any poses
+  initServoTorque();
+
   commandPose(DEFAULT_POSE);
   memcpy(latest_targets, DEFAULT_POSE, sizeof(latest_targets));
   last_command_ms = millis();

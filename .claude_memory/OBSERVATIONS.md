@@ -1362,19 +1362,18 @@ sigma=0.15 was too permissive - the reward was high even with significant veloci
 
 The optimal configuration (vx_range=0.10-0.45, zero_prob=0) achieved vx=0.015 in three separate runs:
 - EXP-140: vx=0.015
-- EXP-142: vx=0.015 
+- EXP-142: vx=0.015
 - EXP-143 (2500 iters): vx=0.016
 
-### Updated Hypotheses
+### Updated Hypotheses (Session 26)
 
 | ID | Hypothesis | Status |
 |----|------------|--------|
-| H61 | zero_velocity_prob=0 enables dynamic commands | **CONFIRMED** |
-| H62 | Optimal vx range is 0.10-0.45 | **CONFIRMED** |
-| H63 | tracking_weight=10 is sweet spot | **CONFIRMED** |
-| H64 | tracking_sigma=0.1 is sweet spot | **CONFIRMED** |
-| H65 | Lateral (vy) commands need vy tracking reward | TO TEST |
-| H66 | Yaw commands need yaw tracking reward | TO TEST |
+| H56 | zero_velocity_prob=0 enables dynamic commands | **CONFIRMED** |
+| H57 | Optimal vx range is 0.10-0.45 | **CONFIRMED** |
+| H58 | tracking_weight=10 is sweet spot | **CONFIRMED** |
+| H59 | tracking_sigma=0.1 is sweet spot | **CONFIRMED** |
+| H60 | Lateral (vy) commands need vy tracking reward | TO TEST |
 
 ### Implementation Notes for Future Work
 
@@ -1387,3 +1386,115 @@ To add yaw rate commands:
 1. Add yaw tracking to command_tracking reward
 2. Modify yaw_rate_penalty similarly
 3. Start with small range
+
+---
+
+## 2025-12-29: Session 27 - Servo Tuning & Pi 5 Validation
+
+### Pi 5 Power Supply: VALIDATED
+
+Stress tested the onboard Pi 5 power supply:
+- CPU-only 4-core stress: 71.4°C peak, throttled=0x0
+- CPU+Memory+I/O stress: 75.2°C peak, throttled=0x0
+- Robot controller simulation (20Hz): 60.9°C, throttled=0x0
+
+**Conclusion**: Power supply is healthy. Safe to run 100% servo torque.
+
+### Servo Dead Zone Issue
+
+**Problem**: User reported large "dead areas" where servo can be rotated before responding.
+
+**Root Cause**: Registers 26-27 (`SMS_STS_CW_DEAD`, `SMS_STS_CCW_DEAD`) control deadband.
+Factory default is typically 3-10 encoder steps (~0.26°-0.88°).
+
+**Solution**: Created `ServoTuning.ino` utility to adjust dead zones.
+- `a 2` sets dead zone to 2 for all servos (~0.18°)
+- `a 0` sets to minimum (may cause buzzing)
+
+### Servo Position Drift Issue
+
+**Problem**: Servos "slip" or lose their calibrated center over time.
+
+**Possible Causes** (in order of likelihood):
+1. **Torque overload** - Gears skipping when load exceeds holding torque (mechanical)
+2. **Magnetic interference** - IMU/motors affecting magnetic encoder
+3. **Calibration not persisting** - EEPROM write issues
+4. **Voltage brownouts** - Unlikely given Pi stress test passed
+
+**Diagnostic Approach**:
+1. Use `m` command in ServoTuning to monitor positions
+2. Manually disturb robot - if positions jump without commands = mechanical/magnetic issue
+3. Check IMU proximity to servos
+
+### ST3215 Register Reference
+
+| Register | Name | Purpose |
+|----------|------|---------|
+| 26 | CW_DEAD | Clockwise dead zone (steps) |
+| 27 | CCW_DEAD | Counter-clockwise dead zone (steps) |
+| 31-32 | OFS_L/H | Calibration offset (EEPROM) |
+| 48-49 | TORQUE_LIMIT_L/H | Torque limit 0-1000 (RAM) |
+| 55 | LOCK | EPROM write protection |
+
+### New Artifact: ServoTuning.ino
+
+Location: `firmware/CalibrationAndSetup/ServoTuning/ServoTuning.ino`
+
+Commands:
+- `s` - Scan all servos (shows dead zone, torque, offset)
+- `r <id>` - Read detailed parameters
+- `d <id> <v>` - Set dead zone (0-10)
+- `a <v>` - Set dead zone for ALL servos
+- `t <id> <v>` - Set torque limit (0-1000)
+- `c <id>` - Calibrate center position
+- `m` - Monitor all positions in real-time
+- `x <id> <reg>` - Read raw register value
+- `X <id>` - Dump all registers (0-70)
+- `W <id> <reg> <val>` - Write raw register value
+
+### CRITICAL FINDING: "Dead Zone" is Gear Backlash
+
+**Discovery**: The servo "dead zone" is NOT software-controllable. Dead zone registers (26-27) were already at minimum (1 step = 0.088°).
+
+**Root Cause**: Mechanical gear backlash in ST3215 gearbox (~1-3° of play).
+
+**Behavior**:
+- Servo is commanded to position X
+- Can physically move it within [X - backlash, X + backlash] without resistance
+- Beyond that range, full servo resistance kicks in
+- This is a "friction-free zone", not high friction
+
+**P Coefficient Experiments**:
+Discovered undocumented register 21 controls servo stiffness:
+
+| P Value | Result |
+|---------|--------|
+| 32 (factory) | Normal response, noticeable play |
+| 100 | Slightly stiffer |
+| 200 | **Rapid oscillations** - unstable! |
+
+**Conclusion**: Increasing P without matching D causes instability. Factory P=32 is optimal.
+
+### Implication for Simulation
+
+The gear backlash CANNOT be fixed in hardware. Must model in simulation for robust policies.
+
+**Modeling approaches** (priority order):
+1. **Observation noise**: Increase joint_position_noise to ~0.035 rad (~2°)
+2. **Action noise**: Add noise to commanded positions
+3. **Lower stiffness**: Make actuator softer (less accurate but similar effect)
+4. **Custom backlash model**: Implement hysteresis in environment
+
+**Priority Experiment**: Test observation noise approach first (simplest, already implemented in DomainRandomizationCfg).
+
+---
+
+## Updated Hypotheses (Session 27)
+
+| ID | Hypothesis | Status |
+|----|------------|--------|
+| **H61** | Servo dead zone is software-controllable | **DISPROVEN** - registers already at minimum |
+| **H62** | Dead zone is mechanical gear backlash | **CONFIRMED** |
+| **H63** | Increasing P coefficient reduces backlash feel | **DISPROVEN** - causes oscillations |
+| **H64** | Backlash must be modeled in simulation | **TO TEST** - priority experiment |
+| **H65** | Observation noise can simulate backlash | **TO TEST** |

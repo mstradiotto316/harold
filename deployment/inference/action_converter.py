@@ -179,14 +179,16 @@ class ActionConverter:
 
         Args:
             cpg_targets: 12D CPG base trajectory (radians)
-            policy_output: 12D policy output (normalized [-1, 1])
+            policy_output: 12D raw policy output (NOT clipped - matches training)
             use_cpg: If True, use CPG + residual; if False, use policy directly
 
         Returns:
             12D joint targets (radians, RL convention)
         """
-        # Clip policy output to [-1, 1]
-        action = np.clip(policy_output, -1.0, 1.0)
+        # NOTE: Training does NOT clip policy outputs before scaling.
+        # The residual_scale * joint_range scales them down, then joint
+        # limits are applied. We must match this behavior exactly.
+        action = policy_output.astype(np.float32)
 
         # Apply action smoothing (EMA filter)
         if self._smooth_action is None:

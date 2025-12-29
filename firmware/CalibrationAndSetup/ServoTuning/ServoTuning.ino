@@ -21,6 +21,11 @@
 
 SMS_STS st;
 
+// Pin definitions (must match HaroldStreamingControl)
+#define S_RXD 18
+#define S_TXD 19
+const uint32_t BUS_BAUD = 1000000;
+
 // Register addresses (from SMS_STS.h)
 #define SMS_STS_CW_DEAD 26
 #define SMS_STS_CCW_DEAD 27
@@ -43,7 +48,7 @@ const char* JOINT_NAMES[] = {
 
 void setup() {
   Serial.begin(115200);
-  Serial1.begin(1000000);
+  Serial1.begin(BUS_BAUD, SERIAL_8N1, S_RXD, S_TXD);
   st.pSerial = &Serial1;
 
   delay(1000);
@@ -333,6 +338,40 @@ void processCommand(String cmd) {
   else if (c == 'a') {
     int val = cmd.substring(2).toInt();
     setAllDeadZones(val);
+  }
+  else if (c == 'x') {
+    // Raw register read: x <id> <reg>
+    int space1 = cmd.indexOf(' ');
+    int space2 = cmd.indexOf(' ', space1 + 1);
+    int id = cmd.substring(space1 + 1, space2).toInt();
+    int reg = cmd.substring(space2 + 1).toInt();
+    int val = st.readByte(id, reg);
+    Serial.printf("Servo %d, Register %d = %d (0x%02X)\n", id, reg, val, val);
+  }
+  else if (c == 'X') {
+    // Dump registers 0-70 for a servo: X <id>
+    int id = cmd.substring(2).toInt();
+    Serial.printf("\nServo %d Register Dump:\n", id);
+    for (int reg = 0; reg <= 70; reg++) {
+      int val = st.readByte(id, reg);
+      if (reg % 10 == 0) Serial.printf("\n%02d: ", reg);
+      Serial.printf("%3d ", val);
+      delay(2);
+    }
+    Serial.println("\n");
+  }
+  else if (c == 'W') {
+    // Raw register write: W <id> <reg> <val>
+    int space1 = cmd.indexOf(' ');
+    int space2 = cmd.indexOf(' ', space1 + 1);
+    int space3 = cmd.indexOf(' ', space2 + 1);
+    int id = cmd.substring(space1 + 1, space2).toInt();
+    int reg = cmd.substring(space2 + 1, space3).toInt();
+    int val = cmd.substring(space3 + 1).toInt();
+    st.writeByte(id, reg, val);
+    delay(10);
+    int readback = st.readByte(id, reg);
+    Serial.printf("Wrote %d to servo %d reg %d, readback=%d\n", val, id, reg, readback);
   }
   else {
     Serial.println("Unknown command. Type 's' to scan servos.");

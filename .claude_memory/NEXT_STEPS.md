@@ -1,57 +1,63 @@
 # Harold Next Steps
 
-## QUICK START FOR NEXT AGENT
+## PRIORITY 1: Model Gear Backlash in Simulation (Overnight Experiment)
 
-**Session 27: Servo Tuning & Hardware Diagnostics**
+**Context from Session 27:** Hardware investigation revealed that the servo "dead zone" is actually **mechanical gear backlash** (~1-3°) in the ST3215 gearbox. This cannot be fixed in software - the policy must learn to be robust to it.
 
-Pi 5 power supply validated (no throttling under stress). Servo dead zone and drift issues diagnosed.
+### Experiment Plan
 
-### Immediate Hardware Tasks
+**Goal:** Train a policy that's robust to position uncertainty caused by gear backlash.
 
-1. **Flash ServoTuning.ino** to ESP32 and run `s` to scan all servos
-2. **Reduce dead zones**: Run `a 2` to set dead zone to 2 for all servos
-3. **Test servo responsiveness** after dead zone adjustment
-4. **Commit pending firmware changes** (100% torque, collision-safe limits)
+**Approach:** Increase joint position observation noise to simulate the uncertainty within the backlash zone.
 
-### Uncommitted Firmware Changes
+### Implementation Steps
 
-File: `firmware/StreamingControl/HaroldStreamingControl/HaroldStreamingControl.ino`
-- TORQUE_LIMIT = 1000 (100% max)
-- initServoTorque() function
-- Asymmetric collision-safe joint limits
-- Watchdog timeout 250ms
+1. **Baseline run** (if not already established):
+   ```bash
+   HAROLD_CPG=1 HAROLD_CMD_TRACK=1 python scripts/harold.py train \
+     --hypothesis "Baseline before backlash modeling" --iterations 1250
+   ```
+
+2. **Backlash modeling via observation noise**:
+
+   Modify `harold_isaac_lab_env_cfg.py`:
+   ```python
+   # In DomainRandomizationCfg class
+   enable_randomization: bool = True
+   randomize_per_step: bool = True
+
+   # Increase joint position noise to match ~2° backlash
+   add_joint_noise: bool = True
+   joint_position_noise: GaussianNoiseCfg = GaussianNoiseCfg(
+       mean=0.0,
+       std=0.035,  # ~2° in radians (was 0.005)
+   )
+   ```
+
+3. **Run experiment**:
+   ```bash
+   HAROLD_CPG=1 HAROLD_CMD_TRACK=1 python scripts/harold.py train \
+     --hypothesis "Backlash robustness via 2deg position noise" \
+     --tags "backlash,sim2real" --iterations 2500
+   ```
+
+4. **Compare with baseline** using `harold compare`
+
+### Alternative Approaches (if observation noise doesn't help)
+
+- **Action noise**: Enable `add_action_noise: bool = True` with `std=0.02`
+- **Lower stiffness**: Reduce from 400 to 300 in `harold.py`
+- **Custom backlash model**: Implement hysteresis in `_apply_action()`
+
+### Success Criteria
+
+- Policy maintains walking (vx > 0.1 m/s) despite position noise
+- More robust/smoother motion than baseline
+- Ideally: better sim-to-real transfer when deployed
 
 ---
 
-## Session 26: Dynamic Commands Fully Optimized
-
-Dynamic command tracking is working reliably. The robot can now follow changing velocity commands.
-
-### Best Working Configuration
-
-```bash
-# Dynamic commands with optimal settings
-HAROLD_CPG=1 HAROLD_CMD_TRACK=1 HAROLD_DYN_CMD=1 python scripts/harold.py train \
-  --hypothesis "Your hypothesis" --iterations 1250
-```
-
-### Current Parameters (in harold_isaac_lab_env_cfg.py)
-
-```python
-# CommandCfg - Optimal settings found in Session 26
-vx_min = 0.10       # Wider range works better
-vx_max = 0.45
-zero_velocity_prob = 0.0  # CRITICAL: Never command stop
-command_change_interval = 10.0  # 10s between changes
-
-# RewardsCfg - Command tracking
-command_tracking_weight = 10.0   # Sweet spot (20 was worse)
-command_tracking_sigma = 0.1    # Sweet spot (0.15 was worse)
-```
-
----
-
-## PRIORITY 1: Add Lateral (vy) Commands
+## PRIORITY 2: Add Lateral (vy) Commands
 
 Current implementation only tracks forward velocity (vx). To add lateral commands:
 
@@ -63,32 +69,42 @@ Current implementation only tracks forward velocity (vx). To add lateral command
    vy_tracking = cmd_weight * torch.exp(-torch.square(vy_error / cmd_sigma))
    ```
 
-2. Modify lat_vel_penalty to not penalize commanded motion:
-   ```python
-   # Change from: -lat_vel_penalty * vy²
-   # To: -lat_vel_penalty * (vy - cmd_vy)²
-   ```
+2. Modify lat_vel_penalty to not penalize commanded motion
 
 ---
 
-## PRIORITY 2: Add Yaw Rate Commands
+## PRIORITY 3: Add Yaw Rate Commands
 
-Similar to lateral commands:
-1. Add yaw tracking to command_tracking reward
-2. Modify yaw_rate_penalty to track commanded yaw
+Similar to lateral commands - add yaw tracking and modify yaw_rate_penalty.
 
 ---
 
-## PRIORITY 3: Hardware Deployment
+## Session 27 Hardware Findings
 
-Deployment code is ready in `deployment/`:
-- `policy/harold_policy.onnx` - Exported policy
-- `inference/harold_controller.py` - 20 Hz control loop
-- `drivers/` - IMU and ESP32 communication
+### Servo Register Reference (ST3215)
+
+| Register | Name | Factory | Purpose |
+|----------|------|---------|---------|
+| 21 | P_COEF | 32 | Proportional gain (higher=stiffer, but oscillates) |
+| 22 | D_COEF | 32 | Derivative gain (damping) |
+| 26-27 | CW/CCW_DEAD | 1 | Dead zone (already minimal) |
+| 48-49 | TORQUE_LIMIT | 1000 | Torque limit (100%) |
+
+### Key Insight
+
+The "dead zone" feel is **gear backlash**, not software dead zone. Servos have ~1-3° of mechanical play where they don't resist movement. This is a hardware limitation that must be modeled in simulation.
+
+### ServoTuning Utility
+
+New firmware utility at `firmware/CalibrationAndSetup/ServoTuning/ServoTuning.ino`:
+- `s` - Scan all servos
+- `X <id>` - Dump all registers
+- `x <id> <reg>` - Read register
+- `W <id> <reg> <val>` - Write register
 
 ---
 
-## Session 26 Experiment Summary
+## Session 26 Results (for reference)
 
 | EXP | Config | vx | Verdict |
 |-----|--------|-----|---------|
@@ -99,8 +115,6 @@ Deployment code is ready in `deployment/`:
 | 141 | range 0.05-0.50 | 0.012 | WALKING |
 | 142 | Confirmation | 0.015 | WALKING |
 | 143 | 2500 iters | 0.016 | WALKING |
-
-**Key Finding**: `zero_velocity_prob=0` was the breakthrough. Without stop commands, the policy learns to walk.
 
 **Best Result**: EXP-143 with 2500 iterations achieved vx=0.016 m/s.
 
@@ -122,6 +136,6 @@ Deployment code is ready in `deployment/`:
 
 | Purpose | Path |
 |---------|------|
-| Command config | `harold_isaac_lab_env_cfg.py` - CommandCfg class |
-| Command tracking reward | `harold_isaac_lab_env.py` - _compute_rewards() |
-| Session log | `.claude_memory/sessions/2025-12-28_session26_controllability_optimization.md` |
+| Domain randomization config | `harold_isaac_lab_env_cfg.py` - DomainRandomizationCfg |
+| Actuator config | `harold_flat/harold.py` - ImplicitActuatorCfg |
+| Session 27 log | `.claude_memory/sessions/2025-12-29_session27_servo_tuning.md` |

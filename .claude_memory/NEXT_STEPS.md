@@ -2,7 +2,28 @@
 
 ## QUICK START FOR NEXT AGENT
 
-**Session 26: Dynamic Commands Fully Optimized**
+**Session 27: Servo Tuning & Hardware Diagnostics**
+
+Pi 5 power supply validated (no throttling under stress). Servo dead zone and drift issues diagnosed.
+
+### Immediate Hardware Tasks
+
+1. **Flash ServoTuning.ino** to ESP32 and run `s` to scan all servos
+2. **Reduce dead zones**: Run `a 2` to set dead zone to 2 for all servos
+3. **Test servo responsiveness** after dead zone adjustment
+4. **Commit pending firmware changes** (100% torque, collision-safe limits)
+
+### Uncommitted Firmware Changes
+
+File: `firmware/StreamingControl/HaroldStreamingControl/HaroldStreamingControl.ino`
+- TORQUE_LIMIT = 1000 (100% max)
+- initServoTorque() function
+- Asymmetric collision-safe joint limits
+- Watchdog timeout 250ms
+
+---
+
+## Session 26: Dynamic Commands Fully Optimized
 
 Dynamic command tracking is working reliably. The robot can now follow changing velocity commands.
 

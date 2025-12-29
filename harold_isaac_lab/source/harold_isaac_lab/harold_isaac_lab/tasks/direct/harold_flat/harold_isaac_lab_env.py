@@ -292,6 +292,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "bidirectional_gait_reward",
             "command_tracking",
             "command_tracking_vy",  # Session 27: Lateral command tracking
+            "command_tracking_yaw",  # Session 28: Yaw rate command tracking
         ]
 
         # --- Diagonal Gait Tracking (EXP-055) ---
@@ -312,6 +313,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "rear_support_bonus_mean",
             "cmd_vx_error",  # |vx - cmd_vx| for command tracking
             "cmd_vy_error",  # |vy - cmd_vy| for lateral command tracking (Session 27)
+            "cmd_yaw_error",  # |yaw_rate - cmd_yaw| for yaw rate command tracking (Session 28)
         ]
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
@@ -1352,6 +1354,25 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             command_tracking_vy = torch.zeros_like(vy_w)
             cmd_vy = torch.zeros_like(vy_w)  # No commanded vy when tracking disabled
 
+        # Yaw rate command tracking - Session 28: Enable turning
+        # Same exponential kernel as vx/vy tracking, using commanded yaw rate
+        if getattr(rewards_cfg, 'command_tracking_enabled', False):
+            cmd_weight_yaw = getattr(rewards_cfg, 'command_tracking_weight_yaw', 10.0)
+            cmd_sigma_yaw = getattr(rewards_cfg, 'command_tracking_sigma_yaw', 0.2)
+
+            # Get commanded yaw rate
+            cmd_yaw = self._commands[:, 2]
+
+            # Compute yaw rate tracking error
+            yaw_error = wz_b - cmd_yaw
+
+            # Exponential reward: peak when actual matches command
+            # Gate by upright^2 to only reward when standing properly
+            command_tracking_yaw = cmd_weight_yaw * torch.exp(-torch.square(yaw_error / cmd_sigma_yaw)) * upright_sq
+        else:
+            command_tracking_yaw = torch.zeros_like(wz_b)
+            cmd_yaw = torch.zeros_like(wz_b)  # No commanded yaw when tracking disabled
+
         rewards = {
             "progress_forward": progress_forward,
             "upright_reward": upright * rewards_cfg.upright_reward,
@@ -1361,7 +1382,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             # Session 27: Penalize deviation from commanded vy, not absolute vy
             # This allows commanded lateral motion while penalizing unintended drift
             "lat_vel_penalty": -rewards_cfg.lat_vel_penalty * torch.square(vy_w - cmd_vy),
-            "yaw_rate_penalty": -rewards_cfg.yaw_rate_penalty * torch.square(wz_b),
+            # Session 28: Penalize deviation from commanded yaw, not absolute yaw
+            # This allows commanded turning while penalizing unintended rotation
+            "yaw_rate_penalty": -rewards_cfg.yaw_rate_penalty * torch.square(wz_b - cmd_yaw),
             "front_slip_penalty": -4.0 * torch.square(front_slip) * front_contact,
             "body_contact_penalty": body_contact_penalty,
             "rear_support_bonus": rear_support_bonus,
@@ -1375,6 +1398,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "bidirectional_gait_reward": bidirectional_gait_reward,
             "command_tracking": command_tracking,
             "command_tracking_vy": command_tracking_vy,  # Session 27: Lateral command tracking
+            "command_tracking_yaw": command_tracking_yaw,  # Session 28: Yaw rate command tracking
         }
 
         total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
@@ -1396,6 +1420,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._episode_sums["rear_support_bonus_mean"] += rear_support_bonus
         self._episode_sums["cmd_vx_error"] += torch.abs(vx - self._commands[:, 0])
         self._episode_sums["cmd_vy_error"] += torch.abs(vy_w - self._commands[:, 1])  # Session 27
+        self._episode_sums["cmd_yaw_error"] += torch.abs(wz_b - self._commands[:, 2])  # Session 28
 
         return total_reward
 

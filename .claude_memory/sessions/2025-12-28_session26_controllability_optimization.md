@@ -21,6 +21,7 @@ This session optimized the controllability system implemented in Session 25. Key
 | 140 | Dynamic | range=0.10-0.45 | **0.015** | **WALKING** |
 | 141 | Dynamic | range=0.05-0.50 | 0.012 | WALKING |
 | 142 | Confirm | optimal settings | **0.015** | **WALKING** |
+| 143 | Extended | 2500 iters | **0.016** | **WALKING** |
 
 ## Key Findings
 

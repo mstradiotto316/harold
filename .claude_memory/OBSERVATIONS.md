@@ -1328,3 +1328,62 @@ Next step is physical deployment:
 2. Install dependencies: `pip install -r requirements.txt`
 3. Connect ESP32 via USB, IMU via I2C
 4. Run `python inference/harold_controller.py`
+
+---
+
+## 2025-12-28: Session 26 - Dynamic Command Tracking Optimized
+
+### Key Discovery: zero_velocity_prob=0 is Critical
+
+When 5% of commands were "stop" (vx=0), the policy learned to stop instead of walk. Removing stop commands entirely was the breakthrough that enabled WALKING verdict with dynamic commands.
+
+**Evidence:**
+- EXP-134-138 (zero_prob=5%): vx=0.003-0.010, all STANDING
+- EXP-139 (zero_prob=0%): vx=0.011, **WALKING**
+
+### Command Tracking Parameter Sweet Spots
+
+| Parameter | Sweet Spot | Too Low | Too High |
+|-----------|------------|---------|----------|
+| tracking_weight | 10.0 | Not tested | 20.0 → over-optimization (vx=0.005) |
+| tracking_sigma | 0.1 | Not tested | 0.15 → too permissive (vx=0.003) |
+| vx_range | 0.10-0.45 | 0.15-0.40 → vx=0.011 | 0.05-0.50 → vx=0.012 |
+| command_interval | 10.0s | 5.0s → vx=0.007 | Not tested |
+
+### Why Higher Tracking Weight Failed
+
+tracking_weight=20 caused the policy to over-optimize for matching the commanded velocity at the expense of actually walking. The robot learned to stand still (perfect velocity match at vx=0 during zero commands) rather than develop walking behavior.
+
+### Why Higher Sigma Failed
+
+sigma=0.15 was too permissive - the reward was high even with significant velocity error. The robot learned it could get high reward by standing tall (height=1.53) without walking (vx=0.003).
+
+### Results Reproducibility
+
+The optimal configuration (vx_range=0.10-0.45, zero_prob=0) achieved vx=0.015 in three separate runs:
+- EXP-140: vx=0.015
+- EXP-142: vx=0.015 
+- EXP-143 (2500 iters): vx=0.016
+
+### Updated Hypotheses
+
+| ID | Hypothesis | Status |
+|----|------------|--------|
+| H61 | zero_velocity_prob=0 enables dynamic commands | **CONFIRMED** |
+| H62 | Optimal vx range is 0.10-0.45 | **CONFIRMED** |
+| H63 | tracking_weight=10 is sweet spot | **CONFIRMED** |
+| H64 | tracking_sigma=0.1 is sweet spot | **CONFIRMED** |
+| H65 | Lateral (vy) commands need vy tracking reward | TO TEST |
+| H66 | Yaw commands need yaw tracking reward | TO TEST |
+
+### Implementation Notes for Future Work
+
+To add lateral (vy) commands:
+1. Add vy tracking to command_tracking reward in `_compute_rewards()`
+2. Modify lat_vel_penalty to penalize (vy - cmd_vy)² instead of vy²
+3. Start with small vy_range (±0.10) and expand gradually
+
+To add yaw rate commands:
+1. Add yaw tracking to command_tracking reward
+2. Modify yaw_rate_penalty similarly
+3. Start with small range

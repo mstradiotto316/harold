@@ -129,6 +129,11 @@ class RewardsCfg:
     # and use pure command tracking instead
     command_tracking_replace_forward: bool = True
 
+    # Lateral (vy) command tracking - Session 27: Extend controllability to strafing
+    # Uses same exponential kernel as vx tracking: exp(-|vy - cmd_vy|^2 / sigma^2) * weight
+    command_tracking_weight_vy: float = 10.0   # Same weight as vx tracking
+    command_tracking_sigma_vy: float = 0.1     # Same tolerance as vx tracking
+
 
 @configclass
 class CommandCfg:
@@ -152,11 +157,11 @@ class CommandCfg:
     vx_min: float = 0.10
     vx_max: float = 0.45
 
-    # Lateral velocity range (m/s) - Phase 2+
-    # Note: Would need vy tracking reward and lat_vel_penalty modification
-    # to properly support lateral commands
-    vy_min: float = 0.0
-    vy_max: float = 0.0
+    # Lateral velocity range (m/s) - Session 27: Enabled for strafing
+    # Conservative range to start (smaller than vx range)
+    # Now supported with vy tracking reward and modified lat_vel_penalty
+    vy_min: float = -0.15
+    vy_max: float = 0.15
 
     # Yaw rate range (rad/s) - Phase 2+
     # Set to 0 initially, expand later for turning

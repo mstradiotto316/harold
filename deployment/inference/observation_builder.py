@@ -23,8 +23,8 @@ from typing import Optional
 import numpy as np
 import yaml
 
-from ..drivers.imu_reader_rpi5 import IMUReaderRPi5, IMUData
-from ..drivers.esp32_serial import ESP32Interface, Telemetry
+from drivers.imu_reader_rpi5 import IMUReaderRPi5, IMUData
+from drivers.esp32_serial import ESP32Interface, Telemetry
 
 
 @dataclass
@@ -245,7 +245,7 @@ if __name__ == "__main__":
     # Create mock IMU and ESP32
     class MockIMU:
         def read(self):
-            from ..drivers.imu_reader_rpi5 import IMUData
+            from drivers.imu_reader_rpi5 import IMUData
             return IMUData(
                 accel=np.array([0.0, 0.0, 1.0]),
                 gyro=np.array([0.0, 0.0, 0.0]),
@@ -257,7 +257,7 @@ if __name__ == "__main__":
 
     class MockESP32:
         def read_telemetry(self):
-            from ..drivers.esp32_serial import Telemetry
+            from drivers.esp32_serial import Telemetry
             return Telemetry(
                 timestamp_ms=0,
                 positions=np.array([

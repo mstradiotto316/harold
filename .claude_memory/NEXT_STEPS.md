@@ -1,5 +1,64 @@
 # Harold Next Steps
 
+## PRIORITY 0: Sim-to-Real Alignment (Session 29 Investigation)
+
+**Status**: Investigation complete. **Implementation required on desktop.**
+
+### Background
+Hardware deployment testing (Session 28-29) revealed critical sim-to-real gaps causing policy to output extreme values (±60-100) and unstable behavior.
+
+### Root Causes Identified
+
+1. **Linear velocity mismatch**: Hardware IMU uses accelerometer integration (noisy, drifts with 0.95 decay). Simulation uses perfect physics engine velocity.
+
+2. **Observation clipping mismatch**: Deployment clips normalized observations to ±5.0. Training has NO clipping.
+
+3. **Joint limit mismatch**: Training uses symmetric ±30°/±90° limits. Hardware has asymmetric limits (thigh: -55° to +5°, calf: -5° to +80°).
+
+### Implementation Tasks (Execute on Desktop)
+
+1. **Add lin_vel noise to simulation** (`DomainRandomizationCfg`):
+   - Gaussian noise: std=0.05 m/s
+   - Per-episode bias: std=0.02 m/s
+
+2. **Add observation clipping to simulation**:
+   - Clip post-normalization to ±5.0 (or approximate with raw clip)
+
+3. **Align joint limits to hardware**:
+   - Shoulders: ±25° (was ±30°)
+   - Thighs: -55° to +5° (was ±90°) - **MAJOR CHANGE**
+   - Calves: -5° to +80° (was ±90°) - **MAJOR CHANGE**
+
+4. **Retrain and export**:
+   ```bash
+   HAROLD_CPG=1 HAROLD_CMD_TRACK=1 python scripts/harold.py train \
+     --hypothesis "Sim-to-real: lin_vel noise, obs clip, hw joint limits" \
+     --tags "sim2real,domain_rand" --iterations 2500
+   ```
+
+### Key Files to Modify
+- `harold_isaac_lab_env_cfg.py` - Add noise config, update joint limits
+- `harold_isaac_lab_env.py` - Implement noise application, clipping
+
+### Full Implementation Plan
+See: `.claude/plans/unified-knitting-lagoon.md`
+
+### Deployment Fixes Already Applied (Session 28-29)
+These fixes were made to deployment code on the Pi:
+1. ✅ Gravity sign flip (Z-up → Z-down convention)
+2. ✅ Default commands changed to 0.3 m/s (matches training)
+3. ✅ Observation clipping to ±5.0 added
+4. ✅ Removed pre-scaling action clip (matches training)
+5. ✅ Added 3-cycle CPG warmup before policy enables
+
+### CPG-Only Deployment (Still Works)
+```bash
+cd /home/pi/Desktop/harold/deployment
+python run_cpg_only.py --duration 60
+```
+
+---
+
 ## PRIORITY 1: Model Gear Backlash in Simulation (Overnight Experiment)
 
 **Context from Session 27:** Hardware investigation revealed that the servo "dead zone" is actually **mechanical gear backlash** (~1-3°) in the ST3215 gearbox. This cannot be fixed in software - the policy must learn to be robust to it.

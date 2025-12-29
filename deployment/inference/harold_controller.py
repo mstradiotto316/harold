@@ -196,16 +196,19 @@ class HaroldController:
         if self.imu:
             self.imu.calibrate(duration)
 
-    def run(self, use_cpg: bool = True) -> None:
+    def run(self, use_cpg: bool = True, warmup_cycles: int = 3) -> None:
         """Run the main control loop.
 
         Args:
             use_cpg: If True, use CPG + residual mode; if False, direct policy mode
+            warmup_cycles: Number of CPG cycles before enabling policy (avoids
+                          cold-start observation mismatch)
         """
         print("\n" + "=" * 60)
         print("Starting Control Loop")
         print(f"  Mode: {'CPG + Residual' if use_cpg else 'Direct Policy'}")
         print(f"  Rate: {self.CONTROL_RATE_HZ} Hz")
+        print(f"  Warmup: {warmup_cycles} CPG cycles before policy")
         print("  Press Ctrl+C to stop")
         print("=" * 60 + "\n")
 
@@ -223,6 +226,10 @@ class HaroldController:
         self.obs_builder.reset()
         self.action_conv.reset()
 
+        # Calculate warmup duration based on CPG frequency
+        warmup_duration = warmup_cycles / self.cpg.cfg.frequency_hz
+        policy_enabled = False
+
         try:
             while self._running:
                 loop_start = time.time()
@@ -238,12 +245,21 @@ class HaroldController:
                 # 3. Normalize observation
                 obs_norm = normalize_observation(obs, self.running_mean, self.running_var)
 
-                # 4. Run policy inference
-                outputs = self.policy.run(
-                    ['mean'],
-                    {'obs': obs_norm.reshape(1, -1).astype(np.float32)}
-                )
-                action = outputs[0][0]  # [12]
+                # Check if warmup period is complete
+                if not policy_enabled and t >= warmup_duration:
+                    policy_enabled = True
+                    print(f"[t={t:.1f}s] Warmup complete, enabling policy")
+
+                if policy_enabled:
+                    # 4. Run policy inference
+                    outputs = self.policy.run(
+                        ['mean'],
+                        {'obs': obs_norm.reshape(1, -1).astype(np.float32)}
+                    )
+                    action = outputs[0][0]  # [12]
+                else:
+                    # During warmup: use zero action (pure CPG)
+                    action = np.zeros(12, dtype=np.float32)
 
                 # 5. Compute final targets (CPG + residual)
                 targets = self.action_conv.compute(cpg_targets, action, use_cpg=use_cpg)
@@ -261,9 +277,10 @@ class HaroldController:
                     elapsed = time.time() - self._start_time
                     rate = self._loop_count / elapsed
                     telem = self.esp32.read_telemetry()
+                    mode_str = "POLICY" if policy_enabled else "WARMUP"
                     if telem.valid:
                         print(
-                            f"t={t:.1f}s | rate={rate:.1f}Hz | "
+                            f"t={t:.1f}s [{mode_str}] | rate={rate:.1f}Hz | "
                             f"phase={self.cpg.phase:.2f} | "
                             f"pos[0:3]={telem.positions[:3]}"
                         )

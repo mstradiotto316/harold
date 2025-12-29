@@ -49,7 +49,9 @@ class ObservationConfig:
             ], dtype=np.float32)
 
         if self.default_commands is None:
-            self.default_commands = np.array([0.1, 0.0, 0.0], dtype=np.float32)
+            # NOTE: Training used commands around 0.3 m/s (see running_mean[33])
+            # Using 0.1 creates extreme normalized values
+            self.default_commands = np.array([0.3, 0.0, 0.0], dtype=np.float32)
 
     @classmethod
     def from_yaml(cls, cpg_path: Path) -> "ObservationConfig":
@@ -134,7 +136,11 @@ class ObservationBuilder:
         obs[3:6] = imu_data.gyro if imu_data.valid else np.zeros(3)
 
         # [6:9] Projected gravity (normalized)
-        obs[6:9] = imu_data.projected_gravity if imu_data.valid else np.array([0, 0, -1])
+        # NOTE: Hardware IMU uses Z-up convention (+1 for level)
+        # Simulation uses Z-down convention (-1 for level)
+        # We must flip the sign to match training
+        projected_gravity = imu_data.projected_gravity if imu_data.valid else np.array([0, 0, 1])
+        obs[6:9] = -projected_gravity  # Flip sign for sim convention
 
         # Read servo telemetry
         telem = self.esp32.read_telemetry()
@@ -220,21 +226,26 @@ def normalize_observation(
     running_mean: np.ndarray,
     running_var: np.ndarray,
     eps: float = 1e-8,
+    clip_obs: float = 5.0,
 ) -> np.ndarray:
     """Apply running stats normalization to observation.
 
-    This is the same normalization used during training.
+    This is the same normalization used during training, with clipping
+    to prevent extreme values from causing policy instability.
 
     Args:
         obs: Raw 50D observation
         running_mean: 50D running mean from training
         running_var: 50D running variance from training
         eps: Small value to avoid division by zero
+        clip_obs: Clip normalized observations to [-clip_obs, clip_obs]
+                  (matches rl_games clip_observations: 5.0)
 
     Returns:
-        Normalized observation
+        Normalized and clipped observation
     """
-    return (obs - running_mean) / np.sqrt(running_var + eps)
+    normalized = (obs - running_mean) / np.sqrt(running_var + eps)
+    return np.clip(normalized, -clip_obs, clip_obs)
 
 
 if __name__ == "__main__":

@@ -2728,3 +2728,65 @@ joint_position_noise.std = 0.0175  # ~1° in radians
 
 1. **Hardware testing** with backlash-robust policy (EXP-148)
 2. **Curriculum learning** for backlash + yaw combination
+
+---
+
+### EXP-152: Curriculum Learning - Backlash → Yaw (BREAKTHROUGH)
+- **Date**: 2025-12-29
+- **Config**: Fine-tune from backlash checkpoint (EXP-149) with yaw tracking
+- **Duration**: ~55 min (1250 iters)
+- **Result**: **WALKING** (vx=0.015)
+- **Notes**: 
+  - **CURRICULUM LEARNING WORKS!**
+  - From scratch: vx=0.003 (STANDING)
+  - With curriculum: vx=0.015 (WALKING)
+  - Key insight: Train backlash first, then add yaw
+
+---
+
+### EXP-153: Extended Curriculum (Regressed)
+- **Date**: 2025-12-29
+- **Config**: Fine-tune from EXP-148 with yaw, 2500 iters
+- **Duration**: ~100 min
+- **Result**: STANDING (vx=0.009)
+- **Notes**: 
+  - Extended training caused regression
+  - Shorter curriculum (EXP-152, 1250 iters) was better
+  - Key insight: More training ≠ better for fine-tuning
+
+---
+
+## Session 28 Summary
+
+### Key Breakthroughs
+
+1. **Backlash Robustness SOLVED**: 1° position noise improves walking by 35%
+2. **Yaw Tracking Implemented**: Works standalone (vx=0.011)
+3. **Curriculum Learning Validated**: backlash→yaw achieves vx=0.015
+
+### Architecture Clarification
+
+Motion = **CPG (scripted) + Policy (learned)**
+- CPG provides: Timing, gait coordination, base trajectory
+- Policy provides: Balance, velocity tracking, backlash adaptation
+- residual_scale=0.05: Policy can only fine-tune, not override
+
+### Optimal Configuration
+
+```python
+# Backlash robustness
+joint_position_noise.std = 0.0175  # ~1° in radians
+
+# Command tracking (vx, vy, yaw)
+command_tracking_weight: 10.0
+command_tracking_sigma: 0.1
+command_tracking_weight_yaw: 10.0
+command_tracking_sigma_yaw: 0.2
+```
+
+### Best Policies for Deployment
+
+| Policy | Config | vx | Use Case |
+|--------|--------|-----|----------|
+| EXP-148 | Backlash only | 0.023 | Hardware testing |
+| EXP-152 | Curriculum (backlash+yaw) | 0.015 | Full controllability |

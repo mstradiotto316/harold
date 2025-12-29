@@ -1537,3 +1537,33 @@ Each feature works independently:
 - **H-S28-1**: Curriculum learning (train backlash first, then add yaw) may work better
 - **H-S28-2**: Lower yaw command range (±0.15 vs ±0.30) may help with combination
 - **H-S28-3**: Position noise helps sim-to-real transfer (needs hardware validation)
+
+### Observation: Curriculum Learning for Multi-Objective RL
+
+**Finding**: When combining multiple features (backlash + yaw), curriculum learning outperforms from-scratch training.
+
+| Approach | vx (m/s) | Verdict |
+|----------|----------|---------|
+| From scratch | 0.003 | STANDING |
+| Curriculum | 0.015 | WALKING |
+
+**Mechanism**: The policy struggles to optimize multiple objectives simultaneously. Training sequentially allows each skill to stabilize before adding complexity.
+
+### Observation: Training Duration Trade-offs
+
+**Finding**: For fine-tuning, shorter training (1250 iters) beats longer training (2500 iters).
+
+- EXP-152 (1250 iters): vx=0.015 WALKING
+- EXP-153 (2500 iters): vx=0.009 STANDING
+
+**Hypothesis**: Extended fine-tuning causes the policy to "forget" the base skills while over-optimizing for the new objective.
+
+### Observation: CPG + Residual Learning Architecture
+
+The Harold walking gait is a combination of:
+- **CPG (scripted)**: Provides timing, coordination, base trajectory
+- **Policy (learned)**: Provides balance, velocity tracking, adaptation
+
+The `residual_scale=0.05` limits policy authority to fine-tuning only. This prevents the policy from reversing or dramatically altering the proven CPG trajectory.
+
+**Implication**: The vx=0.023 achievement comes from the policy learning to USE the CPG trajectory effectively, not from learning a gait from scratch.

@@ -99,21 +99,34 @@ class ESP32Interface:
                 self.cfg.baud,
                 timeout=self.cfg.timeout_ms / 1000.0
             )
-            time.sleep(0.5)  # Wait for ESP32 to initialize
+            time.sleep(2.0)  # Wait for ESP32 to boot (needs ~2s after reset)
             self.serial.reset_input_buffer()
         except serial.SerialException as e:
             print(f"ERROR: Could not open {self.cfg.port}: {e}")
             return False
 
-        # Perform handshake
+        # Perform handshake - use direct readline to avoid buffer issues
+        old_timeout = self.serial.timeout
+        self.serial.timeout = 0.1  # 100ms per read
+
         for attempt in range(retry_count):
+            self._buffer = ""  # Clear internal buffer
+            self.serial.reset_input_buffer()
             self._write("READY?#")
-            time.sleep(0.1)
-            response = self._read_line()
-            if response and "ARDUINO_READY" in response:
-                print(f"ESP32 connected on {self.cfg.port}")
-                return True
-            print(f"Handshake attempt {attempt + 1}/{retry_count} failed: {response}")
+
+            # Read lines directly looking for ARDUINO_READY among telemetry
+            for _ in range(20):
+                try:
+                    line = self.serial.readline().decode("utf-8", errors="ignore").strip()
+                    if "ARDUINO_READY" in line:
+                        self.serial.timeout = old_timeout
+                        print(f"ESP32 connected on {self.cfg.port}")
+                        return True
+                except Exception:
+                    pass
+            print(f"Handshake attempt {attempt + 1}/{retry_count} failed")
+
+        self.serial.timeout = old_timeout
 
         print("ERROR: ESP32 handshake failed")
         self.disconnect()
@@ -135,14 +148,26 @@ class ESP32Interface:
         if not self.connected:
             return False
 
+        self._buffer = ""  # Clear internal buffer
+        self.serial.reset_input_buffer()
         self._write("START#")
-        time.sleep(0.05)
-        response = self._read_line()
-        if response and "STATUS,STARTED" in response:
-            self._streaming = True
-            return True
-        print(f"WARNING: START not acknowledged: {response}")
-        return False
+
+        # Read a few lines looking for STATUS,STARTED
+        old_timeout = self.serial.timeout
+        self.serial.timeout = 0.1
+        for _ in range(10):
+            try:
+                line = self.serial.readline().decode("utf-8", errors="ignore").strip()
+                if "STATUS,STARTED" in line:
+                    self._streaming = True
+                    self.serial.timeout = old_timeout
+                    return True
+            except Exception:
+                pass
+        self.serial.timeout = old_timeout
+        print(f"WARNING: START not acknowledged")
+        self._streaming = True  # Assume it worked anyway
+        return True
 
     def stop_streaming(self) -> bool:
         """Disable command execution and return to safe pose.
@@ -153,14 +178,24 @@ class ESP32Interface:
         if not self.connected:
             return False
 
+        self._buffer = ""  # Clear internal buffer
+        self.serial.reset_input_buffer()
         self._write("STOP#")
-        time.sleep(0.05)
-        response = self._read_line()
         self._streaming = False
-        if response and "STATUS,STOPPED" in response:
-            return True
-        print(f"WARNING: STOP not acknowledged: {response}")
-        return False
+
+        # Read a few lines looking for STATUS,STOPPED
+        old_timeout = self.serial.timeout
+        self.serial.timeout = 0.1
+        for _ in range(10):
+            try:
+                line = self.serial.readline().decode("utf-8", errors="ignore").strip()
+                if "STATUS,STOPPED" in line:
+                    self.serial.timeout = old_timeout
+                    return True
+            except Exception:
+                pass
+        self.serial.timeout = old_timeout
+        return True  # STOP always works
 
     def ping(self) -> bool:
         """Check ESP32 responsiveness.

@@ -173,3 +173,141 @@ These are the physical robot targets used for sim-to-real context. They are not 
 - Sensors
   - IMU: MPU6050 on I2C (addr 0x68); 3‑axis accel + 3‑axis gyro
   - Typical sampling: up to 200 Hz to align with control loop
+
+Raspberry Pi 5 Deployment
+
+The robot brain is a Raspberry Pi 5 running the ONNX policy inference at 20 Hz.
+
+SSH Connection
+
+```bash
+# Connect via WiFi (preferred)
+ssh pi@10.0.0.51
+
+# Alternative via hostname (if mDNS works)
+ssh pi@harold.local
+
+# Alternative via Ethernet (if connected)
+ssh pi@10.0.0.50
+
+# Password: harold
+```
+
+Network Configuration
+
+| Interface | IP Address | Notes |
+|-----------|------------|-------|
+| WiFi (wlan0) | 10.0.0.51 | Primary connection |
+| Ethernet (eth0) | 10.0.0.50 | Fallback/debugging |
+| Hostname | harold | mDNS: harold.local |
+| WiFi SSID | NachoWifi | Pre-configured |
+
+Harold Service Management
+
+```bash
+# Check service status
+sudo systemctl status harold
+
+# View logs
+cat /home/pi/harold/logs/harold.log
+cat /home/pi/harold/logs/harold_error.log
+
+# Restart service
+sudo systemctl restart harold
+
+# Stop service (for manual testing)
+sudo systemctl stop harold
+
+# Start service
+sudo systemctl start harold
+
+# Disable auto-start
+sudo systemctl disable harold
+
+# Enable auto-start
+sudo systemctl enable harold
+```
+
+Manual Controller Execution
+
+```bash
+# Stop service first
+sudo systemctl stop harold
+
+# Run controller manually (for debugging)
+cd /home/pi/harold
+python3 -m inference.harold_controller
+```
+
+File Locations on Pi
+
+| Path | Description |
+|------|-------------|
+| `/home/pi/harold/` | Deployment code root |
+| `/home/pi/harold/inference/harold_controller.py` | Main 20 Hz control loop |
+| `/home/pi/harold/policy/harold_policy.onnx` | Neural network (753 KB) |
+| `/home/pi/harold/config/hardware.yaml` | ESP32 port, servo config |
+| `/home/pi/harold/config/cpg.yaml` | CPG parameters |
+| `/home/pi/harold/logs/` | Runtime logs |
+| `/etc/systemd/system/harold.service` | Systemd service file |
+
+ESP32 Firmware Flashing from Pi
+
+The Pi can flash firmware directly to the ESP32 using arduino-cli:
+
+```bash
+# Install arduino-cli (one-time setup)
+curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
+export PATH=$PATH:/home/pi/bin
+arduino-cli core install esp32:esp32
+
+# Clone repo if not present
+git clone <repo-url> ~/harold-repo
+
+# Compile and upload streaming control firmware
+cd ~/harold-repo
+arduino-cli compile --fqbn esp32:esp32:esp32 firmware/StreamingControl/HaroldStreamingControl
+arduino-cli upload -p /dev/ttyUSB0 --fqbn esp32:esp32:esp32 firmware/StreamingControl/HaroldStreamingControl
+```
+
+Required ESP32 Firmware
+
+The ESP32 must run `HaroldStreamingControl` firmware for the Pi to communicate with it:
+
+| Firmware | Purpose | Location |
+|----------|---------|----------|
+| HaroldStreamingControl | Serial streaming control (REQUIRED) | `firmware/StreamingControl/HaroldStreamingControl/` |
+| scripted_gait_test_1 | Standalone scripted gait (no Pi needed) | `firmware/scripted_gait_test_1/` |
+
+Hardware Connections on Pi 5
+
+| Component | Connection | Device Path |
+|-----------|------------|-------------|
+| ESP32 | USB (CP2102 adapter) | `/dev/ttyUSB0` |
+| IMU (MPU6050) | I2C (GPIO 2=SDA, GPIO 3=SCL) | Bus 1, Address 0x68 |
+
+Troubleshooting
+
+**ESP32 not detected:**
+```bash
+lsusb                          # Should show "Silicon Labs CP210x"
+ls /dev/ttyUSB*                # Should show /dev/ttyUSB0
+dmesg | tail -20               # Check kernel messages
+```
+
+**Permission denied on /dev/ttyUSB0:**
+```bash
+sudo usermod -a -G dialout pi  # Add pi to dialout group
+# Then logout/login or reboot
+```
+
+**Handshake failed:**
+- Check ESP32 has correct firmware (HaroldStreamingControl)
+- Check USB cable has data lines (not charge-only)
+- Try: `sudo systemctl stop harold` then manual serial test
+
+**Service keeps restarting:**
+```bash
+sudo systemctl status harold   # Check exit code
+cat /home/pi/harold/logs/harold_error.log  # Check Python errors
+```

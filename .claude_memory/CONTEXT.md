@@ -35,15 +35,25 @@ Session 28 achieved **35% better forward velocity** by adding 1° position noise
 
 The noise acts as beneficial regularization, improving generalization.
 
-### Session 28 Key Results
+### Session 28 Final Results
 
-| Config | vx (m/s) | Verdict |
-|--------|----------|---------|
-| Baseline (no noise) | 0.017 | WALKING |
-| 2° backlash | 0.007 | STANDING (too much) |
-| **1° backlash** | **0.023** | **WALKING** (+35%) |
-| Yaw only (no backlash) | 0.011 | WALKING |
-| 1° backlash + yaw | 0.003 | STANDING (needs work) |
+| EXP | Config | vx (m/s) | Verdict |
+|-----|--------|----------|---------|
+| 145 | Baseline (no noise) | 0.017 | WALKING |
+| 148 | **1° backlash (optimal)** | **0.023** | **WALKING (+35%)** |
+| 150 | Backlash + yaw (from scratch) | 0.003 | STANDING |
+| 152 | **Curriculum (backlash→yaw)** | **0.015** | **WALKING** |
+
+### Architecture: CPG + Residual Learning
+
+The motion is a **combination** of scripted and learned:
+```
+target_joints = CPG_base_trajectory + policy_output * residual_scale
+```
+
+- **CPG (scripted)**: Provides timing, gait coordination, base trajectory
+- **Policy (learned)**: Provides balance corrections, velocity tracking, adaptation
+- **residual_scale=0.05**: Policy can only fine-tune, not override CPG
 
 ### Best Configuration (Session 28)
 
@@ -56,25 +66,24 @@ The noise acts as beneficial regularization, improving generalization.
 | Dynamic commands | ENABLED | `HAROLD_DYN_CMD=1` |
 | vx_range | 0.10-0.45 | Optimal range |
 | vy_range | -0.15-0.15 | Lateral commands |
-| yaw_range | -0.30-0.30 | **NEW** - turn commands |
-| joint_position_noise | 0.0175 rad (~1°) | **OPTIMAL** for backlash |
+| yaw_range | -0.30-0.30 | Turn commands |
+| joint_position_noise | **0.0175 rad (~1°)** | **OPTIMAL for backlash** |
 
-### Key Changes in Session 28
+### Key Findings from Session 28
 
 1. **Backlash robustness via observation noise**:
-   - Enabled `randomize_per_step: True` for sensor noise
-   - Set `joint_position_noise.std = 0.0175` rad (~1°)
-   - This simulates ~1-3° gear backlash in ST3215 servos
+   - 2° noise: Too much → STANDING (vx=0.007)
+   - **1° noise: OPTIMAL → WALKING (vx=0.023, +35%)**
+   - Noise acts as regularization, preventing overfitting
 
-2. **Added yaw rate tracking**:
-   - Added `command_tracking_yaw` reward (exponential kernel)
-   - Modified `yaw_rate_penalty` to track deviation from commanded yaw
-   - Enabled yaw command range: [-0.30, 0.30] rad/s
+2. **Yaw rate tracking**:
+   - Works standalone (vx=0.011, WALKING)
+   - Combined with backlash from scratch fails (vx=0.003)
+   - **Curriculum learning works**: backlash first → yaw fine-tuning (vx=0.015)
 
-3. **Finding: Backlash + yaw combination needs work**:
-   - Each feature works independently (WALKING)
-   - Combined, they interfere (vx=0.003, STANDING)
-   - May need curriculum learning or reduced complexity
+3. **Curriculum learning is key**:
+   - From scratch: backlash + yaw = STANDING
+   - Curriculum: backlash → yaw = WALKING
 
 ---
 
@@ -85,10 +94,10 @@ The noise acts as beneficial regularization, improving generalization.
 | **CPG + Residual Learning** | ✅ **WALKING** |
 | **Command Tracking (vx)** | ✅ **WORKING** |
 | **Command Tracking (vy)** | ✅ **WORKING** (Session 27) |
-| **Command Tracking (yaw)** | ✅ **WORKING** (standalone) |
-| **Backlash robustness** | ✅ **SOLVED** (1° = 35% better) |
+| **Command Tracking (yaw)** | ✅ **WORKING** (standalone & curriculum) |
+| **Backlash robustness** | ✅ **SOLVED** (1° = +35%) |
 | **Sim-to-real alignment** | ✅ **COMPLETE** |
-| Backlash + yaw combined | 🔲 Needs curriculum learning |
+| **Curriculum learning** | ✅ **VALIDATED** (backlash→yaw works) |
 | Hardware RL testing | 🔲 **NEXT PRIORITY** |
 
 ---
@@ -132,7 +141,7 @@ deployment/
 python scripts/harold.py ps
 python scripts/harold.py stop  # if needed
 
-# Run with controllability
+# Run with controllability + backlash robustness
 HAROLD_CPG=1 HAROLD_CMD_TRACK=1 HAROLD_DYN_CMD=1 python scripts/harold.py train \
   --hypothesis "..." --iterations 1250
 

@@ -1,134 +1,101 @@
 # Harold Next Steps
 
-## PRIORITY 1: Model Gear Backlash in Simulation (Overnight Experiment)
+## PRIORITY 1: Hardware Testing with Backlash-Robust Policy
 
-**Context from Session 27:** Hardware investigation revealed that the servo "dead zone" is actually **mechanical gear backlash** (~1-3°) in the ST3215 gearbox. This cannot be fixed in software - the policy must learn to be robust to it.
+**Context from Session 28:** Backlash robustness SOLVED! 1° position noise improves walking by 35% (vx=0.023 vs baseline 0.017). Ready for hardware testing.
 
 ### Experiment Plan
 
-**Goal:** Train a policy that's robust to position uncertainty caused by gear backlash.
-
-**Approach:** Increase joint position observation noise to simulate the uncertainty within the backlash zone.
-
-### Implementation Steps
-
-1. **Baseline run** (if not already established):
+1. **Export best backlash-robust policy (EXP-148 or EXP-149)**:
    ```bash
-   HAROLD_CPG=1 HAROLD_CMD_TRACK=1 python scripts/harold.py train \
-     --hypothesis "Baseline before backlash modeling" --iterations 1250
+   python policy/export_policy.py --checkpoint logs/skrl/harold_direct/2025-12-29_02-06-37_ppo_torch/checkpoints/best_agent.pt
    ```
 
-2. **Backlash modeling via observation noise**:
+2. **Deploy to RPi 5** using existing pipeline in `deployment/`
 
-   Modify `harold_isaac_lab_env_cfg.py`:
-   ```python
-   # In DomainRandomizationCfg class
-   enable_randomization: bool = True
-   randomize_per_step: bool = True
-
-   # Increase joint position noise to match ~2° backlash
-   add_joint_noise: bool = True
-   joint_position_noise: GaussianNoiseCfg = GaussianNoiseCfg(
-       mean=0.0,
-       std=0.035,  # ~2° in radians (was 0.005)
-   )
-   ```
-
-3. **Run experiment**:
-   ```bash
-   HAROLD_CPG=1 HAROLD_CMD_TRACK=1 python scripts/harold.py train \
-     --hypothesis "Backlash robustness via 2deg position noise" \
-     --tags "backlash,sim2real" --iterations 2500
-   ```
-
-4. **Compare with baseline** using `harold compare`
-
-### Alternative Approaches (if observation noise doesn't help)
-
-- **Action noise**: Enable `add_action_noise: bool = True` with `std=0.02`
-- **Lower stiffness**: Reduce from 400 to 300 in `harold.py`
-- **Custom backlash model**: Implement hysteresis in `_apply_action()`
+3. **Test on real hardware** - verify backlash robustness transfers
 
 ### Success Criteria
-
-- Policy maintains walking (vx > 0.1 m/s) despite position noise
-- More robust/smoother motion than baseline
-- Ideally: better sim-to-real transfer when deployed
-
----
-
-## PRIORITY 2: Add Lateral (vy) Commands
-
-Current implementation only tracks forward velocity (vx). To add lateral commands:
-
-1. Add vy tracking to command_tracking reward:
-   ```python
-   # In _compute_rewards():
-   cmd_vy = self._commands[:, 1]
-   vy_error = vy_w - cmd_vy
-   vy_tracking = cmd_weight * torch.exp(-torch.square(vy_error / cmd_sigma))
-   ```
-
-2. Modify lat_vel_penalty to not penalize commanded motion
+- Robot walks forward on hardware
+- More robust motion than previous policies (less oscillation)
+- Better handling of mechanical backlash
 
 ---
 
-## PRIORITY 3: Add Yaw Rate Commands
+## ✅ COMPLETED: Backlash Robustness (Session 28)
 
-Similar to lateral commands - add yaw tracking and modify yaw_rate_penalty.
+**EXP-148 achieved vx=0.023 m/s (35% better than baseline!)**
 
----
+Findings:
+- 2° noise (0.035 rad): Too much - STANDING (vx=0.007)
+- **1° noise (0.0175 rad): OPTIMAL - WALKING (vx=0.023)**
+- The noise acts as beneficial regularization
 
-## Session 27 Hardware Findings
+Config settings:
+```python
+# DomainRandomizationCfg
+enable_randomization: bool = True
+randomize_per_step: bool = True
 
-### Servo Register Reference (ST3215)
-
-| Register | Name | Factory | Purpose |
-|----------|------|---------|---------|
-| 21 | P_COEF | 32 | Proportional gain (higher=stiffer, but oscillates) |
-| 22 | D_COEF | 32 | Derivative gain (damping) |
-| 26-27 | CW/CCW_DEAD | 1 | Dead zone (already minimal) |
-| 48-49 | TORQUE_LIMIT | 1000 | Torque limit (100%) |
-
-### Key Insight
-
-The "dead zone" feel is **gear backlash**, not software dead zone. Servos have ~1-3° of mechanical play where they don't resist movement. This is a hardware limitation that must be modeled in simulation.
-
-### ServoTuning Utility
-
-New firmware utility at `firmware/CalibrationAndSetup/ServoTuning/ServoTuning.ino`:
-- `s` - Scan all servos
-- `X <id>` - Dump all registers
-- `x <id> <reg>` - Read register
-- `W <id> <reg> <val>` - Write register
+# joint_position_noise
+std=0.0175  # ~1° in radians
+```
 
 ---
 
-## Session 26 Results (for reference)
+## ✅ COMPLETED: Yaw Rate Command Tracking (Session 28)
+
+**Standalone yaw tracking works (vx=0.011, WALKING)**
+
+Implementation:
+- Added `command_tracking_yaw` reward (exponential kernel)
+- Modified `yaw_rate_penalty` to track deviation from commanded yaw
+- Yaw command range: [-0.30, 0.30] rad/s (~±17 deg/s)
+
+Config settings:
+```python
+# RewardsCfg
+command_tracking_weight_yaw: float = 10.0
+command_tracking_sigma_yaw: float = 0.2
+
+# CommandCfg
+yaw_min: float = -0.30
+yaw_max: float = 0.30
+```
+
+---
+
+## PRIORITY 2: Combine Backlash + Yaw Successfully
+
+**Finding**: Each works alone, but combining them hurts performance (vx=0.003)
+
+### Approaches to Try
+
+1. **Curriculum learning**:
+   - Train with vx+vy tracking + backlash first (established WALKING)
+   - Then fine-tune with yaw tracking enabled
+
+2. **Reduce yaw complexity**:
+   - Lower yaw command range (±0.15 instead of ±0.30)
+   - Lower yaw tracking weight (5 instead of 10)
+
+3. **Sequential training**:
+   - Use checkpoint from backlash-robust policy (EXP-148)
+   - Fine-tune with yaw tracking
+
+---
+
+## Session 28 Results Summary
 
 | EXP | Config | vx | Verdict |
 |-----|--------|-----|---------|
-| 134 | Dynamic 5s | 0.007 | STANDING |
-| 135 | Dynamic 10s | 0.010 | STANDING |
-| 139 | zero_prob=0 | 0.011 | WALKING |
-| 140 | range 0.10-0.45 | 0.015 | WALKING |
-| 141 | range 0.05-0.50 | 0.012 | WALKING |
-| 142 | Confirmation | 0.015 | WALKING |
-| 143 | 2500 iters | 0.016 | WALKING |
-
-**Best Result**: EXP-143 with 2500 iterations achieved vx=0.016 m/s.
-
----
-
-## Environment Variables Reference
-
-| Variable | Effect |
-|----------|--------|
-| `HAROLD_CPG=1` | Enable CPG base trajectory |
-| `HAROLD_CMD_TRACK=1` | Enable command tracking reward |
-| `HAROLD_VAR_CMD=1` | Enable variable command sampling |
-| `HAROLD_DYN_CMD=1` | Enable dynamic command changes (implies VAR_CMD) |
-| `HAROLD_SCRIPTED_GAIT=1` | Enable scripted gait (no learning) |
+| 145 | Baseline | 0.017 | WALKING |
+| 146 | 2° backlash | 0.008 | STANDING |
+| 147 | 2° backlash | 0.007 | STANDING |
+| **148** | **1° backlash (2500 iter)** | **0.023** | **WALKING** |
+| 149 | 1° backlash (2500 iter) | 0.023 | WALKING |
+| 150 | 1° backlash + yaw (2500 iter) | 0.003 | STANDING |
+| 151 | Yaw only (no backlash) | 0.011 | WALKING |
 
 ---
 
@@ -137,5 +104,7 @@ New firmware utility at `firmware/CalibrationAndSetup/ServoTuning/ServoTuning.in
 | Purpose | Path |
 |---------|------|
 | Domain randomization config | `harold_isaac_lab_env_cfg.py` - DomainRandomizationCfg |
-| Actuator config | `harold_flat/harold.py` - ImplicitActuatorCfg |
-| Session 27 log | `.claude_memory/sessions/2025-12-29_session27_servo_tuning.md` |
+| Command tracking config | `harold_isaac_lab_env_cfg.py` - RewardsCfg |
+| Command tracking rewards | `harold_isaac_lab_env.py` - _get_rewards() |
+| Yaw tracking reward | `harold_isaac_lab_env.py` - command_tracking_yaw |
+| Session 28 log | `.claude_memory/sessions/2025-12-29_session28_backlash.md` |

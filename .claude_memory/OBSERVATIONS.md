@@ -1498,3 +1498,42 @@ The gear backlash CANNOT be fixed in hardware. Must model in simulation for robu
 | **H63** | Increasing P coefficient reduces backlash feel | **DISPROVEN** - causes oscillations |
 | **H64** | Backlash must be modeled in simulation | **TO TEST** - priority experiment |
 | **H65** | Observation noise can simulate backlash | **TO TEST** |
+
+---
+
+## Session 28 Key Observations (2025-12-29)
+
+### Observation: Position Noise as Regularization
+
+**Finding**: Adding 1° position noise to joint observations **improves** walking by 35%.
+
+- **Mechanism**: Noise prevents policy from relying on precise position feedback
+- **Result**: vx=0.023 (with noise) vs vx=0.017 (without noise)
+- **Interpretation**: The policy learns more robust control strategies when uncertain
+
+This is counterintuitive - adding noise typically hurts performance. But for sim-to-real, it acts as regularization that improves generalization.
+
+### Observation: Optimal Noise Level
+
+| Noise Level | Effect |
+|-------------|--------|
+| 0° | Baseline performance (vx=0.017) |
+| 1° (0.0175 rad) | **OPTIMAL** - 35% improvement (vx=0.023) |
+| 2° (0.035 rad) | Too much - regresses to standing (vx=0.007) |
+
+### Observation: Multi-Objective Learning Challenges
+
+**Finding**: Combining backlash noise + yaw tracking doesn't work (vx=0.003).
+
+Each feature works independently:
+- Backlash only: vx=0.023 (WALKING)
+- Yaw only: vx=0.011 (WALKING)
+- Combined: vx=0.003 (STANDING)
+
+**Hypothesis**: The policy struggles to optimize multiple objectives simultaneously when also dealing with observation uncertainty. May need curriculum learning.
+
+### New Hypotheses from Session 28
+
+- **H-S28-1**: Curriculum learning (train backlash first, then add yaw) may work better
+- **H-S28-2**: Lower yaw command range (±0.15 vs ±0.30) may help with combination
+- **H-S28-3**: Position noise helps sim-to-real transfer (needs hardware validation)

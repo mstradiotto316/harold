@@ -1,0 +1,19 @@
+[Unit]
+Description=Harold Quadruped Controller
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/harold
+Environment="PYTHONPATH=/home/pi/harold"
+ExecStartPre=/bin/sleep 10
+ExecStart=/usr/bin/python3 -m inference.harold_controller
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/home/pi/harold/logs/harold.log
+StandardError=append:/home/pi/harold/logs/harold_error.log
+
+[Install]
+WantedBy=multi-user.target

@@ -2585,3 +2585,12 @@ HAROLD_CPG=1 python scripts/harold.py train --iterations 500
 - Higher tracking weight (20 vs 10): Caused over-optimization
 - Higher sigma (0.15 vs 0.1): Too permissive, robot stopped walking
 - Any non-zero stop probability: Robot learns to stop
+
+---
+
+### EXP-143: Extended Training (2500 iterations)
+- **Date**: 2025-12-28
+- **Config**: Optimal settings, 2500 iterations (vs 1250)
+- **Duration**: ~2 hours
+- **Result**: **WALKING** (vx=0.016)
+- **Notes**: Slightly better than 1250 iters (0.016 vs 0.015). Near configuration ceiling.

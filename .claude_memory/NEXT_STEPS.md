@@ -77,8 +77,11 @@ Deployment code is ready in `deployment/`:
 | 140 | range 0.10-0.45 | 0.015 | WALKING |
 | 141 | range 0.05-0.50 | 0.012 | WALKING |
 | 142 | Confirmation | 0.015 | WALKING |
+| 143 | 2500 iters | 0.016 | WALKING |
 
 **Key Finding**: `zero_velocity_prob=0` was the breakthrough. Without stop commands, the policy learns to walk.
+
+**Best Result**: EXP-143 with 2500 iterations achieved vx=0.016 m/s.
 
 ---
 

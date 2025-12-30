@@ -51,7 +51,13 @@ class Telemetry:
     loads: np.ndarray = field(default_factory=lambda: np.zeros(12, dtype=np.int32))
     currents: np.ndarray = field(default_factory=lambda: np.zeros(12, dtype=np.int32))
     temperatures: np.ndarray = field(default_factory=lambda: np.zeros(12, dtype=np.int32))
+    voltage_dV: int = 0  # Bus voltage in decivolts (120 = 12.0V)
     valid: bool = False
+
+    @property
+    def voltage_V(self) -> float:
+        """Bus voltage in volts."""
+        return self.voltage_dV / 10.0
 
 
 class ESP32Interface:
@@ -256,7 +262,8 @@ class ESP32Interface:
     def _parse_telemetry(self, line: str) -> Telemetry:
         """Parse TELEM packet.
 
-        Format: TELEM,timestamp,pos*12,load*12,current*12,temp*12
+        Format: TELEM,timestamp,pos*12,load*12,current*12,temp*12,voltage
+        (voltage is optional for backwards compatibility)
         """
         telem = Telemetry()
         try:
@@ -278,6 +285,11 @@ class ESP32Interface:
             idx += 12
 
             telem.temperatures = np.array([int(parts[idx + i]) for i in range(12)], dtype=np.int32)
+            idx += 12
+
+            # Parse bus voltage if present (new firmware)
+            if idx < len(parts):
+                telem.voltage_dV = int(parts[idx])
 
             telem.valid = True
         except (ValueError, IndexError) as e:

@@ -1626,3 +1626,82 @@ This is a PPO training dynamics issue, not specific to domain randomization.
 | **H-S29-2** | Lin vel noise is neutral for training | **CONFIRMED** |
 | **H-S29-3** | Observation clipping is neutral for training | **CONFIRMED** |
 | **H-S29-4** | Joint limit alignment may require CPG retuning | TO TEST |
+
+---
+
+## Session 30 Observations (2025-12-30)
+
+### Observation: Voltage Sag is NOT the Issue
+
+**Initial Hypothesis**: Robot sluggishness was caused by power supply voltage sag under load.
+
+**Testing**: Added voltage monitoring to firmware and ran gait tests.
+
+**Result**: Voltage stays rock solid at 12.0-12.1V throughout all tests, even at 2.0 Hz gait.
+
+**Conclusion**: Power supply is adequate. Sluggishness has other causes.
+
+### Observation: Servo Load Scale Misinterpretation
+
+**Bug Found**: Voltage monitor script showed "200% load" but this was a display bug.
+
+**Root Cause**: Servo load register returns -1000 to +1000, where 1000 = 100%. Script was showing raw value as percentage.
+
+**Fix**: Divide by 10 to get actual percentage.
+
+**Actual Load**: 15-25% during normal gait - servos have massive headroom.
+
+### Observation: Servo Speed Critical for Trajectory Tracking
+
+**Problem**: Feet were dragging/sliding instead of lifting during swing phase.
+
+**Root Cause**: `SERVO_SPEED=1600` (~140°/sec, 52% of max) was too slow for servos to reach swing positions.
+
+**Fix**: Increased to `SERVO_SPEED=2800` (~246°/sec, 91% of max).
+
+**Result**: Feet now lift properly during swing phase.
+
+### Observation: Default Pose Mismatch Breaks Policy
+
+**CRITICAL BUG**: Deployment used different default pose than simulation.
+
+| Joint | Deployment (wrong) | Simulation (correct) |
+|-------|-------------------|----------------------|
+| Shoulders | 0.0 rad | ±0.20 rad (alternating) |
+| Thighs | 0.3 rad | 0.70 rad |
+| Calves | -0.75 rad | -1.40 rad |
+
+**Effect**: Normalized observations hit ±5.0 clipping limits, causing policy to output garbage.
+
+**Fix**: Updated observation_builder.py and action_converter.py to use simulation's athletic_pose.
+
+### Observation: Joint Limits Convention Mismatch
+
+**CRITICAL BUG**: Action converter applied hardware-convention limits to RL-convention values.
+
+**Example**:
+- Hardware thigh limit: -55° to +5° (after sign conversion)
+- CPG thigh output: 0.40 to 0.90 rad (positive, RL convention)
+- Result: Thighs clamped to +0.087 rad → legs nearly straight!
+
+**Fix**: Disabled limits in action_converter (firmware already handles limits correctly after sign conversion).
+
+### Observation: CPG Trajectory Has Velocity Discontinuity
+
+**Finding**: Calf trajectory has acceleration discontinuity at phase=0.60 (stance→swing transition).
+
+**Cause**: Calf is constant during stance, then suddenly starts moving with sine profile during swing.
+
+**Effect**: Visible "hitch" in gait motion.
+
+**Potential Fix**: Smooth the calf trajectory with continuous function (not yet implemented).
+
+### New Hypotheses (Session 30)
+
+| ID | Hypothesis | Status |
+|----|------------|--------|
+| **H-S30-1** | Servo speed limits trajectory tracking | **CONFIRMED** |
+| **H-S30-2** | Default pose must match simulation exactly | **CONFIRMED** |
+| **H-S30-3** | Joint limits must use correct convention | **CONFIRMED** |
+| **H-S30-4** | CPG calf discontinuity causes visible hitch | **OBSERVED** |
+| **H-S30-5** | Policy + CPG works after deployment fixes | **CONFIRMED** |

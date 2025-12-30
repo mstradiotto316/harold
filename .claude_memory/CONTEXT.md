@@ -25,15 +25,25 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 | USD model | `part_files/V4/harold_8.usd` |
 | Hardware gait script | `firmware/scripted_gait_test_1/scripted_gait_test_1.ino` |
 
-## Current State (2025-12-29, Session 28 Complete)
+## Current State (2025-12-29, Session 29 Complete)
 
-### BREAKTHROUGH: Gear Backlash Robustness SOLVED
+### Session 29: Domain Randomization & Sim-to-Real
 
-Session 28 achieved **35% better forward velocity** by adding 1° position noise to simulate gear backlash:
+**Key Findings**:
+1. **Action noise/delays HURT training** - Corrupts control signal when observation noise already present
+2. **Lin_vel noise + obs clipping implemented** - For sim-to-real alignment
+3. **Joint limit alignment pending** - Major changes to thigh/calf limits
+
+**Implemented Changes**:
+- `add_lin_vel_noise: True` (std=0.05 m/s + per-episode bias std=0.02)
+- `clip_observations: True` (raw ±50, approximating normalized ±5)
+- Action noise/delays: DISABLED (found counterproductive)
+
+### Previous: Session 28 - Backlash Robustness SOLVED
+
+Session 28 achieved **35% better forward velocity** by adding 1° position noise:
 - **Baseline**: vx=0.017 m/s
 - **1° backlash**: vx=0.023 m/s (35% improvement!)
-
-The noise acts as beneficial regularization, improving generalization.
 
 ### Session 28 Final Results
 

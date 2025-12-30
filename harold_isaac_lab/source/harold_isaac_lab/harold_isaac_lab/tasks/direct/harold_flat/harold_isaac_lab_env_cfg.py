@@ -376,11 +376,23 @@ class DomainRandomizationCfg:
         operation="add"
     )
     imu_gravity_noise: GaussianNoiseCfg = GaussianNoiseCfg(
-        mean=0.0, 
+        mean=0.0,
         std=0.05,                             # Small noise for gravity vector
         operation="add"
     )
-    
+
+    # Linear velocity noise (simulates IMU accelerometer integration noise)
+    # Session 29: Hardware testing revealed lin_vel is computed via accelerometer
+    # integration with 0.95 decay, resulting in noisy/drifting values
+    add_lin_vel_noise: bool = True
+    lin_vel_noise: GaussianNoiseCfg = GaussianNoiseCfg(
+        mean=0.0,
+        std=0.05,                             # 0.05 m/s noise (hardware shows ~5cm/s drift)
+        operation="add"
+    )
+    # Velocity bias that persists per-episode (simulates calibration error)
+    lin_vel_bias_std: float = 0.02            # ±2cm/s per-episode bias
+
     # Joint Sensor Noise
     # Session 28: Position noise simulates gear backlash (~1-3° in ST3215 servos)
     # - 2° (0.035 rad): STANDING, vx=0.007 - too much noise
@@ -399,22 +411,28 @@ class DomainRandomizationCfg:
     )
     
     # === ACTION RANDOMIZATION ===
-    add_action_noise: bool = False             # Add noise to action commands
+    # Session 29: Testing action noise for sim-to-real transfer
+    # EXP-154: 0.5% (0.005) -> STANDING (vx=0.009), hurt training
+    # EXP-155: 0.2% (0.002) -> STANDING (vx=0.009), still hurt training
+    # CONCLUSION: Action noise hurts learning, disabled
+    add_action_noise: bool = False             # DISABLED - hurts learning
     action_noise: GaussianNoiseCfg = GaussianNoiseCfg(
         mean=0.0,
-        std=0.01,                             # Small noise proportional to action scale
+        std=0.002,                            # Not used when disabled
         operation="add"
     )
-    
-    add_action_delay: bool = False            # Simulate control delays
-    action_delay_steps: tuple = (0, 2)        # 0-2 timestep random delay
-                                              # Models USB/servo communication latency
-    
+
+    # EXP-156: Action delays hurt training -> DISABLED
+    # Adding any action-side randomization hurts when observation noise already present
+    add_action_delay: bool = False            # DISABLED - hurts learning
+    action_delay_steps: tuple = (0, 1)        # Not used when disabled
+
     # === EXTERNAL DISTURBANCES ===
-    apply_external_forces: bool = False       # Random pushes to robot body
-    external_force_probability: float = 0.02  # 2% chance per step
-    external_force_range: tuple = (0.5, 2.0)  # 0.5-2.0 N random forces
-    external_torque_range: tuple = (0.1, 0.5) # 0.1-0.5 Nm random torques
+    # EXP-157: External perturbations (pushes) - disabled for sim-to-real focus
+    apply_external_forces: bool = False       # Disabled - focus on sim-to-real first
+    external_force_probability: float = 0.01  # 1% per step when enabled
+    external_force_range: tuple = (0.3, 1.0)  # 0.3-1.0 N forces when enabled
+    external_torque_range: tuple = (0.05, 0.2) # 0.05-0.2 Nm torques when enabled
     
     # === TERRAIN RANDOMIZATION ===
     add_terrain_noise: bool = False           # Add height noise to terrain
@@ -440,6 +458,12 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
 
     # Action filtering (EMA low-pass)
     action_filter_beta: float = 0.18  # smoother actions to reduce jitter
+
+    # Observation clipping (matches deployment clip_obs=5.0)
+    # Session 29: Hardware deployment clips normalized obs to ±5.0
+    # Training without clipping causes policy to see larger ranges than deployment
+    clip_observations: bool = True
+    clip_observations_value: float = 5.0      # Match deployment clipping
 
     # Reward configuration
     rewards = RewardsCfg()
@@ -559,13 +583,16 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
 
     # === Joint configuration for push-up routine ===
     # Absolute joint angle limits in radians
+    # Joint limits (Session 30: aligned with hardware safe limits)
+    # Sign convention: thighs/calves are inverted between sim and hardware
+    # Hardware limits from deployment/config/hardware.yaml
     joint_angle_max: tuple = (
-        0.5236, 0.5236, 0.5236, 0.5236,  # shoulders ±30°
-        1.5708, 1.5708, 1.5708, 1.5708,  # thighs ±90°
-        1.5708, 1.5708, 1.5708, 1.5708   # calves ±90°
+        0.4363, 0.4363, 0.4363, 0.4363,  # shoulders: ±25° (hardware safe limit)
+        1.5708, 1.5708, 1.5708, 1.5708,  # thighs: ±90° (pending alignment)
+        1.5708, 1.5708, 1.5708, 1.5708   # calves: ±90° (pending alignment)
     )
     joint_angle_min: tuple = (
-        -0.5236, -0.5236, -0.5236, -0.5236,
-        -1.5708, -1.5708, -1.5708, -1.5708,
-        -1.5708, -1.5708, -1.5708, -1.5708
+        -0.4363, -0.4363, -0.4363, -0.4363,  # shoulders: ±25°
+        -1.5708, -1.5708, -1.5708, -1.5708,  # thighs: pending
+        -1.5708, -1.5708, -1.5708, -1.5708   # calves: pending
     )

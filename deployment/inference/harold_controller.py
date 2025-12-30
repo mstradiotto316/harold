@@ -128,6 +128,14 @@ class HaroldController:
         self.running_var = np.array(metadata["running_variance"], dtype=np.float32)
         print(f"Loaded normalization stats (dim={len(self.running_mean)})")
 
+        # FIX: Override lin_vel statistics (indices 0-2)
+        # Training stats are corrupted: mean=[-4.7, 1.8, -44.6], which is physically impossible
+        # (Z velocity of -44.6 m/s = falling at 160 km/h)
+        # Use reasonable values: mean=0, std=0.5 m/s for a walking robot
+        print("  Overriding lin_vel stats (training values corrupted)")
+        self.running_mean[0:3] = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+        self.running_var[0:3] = np.array([0.25, 0.25, 0.25], dtype=np.float32)  # std=0.5 m/s
+
         # Load ONNX policy
         if not self.policy_path.exists():
             print(f"ERROR: Policy not found: {self.policy_path}")
@@ -223,11 +231,16 @@ class HaroldController:
         self._overrun_count = 0
 
         # Reset components
-        self.obs_builder.reset()
+        # Initialize prev_targets to training mean values for stability
+        # This prevents extreme normalized values at startup
+        prev_targets_init = self.running_mean[36:48].copy()  # prev_target portion of obs
+        self.obs_builder.reset(prev_targets_init=prev_targets_init)
         self.action_conv.reset()
 
         # Calculate warmup duration based on CPG frequency
         warmup_duration = warmup_cycles / self.cpg.cfg.frequency_hz
+        # Add extra transition period for blending (2 additional CPG cycles)
+        transition_duration = warmup_duration + (2.0 / self.cpg.cfg.frequency_hz)
         policy_enabled = False
 
         try:
@@ -239,10 +252,27 @@ class HaroldController:
                 cpg_targets = self.cpg.compute(t)
                 phase_sin, phase_cos = self.cpg.get_phase_sin_cos()
 
-                # 2. Build observation (50D)
-                obs = self.obs_builder.build(t, phase_sin, phase_cos)
+                # 2. Calculate joint_pos blend factor
+                # During warmup: blend=0.0 (use training mean)
+                # During transition: gradually increase to 1.0
+                # After transition: blend=1.0 (use actual values)
+                if t < warmup_duration:
+                    joint_pos_blend = 0.3  # 30% actual during warmup
+                elif t < transition_duration:
+                    # Linear interpolation from 0.3 to 1.0 during transition
+                    progress = (t - warmup_duration) / (transition_duration - warmup_duration)
+                    joint_pos_blend = 0.3 + 0.7 * progress
+                else:
+                    joint_pos_blend = 1.0  # Full actual values
 
-                # 3. Normalize observation
+                # 3. Build observation (50D) with optional blending
+                obs = self.obs_builder.build(
+                    t, phase_sin, phase_cos,
+                    training_mean=self.running_mean,
+                    joint_pos_blend=joint_pos_blend
+                )
+
+                # 4. Normalize observation
                 obs_norm = normalize_observation(obs, self.running_mean, self.running_var)
 
                 # Check if warmup period is complete
@@ -262,14 +292,23 @@ class HaroldController:
                     action = np.zeros(12, dtype=np.float32)
 
                 # 5. Compute final targets (CPG + residual)
-                targets = self.action_conv.compute(cpg_targets, action, use_cpg=use_cpg)
+                # Returns both RL targets (for observation) and HW targets (for ESP32)
+                rl_targets, hw_targets = self.action_conv.compute(cpg_targets, action, use_cpg=use_cpg)
 
-                # 6. Update observation builder state
-                self.obs_builder.update_prev_targets(targets)
+                # 6. Update observation builder state with prev_target_delta
+                # IMPORTANT: Simulation stores prev_target_delta = processed_actions - default_joint_pos
+                # where default_joint_pos is the USD model default (same as hw_default_pose)
+                # Blend with training mean to prevent feedback divergence
+                hw_default_pose = self.action_conv.get_hw_default_pose()
+                prev_targets_training_mean = self.running_mean[36:48]  # Indices 36-48 are prev_targets
+                self.obs_builder.update_prev_target_delta(
+                    rl_targets, hw_default_pose,
+                    training_mean=prev_targets_training_mean,
+                    blend_factor=0.1  # 10% actual, 90% training mean (prevents divergence)
+                )
 
-                # 7. Apply joint sign and send to ESP32
-                # Note: ESP32 firmware already handles sign internally
-                self.esp32.send_targets(targets)
+                # 7. Send HW targets to ESP32
+                self.esp32.send_targets(hw_targets)
 
                 # 8. Logging (every 20 loops = 1 second)
                 self._loop_count += 1

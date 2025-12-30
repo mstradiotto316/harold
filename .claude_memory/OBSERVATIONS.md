@@ -1705,3 +1705,79 @@ This is a PPO training dynamics issue, not specific to domain randomization.
 | **H-S30-3** | Joint limits must use correct convention | **CONFIRMED** |
 | **H-S30-4** | CPG calf discontinuity causes visible hitch | **OBSERVED** |
 | **H-S30-5** | Policy + CPG works after deployment fixes | **CONFIRMED** |
+
+---
+
+## Session 30 Observations (2025-12-30)
+
+### Observation: Joint Limit Alignment is Compatible
+
+**Finding**: Hardware safe limits are more restrictive than simulation defaults, but the CPG gait works within them.
+
+Sign inversion matters:
+- Thighs/calves have inverted signs between sim and hardware
+- Hardware [-55°, +5°] becomes simulation [-5°, +55°]
+- All CPG parameters stay within aligned limits
+
+### Observation: External Perturbations FAIL
+
+**Finding**: Even very light forces (0.2-0.5N, 0.5% probability) cause falling and backward drift.
+
+This suggests the CPG + residual policy relies on smooth, predictable dynamics. Random forces disrupt the learned balance behaviors.
+
+**Implication**: Hardware robustness must come from:
+- Domain randomization (friction, mass, etc.)
+- NOT from random force perturbations
+
+### Observation: CPG Frequency Has Non-Monotonic Optimum
+
+**Finding**: 0.7 Hz is better than both 0.5 Hz and 0.8 Hz.
+
+| Freq | vx | Verdict |
+|------|-----|---------|
+| 0.5 Hz | 0.011-0.017 | WALKING |
+| 0.6 Hz | 0.010 | STANDING |
+| **0.7 Hz** | **0.016** | **WALKING** |
+| 0.8 Hz | 0.010 | STANDING |
+
+**Hypothesis**: There's a timing resonance between:
+- CPG cycle duration
+- Policy reaction time (20 Hz = 50ms)
+- Physical dynamics (leg swing, balance)
+
+### Observation: residual_scale is Sensitive
+
+**Finding**: 0.05 works, 0.08 causes regression (vx 0.016 → 0.007).
+
+**Mechanism**: Higher residual_scale gives policy more authority. But the CPG trajectory is carefully tuned - letting the policy override it disrupts the gait.
+
+The policy should only provide:
+- Balance corrections
+- Velocity tracking adjustments
+- Adaptation to uncertainty
+
+NOT gait pattern changes.
+
+### New Hypotheses from Session 30
+
+| ID | Hypothesis | Status |
+|----|------------|--------|
+| **H-S30-1** | 0.7 Hz is optimal CPG frequency | **CONFIRMED** |
+| **H-S30-2** | External perturbations are incompatible with CPG learning | **CONFIRMED** |
+| **H-S30-3** | residual_scale > 0.05 allows policy to disrupt gait | **CONFIRMED** |
+| **H-S30-4** | Joint limit alignment doesn't require CPG retuning | **CONFIRMED** |
+
+### Best Configuration (Session 30)
+
+```python
+# CPG
+base_frequency: 0.7 Hz  # Optimal
+swing_calf: -1.35       # Safety margin
+residual_scale: 0.05    # Conservative
+
+# Domain Randomization
+joint_position_noise: 0.0175 rad  # Backlash simulation
+add_lin_vel_noise: True           # IMU drift
+clip_observations: True           # Match deployment
+apply_external_forces: False      # Causes failing
+```

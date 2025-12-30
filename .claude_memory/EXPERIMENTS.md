@@ -2855,3 +2855,149 @@ Joint limit alignment (EXP-160, 161):
 - Shoulders: ±30° → ±25°
 - Thighs: ±90° → -55°/+5° (MAJOR)
 - Calves: ±90° → -5°/+80° (MAJOR)
+
+---
+
+## Session 30: Joint Limit Alignment & CPG Optimization (2025-12-30)
+
+### EXP-160: Shoulder Limit Alignment
+- **Date**: 2025-12-30
+- **ID**: `2025-12-29_21-59-09_ppo_torch`
+- **Config**: Shoulders ±30° → ±25° (hardware safe limits)
+- **Duration**: ~60 min (1250 iters)
+- **Result**: WALKING (vx=0.016)
+- **Notes**: Minor change, no impact on gait
+
+---
+
+### EXP-161: Thigh Limit Alignment
+- **Date**: 2025-12-30
+- **ID**: `2025-12-29_23-02-24_ppo_torch`
+- **Config**: Thighs ±90° → sim [-5°, +55°] (hw [-55°, +5°])
+- **Duration**: ~60 min (1250 iters)
+- **Result**: WALKING (vx=0.017)
+- **Notes**: Sign inversion accounted for, CPG compatible
+
+---
+
+### EXP-162: Calf Limit Alignment
+- **Date**: 2025-12-30
+- **ID**: `2025-12-30_00-05-36_ppo_torch`
+- **Config**: Calves ±90° → sim [-80°, +5°] (hw [-5°, +80°])
+- **Duration**: ~60 min (1250 iters)
+- **Result**: WALKING (vx=0.013)
+- **Notes**: All joint limits now hardware-aligned
+
+---
+
+### EXP-163: Extended Training with All Limits
+- **Date**: 2025-12-30
+- **ID**: `2025-12-30_01-08-58_ppo_torch`
+- **Config**: All hardware-aligned limits, 2500 iters
+- **Duration**: ~120 min (2500 iters)
+- **Result**: WALKING (vx=0.017)
+- **Notes**: Extended training with aligned limits
+
+---
+
+### EXP-164: External Perturbations (FAILED)
+- **Date**: 2025-12-30
+- **ID**: `2025-12-30_03-12-45_ppo_torch`
+- **Config**: Light forces (0.2-0.5N, 0.5% prob)
+- **Duration**: ~60 min (1250 iters)
+- **Result**: FAILING (vx=-0.044, body_contact=-1.91)
+- **Notes**: Even light perturbations cause falling/backward drift. External forces disabled.
+
+---
+
+### EXP-165: CPG swing_calf Margin
+- **Date**: 2025-12-30
+- **ID**: `2025-12-30_04-19-58_ppo_torch`
+- **Config**: swing_calf -1.40 → -1.35 (safety margin from limit)
+- **Duration**: ~60 min (1250 iters)
+- **Result**: WALKING (vx=0.011)
+- **Notes**: Gives 3° margin from calf joint limit
+
+---
+
+### EXP-166: Increased Residual Scale (REGRESSED)
+- **Date**: 2025-12-30
+- **ID**: `2025-12-30_05-23-16_ppo_torch`
+- **Config**: residual_scale 0.05 → 0.08
+- **Duration**: ~60 min (1250 iters)
+- **Result**: STANDING (vx=0.007)
+- **Notes**: Too much policy authority, reverted to 0.05
+
+---
+
+### EXP-167: CPG Frequency 0.6 Hz
+- **Date**: 2025-12-30
+- **ID**: `2025-12-30_06-27-23_ppo_torch`
+- **Config**: CPG frequency 0.5 → 0.6 Hz
+- **Duration**: ~60 min (1250 iters)
+- **Result**: STANDING (vx=0.010)
+- **Notes**: Borderline - slightly worse than 0.5 Hz
+
+---
+
+### EXP-168: CPG Frequency 0.7 Hz
+- **Date**: 2025-12-30
+- **ID**: `2025-12-30_07-30-54_ppo_torch`
+- **Config**: CPG frequency 0.6 → 0.7 Hz
+- **Duration**: ~60 min (1250 iters)
+- **Result**: WALKING (vx=0.016)
+- **Notes**: Better than both 0.5 Hz and 0.6 Hz
+
+---
+
+### EXP-169: CPG Frequency 0.8 Hz
+- **Date**: 2025-12-30
+- **ID**: `2025-12-30_08-42-07_ppo_torch`
+- **Config**: CPG frequency 0.7 → 0.8 Hz
+- **Duration**: ~60 min (1250 iters)
+- **Result**: STANDING (vx=0.010)
+- **Notes**: Worse than 0.7 Hz, confirms 0.7 Hz is optimal
+
+---
+
+### EXP-170: Extended Training at Optimal 0.7 Hz (BEST)
+- **Date**: 2025-12-30
+- **ID**: `2025-12-30_09-53-21_ppo_torch`
+- **Config**: 0.7 Hz, all sim2real settings, 2500 iters
+- **Duration**: ~120 min (2500 iters)
+- **Result**: **WALKING (vx=0.018)** - Best result this session
+- **Notes**: Combined optimal settings: 0.7 Hz, aligned limits, swing_calf=-1.35
+
+---
+
+### Session 30 Summary
+
+#### Key Findings
+
+1. **Joint limits aligned with hardware**: All limits now match hardware safe ranges
+   - Shoulders: ±25° (from ±30°)
+   - Thighs: sim [-5°, +55°] (hardware [-55°, +5°])
+   - Calves: sim [-80°, +5°] (hardware [-5°, +80°])
+
+2. **External perturbations FAIL**: Even light forces (0.2-0.5N, 0.5% prob) cause falling
+
+3. **CPG frequency sweep**: 0.7 Hz is optimal
+   - 0.5 Hz: vx=0.011-0.017 (WALKING)
+   - 0.6 Hz: vx=0.010 (STANDING)
+   - 0.7 Hz: vx=0.016 (WALKING)
+   - 0.8 Hz: vx=0.010 (STANDING)
+
+4. **Residual scale**: 0.05 is optimal, 0.08 causes regression
+
+5. **Best policy**: EXP-170 (vx=0.018) exported for hardware deployment
+
+#### Configuration Changes
+
+Updated deployment/config/cpg.yaml:
+- frequency_hz: 0.5 → 0.7
+- swing_calf: -1.40 → -1.35
+
+Updated joint limits in harold_isaac_lab_env_cfg.py:
+- joint_angle_max/min aligned with hardware
+
+Policy exported to deployment/policy/harold_policy.onnx

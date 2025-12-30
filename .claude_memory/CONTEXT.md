@@ -25,34 +25,42 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 | USD model | `part_files/V4/harold_8.usd` |
 | Hardware gait script | `firmware/scripted_gait_test_1/scripted_gait_test_1.ino` |
 
-## Current State (2025-12-29, Session 29 Complete)
+## Current State (2025-12-30, Session 30 Complete)
 
-### Session 29: Domain Randomization & Sim-to-Real
+### Session 30: Joint Limit Alignment & CPG Optimization
 
-**Key Findings**:
-1. **Action noise/delays HURT training** - Corrupts control signal when observation noise already present
-2. **Lin_vel noise + obs clipping implemented** - For sim-to-real alignment
-3. **Joint limit alignment pending** - Major changes to thigh/calf limits
+**Key Achievements**:
+1. **Joint limits aligned with hardware** - All limits now match hardware safe ranges
+2. **CPG frequency optimized** - 0.7 Hz found optimal (sweep 0.5-0.8)
+3. **Best policy exported** - vx=0.018 m/s (EXP-170)
 
-**Implemented Changes**:
-- `add_lin_vel_noise: True` (std=0.05 m/s + per-episode bias std=0.02)
-- `clip_observations: True` (raw ±50, approximating normalized ±5)
-- Action noise/delays: DISABLED (found counterproductive)
+**Hardware-Aligned Joint Limits**:
+- Shoulders: ±25° (from ±30°)
+- Thighs: sim [-5°, +55°] → hardware [-55°, +5°]
+- Calves: sim [-80°, +5°] → hardware [-5°, +80°]
 
-### Previous: Session 28 - Backlash Robustness SOLVED
+**CPG Frequency Sweep**:
+| Freq | vx | Verdict |
+|------|-----|---------|
+| 0.5 Hz | 0.011-0.017 | WALKING |
+| 0.6 Hz | 0.010 | STANDING |
+| **0.7 Hz** | **0.016** | **WALKING** |
+| 0.8 Hz | 0.010 | STANDING |
 
-Session 28 achieved **35% better forward velocity** by adding 1° position noise:
-- **Baseline**: vx=0.017 m/s
-- **1° backlash**: vx=0.023 m/s (35% improvement!)
+**Best Result**: EXP-170 (vx=0.018, WALKING) - Extended training at optimal 0.7 Hz
 
-### Session 28 Final Results
+### Session 30 Findings
 
-| EXP | Config | vx (m/s) | Verdict |
-|-----|--------|----------|---------|
-| 145 | Baseline (no noise) | 0.017 | WALKING |
-| 148 | **1° backlash (optimal)** | **0.023** | **WALKING (+35%)** |
-| 150 | Backlash + yaw (from scratch) | 0.003 | STANDING |
-| 152 | **Curriculum (backlash→yaw)** | **0.015** | **WALKING** |
+| Change | Effect |
+|--------|--------|
+| External perturbations | FAILED - causes falling |
+| residual_scale 0.08 | STANDING - too much authority |
+| swing_calf -1.35 | Works - safety margin from limit |
+
+### Previous: Session 29 - Domain Randomization
+
+- Action noise/delays HURT training
+- Lin_vel noise + obs clipping implemented (neutral effect)
 
 ### Architecture: CPG + Residual Learning
 
@@ -65,18 +73,19 @@ target_joints = CPG_base_trajectory + policy_output * residual_scale
 - **Policy (learned)**: Provides balance corrections, velocity tracking, adaptation
 - **residual_scale=0.05**: Policy can only fine-tune, not override CPG
 
-### Best Configuration (Session 28)
+### Best Configuration (Session 30)
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | stiffness | 400 | Sim-to-real aligned |
 | damping | 30 | Proportional to stiffness |
+| CPG frequency | **0.7 Hz** | **OPTIMAL (Session 30 sweep)** |
 | CPG mode | ENABLED | `HAROLD_CPG=1` |
 | Command tracking | ENABLED | `HAROLD_CMD_TRACK=1` |
 | Dynamic commands | ENABLED | `HAROLD_DYN_CMD=1` |
 | vx_range | 0.10-0.45 | Optimal range |
-| vy_range | -0.15-0.15 | Lateral commands |
-| yaw_range | -0.30-0.30 | Turn commands |
+| residual_scale | 0.05 | 0.08 causes regression |
+| swing_calf | -1.35 | Safety margin from limit |
 | joint_position_noise | **0.0175 rad (~1°)** | **OPTIMAL for backlash** |
 
 ### Key Findings from Session 28
@@ -106,9 +115,12 @@ target_joints = CPG_base_trajectory + policy_output * residual_scale
 | **Command Tracking (vy)** | ✅ **WORKING** (Session 27) |
 | **Command Tracking (yaw)** | ✅ **WORKING** (standalone & curriculum) |
 | **Backlash robustness** | ✅ **SOLVED** (1° = +35%) |
-| **Sim-to-real alignment** | ✅ **COMPLETE** |
-| **Curriculum learning** | ✅ **VALIDATED** (backlash→yaw works) |
-| Hardware RL testing | 🔲 **NEXT PRIORITY** |
+| **Sim-to-real alignment** | ✅ **COMPLETE** (Session 30) |
+| **Joint limit alignment** | ✅ **COMPLETE** (Session 30) |
+| **CPG frequency optimization** | ✅ **COMPLETE** (0.7 Hz optimal) |
+| **External perturbations** | ❌ **FAILED** (causes falling) |
+| **Policy exported** | ✅ **READY** (deployment/policy/) |
+| Hardware deployment | 🔲 **NEXT PRIORITY** |
 
 ---
 

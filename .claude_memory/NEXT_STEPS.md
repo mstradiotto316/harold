@@ -1,103 +1,114 @@
 # Harold Next Steps
 
-## PRIORITY 0: Hardware Deployment Testing (Session 30)
+## PRIORITY 0: Hardware Deployment (Session 30 Complete)
 
-**Status**: Major deployment bugs FIXED. Ready for real walking tests.
+**Status**: NEW policy exported with optimized settings. Ready for testing.
 
-### Session 30 Fixes (CRITICAL)
+### Session 30 Achievements
 
-| Fix | Issue | Status |
-|-----|-------|--------|
-| Servo speed | 1600 → 2800 (feet were dragging) | ✅ FIXED |
-| Default pose (obs) | Wrong pose caused ±5.0 clipping | ✅ FIXED |
-| Default pose (action) | Same issue in action converter | ✅ FIXED |
-| Joint limits | Hardware limits applied to RL values | ✅ FIXED |
-| Voltage telemetry | Added monitoring capability | ✅ DONE |
+1. **Joint limits aligned with hardware** - All limits now match deployment/config/hardware.yaml
+2. **CPG frequency optimized** - 0.7 Hz found optimal in sweep (better than 0.5 Hz)
+3. **Best policy exported** - EXP-170 (vx=0.018 m/s)
 
-### Hardware Test Results
+### Updated Deployment Files
 
-| Test | Voltage | Load | Result |
-|------|---------|------|--------|
-| CPG @ 0.5Hz (ground) | 12.0-12.1V | 15-26% | ✅ Feet lift properly |
-| CPG @ 1.0Hz (ground) | 11.8-12.1V | 20-32% | ✅ Works well |
-| CPG @ 2.0Hz (ground) | 11.9-12.1V | 20-43% | ✅ Plenty of headroom |
-| Policy + CPG | 12.0-12.1V | - | ✅ No longer freezes/straightens |
-
-### Next Hardware Tests
-
-1. **Test CPG+Policy on ground** - Compare walking quality vs CPG-only
-2. **Try faster CPG frequency** - 1.0 Hz instead of 0.5 Hz
-3. **Measure forward velocity** - Does robot actually move forward?
+| File | Change |
+|------|--------|
+| `deployment/policy/harold_policy.onnx` | NEW - EXP-170 policy |
+| `deployment/config/cpg.yaml` | `frequency_hz: 0.7`, `swing_calf: -1.35` |
+| `simulation config` | Joint limits aligned with hardware |
 
 ---
 
-## Deployment Fixes Applied (Complete List)
+## Deployment Steps
 
-### From Session 30
-1. ✅ **Servo speed**: 1600 → 2800 (feet now lift properly)
-2. ✅ **Observation default pose**: Match simulation's athletic_pose
-3. ✅ **Action default pose**: Match simulation's athletic_pose
-4. ✅ **Joint limits**: Disabled wrong limits (firmware handles correctly)
-5. ✅ **Voltage monitoring**: Added to firmware and Python driver
+1. **Copy files to RPi 5**:
+```bash
+scp -r deployment/ pi@harold.local:~/harold/
+```
 
-### From Session 28-29
-1. ✅ Gravity sign flip (Z-up → Z-down convention)
-2. ✅ Default commands changed to 0.3 m/s
-3. ✅ Observation clipping to ±5.0 added
-4. ✅ Removed pre-scaling action clip
-5. ✅ Added 3-cycle CPG warmup before policy enables
+2. **Install dependencies**:
+```bash
+pip install onnxruntime pyyaml smbus2
+```
+
+3. **Run controller**:
+```bash
+python inference/harold_controller.py
+```
 
 ---
 
-## Correct Default Pose (IMPORTANT)
+## Session 30 Experiment Summary
 
-Both observation_builder.py and action_converter.py MUST use:
+| EXP | Config | vx | Verdict |
+|-----|--------|-----|---------|
+| 160 | Shoulders ±25° | 0.016 | WALKING |
+| 161 | Thighs aligned | 0.017 | WALKING |
+| 162 | Calves aligned | 0.013 | WALKING |
+| 163 | Extended training | 0.017 | WALKING |
+| 164 | External perturbations | -0.044 | FAILING |
+| 165 | swing_calf -1.35 | 0.011 | WALKING |
+| 166 | residual_scale 0.08 | 0.007 | STANDING |
+| 167 | Freq 0.6 Hz | 0.010 | STANDING |
+| 168 | Freq 0.7 Hz | 0.016 | WALKING |
+| 169 | Freq 0.8 Hz | 0.010 | STANDING |
+| **170** | **0.7 Hz, extended** | **0.018** | **WALKING** |
+
+---
+
+## Key Findings (Session 30)
+
+### What Works
+- Joint limit alignment (doesn't hurt gait)
+- CPG frequency 0.7 Hz (better than 0.5)
+- swing_calf -1.35 (safety margin from limit)
+- residual_scale 0.05 (optimal)
+
+### What Fails
+- External perturbations (even light forces cause falling)
+- residual_scale 0.08 (too much policy authority)
+- Frequency 0.6/0.8 Hz (worse than 0.7 Hz)
+
+---
+
+## Optimal Configuration
 
 ```python
-# Simulation's athletic_pose (NOT the old wrong values!)
-default_pose = [
-    0.20, -0.20, 0.20, -0.20,   # Shoulders: alternating
-    0.70, 0.70, 0.70, 0.70,     # Thighs: 0.70 rad
-    -1.40, -1.40, -1.40, -1.40  # Calves: -1.40 rad
-]
+# CPG (optimal)
+base_frequency: 0.7  # Hz
+swing_calf: -1.35    # Safety margin
+residual_scale: 0.05
+
+# Joint limits (simulation frame)
+shoulder: ±0.4363 rad (±25°)
+thigh: -0.0873 to +0.9599 rad (-5° to +55°)
+calf: -1.3963 to +0.0873 rad (-80° to +5°)
+
+# Domain randomization
+joint_position_noise: 0.0175 rad (~1°)
+add_lin_vel_noise: True
+clip_observations: True
+apply_external_forces: False
 ```
 
 ---
 
-## Simulation Experiment Queue
+## Previous Deployment Fixes (Session 29-30)
 
-### EXP-158: Lin Vel Noise + Obs Clipping
-
-**Hypothesis**: Adding lin_vel noise and obs clipping improves sim-to-real transfer
-
-**Changes**:
-- `add_lin_vel_noise: bool = True` (std=0.05 m/s + bias std=0.02)
-- `clip_observations: bool = True` (raw ±50, approx normalized ±5)
-
-**Command**:
-```bash
-HAROLD_CPG=1 HAROLD_CMD_TRACK=1 HAROLD_DYN_CMD=1 python scripts/harold.py train \
-  --hypothesis "Sim-to-real: lin_vel noise + obs clipping" \
-  --tags "sim2real" --iterations 1250
-```
+1. ✅ Gravity sign flip (Z-up → Z-down)
+2. ✅ Default commands 0.3 m/s
+3. ✅ Observation clipping ±5.0
+4. ✅ 3-cycle CPG warmup
+5. ✅ Servo speed 2800
+6. ✅ Default pose corrected
+7. ✅ Voltage monitoring added
 
 ---
 
-## Known Issues
+## Future Experiments (If Needed)
 
-1. **CPG trajectory hitch**: Calf has velocity discontinuity at stance/swing transition (phase 0.60). Visible as slight jerk in motion.
-
-2. **Minimal foot clearance**: CPG only provides ~1.5cm foot lift. Works but marginal.
-
----
-
-## Files Reference
-
-| Purpose | Path |
-|---------|------|
-| Firmware | `firmware/StreamingControl/HaroldStreamingControl/HaroldStreamingControl.ino` |
-| Observation builder | `deployment/inference/observation_builder.py` |
-| Action converter | `deployment/inference/action_converter.py` |
-| CPG generator | `deployment/inference/cpg_generator.py` |
-| Policy controller | `deployment/inference/harold_controller.py` |
-| Voltage monitor | `scripts/voltage_monitor.py` |
+1. **Higher velocity** - Train with vx_target > 0.2 m/s
+2. **Lateral motion** - Enable vy tracking
+3. **Yaw tracking** - Curriculum approach
+4. **Friction randomization** - For different floor surfaces

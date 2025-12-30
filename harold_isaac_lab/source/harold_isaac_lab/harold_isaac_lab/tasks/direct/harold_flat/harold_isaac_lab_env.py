@@ -330,7 +330,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._randomized_mass_scale = torch.ones(self.num_envs, device=self.device)
         self._randomized_stiffness = torch.ones(self.num_envs, 12, device=self.device) * default_stiffness
         self._randomized_damping = torch.ones(self.num_envs, 12, device=self.device) * default_damping
-        
+
+        # Linear velocity bias buffer (per-episode calibration error)
+        # Session 29: Hardware IMU has per-session calibration drift
+        self._lin_vel_bias = torch.zeros(self.num_envs, 3, device=self.device)
+
         # Action delay buffer for simulating control latency
         if cfg.domain_randomization.add_action_delay:
             max_delay = cfg.domain_randomization.action_delay_steps[1]
@@ -995,7 +999,15 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Apply observation noise if domain randomization is enabled
         if self.cfg.domain_randomization.enable_randomization:
             obs = self._add_observation_noise(obs)
-        
+
+        # Apply observation clipping if enabled (matches deployment)
+        # Session 29: Hardware deployment clips normalized obs to ±5.0
+        # We clip raw obs at ±50 to approximate effect (before normalization)
+        if getattr(self.cfg, 'clip_observations', False):
+            clip_val = getattr(self.cfg, 'clip_observations_value', 5.0)
+            # Use 10x clip_val for raw obs (pre-normalization approximation)
+            obs = torch.clamp(obs, -clip_val * 10, clip_val * 10)
+
         observations = {"policy": obs}
 
         # Update previous actions
@@ -1619,6 +1631,14 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                     delay_min, delay_max + 1, (len(env_ids),), device=self.device
                 )
 
+        # Randomize lin_vel bias per-episode (always when DR enabled)
+        # Session 29: Hardware IMU has calibration drift that persists per-episode
+        if dr.enable_randomization and getattr(dr, 'add_lin_vel_noise', False):
+            bias_std = getattr(dr, 'lin_vel_bias_std', 0.02)
+            self._lin_vel_bias[env_ids] = torch.randn(
+                len(env_ids), 3, device=self.device
+            ) * bias_std
+
         self._time[env_ids] = 0
 
         # Reset diagonal gait tracking (EXP-055)
@@ -1730,7 +1750,19 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             return observations
             
         noisy_obs = observations.clone()
-        
+
+        # Add linear velocity noise (indices 0-3)
+        # Session 29: Hardware IMU computes lin_vel via accelerometer integration
+        # which is inherently noisy and has per-episode calibration drift
+        dr = self.cfg.domain_randomization
+        if getattr(dr, 'add_lin_vel_noise', False):
+            noisy_obs[:, 0:3] = gaussian_noise(
+                observations[:, 0:3],
+                dr.lin_vel_noise
+            )
+            # Add per-episode bias (calibration error)
+            noisy_obs[:, 0:3] += self._lin_vel_bias
+
         # Add IMU noise (angular velocity: indices 3-6, gravity: indices 6-9)
         if self.cfg.domain_randomization.add_imu_noise:
             # Angular velocity noise

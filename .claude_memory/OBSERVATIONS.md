@@ -1567,3 +1567,62 @@ The Harold walking gait is a combination of:
 The `residual_scale=0.05` limits policy authority to fine-tuning only. This prevents the policy from reversing or dramatically altering the proven CPG trajectory.
 
 **Implication**: The vx=0.023 achievement comes from the policy learning to USE the CPG trajectory effectively, not from learning a gait from scratch.
+
+---
+
+## Session 29 Observations (2025-12-29)
+
+### Observation: Action-Side Randomization Hurts Training
+
+**Finding**: Adding noise to actions or control delays hurts training when observation noise is already present.
+
+| EXP | Config | vx | Verdict |
+|-----|--------|-----|---------|
+| 154 | Action noise 0.5% | 0.007 | STANDING |
+| 155 | Action noise 0.2% | 0.009 | STANDING |
+| 156 | Action delay 0-1 steps | 0.008 | STANDING |
+
+**Why Action Noise Hurts**:
+- Corrupts the control signal the policy is trying to learn
+- Combined with observation noise = too much uncertainty
+- Policy can't determine cause-and-effect between actions and outcomes
+
+**Why Observation Noise Works**:
+- Forces policy to be robust to sensing uncertainty
+- Still allows producing clean, correct actions
+- Acts as regularization, not confusion
+
+### Observation: Lin Vel Noise for Sim-to-Real
+
+**Finding**: Hardware IMU computes linear velocity via accelerometer integration (noisy, drifts), while simulation uses perfect physics velocity.
+
+**Solution Implemented**:
+- `add_lin_vel_noise: True` (std=0.05 m/s)
+- `lin_vel_bias_std: 0.02` (per-episode calibration drift)
+
+**Training Result**: EXP-159 achieved vx=0.008 (similar to baseline) - neutral effect.
+
+### Observation: Observation Clipping for Sim-to-Real
+
+**Finding**: Deployment clips normalized observations to ±5.0, training had no clipping.
+
+**Solution Implemented**:
+- `clip_observations: True`
+- `clip_observations_value: 5.0` (raw clip at ±50)
+
+### Observation: Late-Training Regression Pattern
+
+All domain randomization experiments showed the same pattern:
+- Peak vx at 40-70% training (~0.013-0.015)
+- Final regression to vx~0.008-0.009
+
+This is a PPO training dynamics issue, not specific to domain randomization.
+
+### New Hypotheses (Session 29)
+
+| ID | Hypothesis | Status |
+|----|------------|--------|
+| **H-S29-1** | Action noise hurts when observation noise present | **CONFIRMED** |
+| **H-S29-2** | Lin vel noise is neutral for training | **CONFIRMED** |
+| **H-S29-3** | Observation clipping is neutral for training | **CONFIRMED** |
+| **H-S29-4** | Joint limit alignment may require CPG retuning | TO TEST |

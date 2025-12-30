@@ -2790,3 +2790,68 @@ command_tracking_sigma_yaw: 0.2
 |--------|--------|-----|----------|
 | EXP-148 | Backlash only | 0.023 | Hardware testing |
 | EXP-152 | Curriculum (backlash+yaw) | 0.015 | Full controllability |
+
+---
+
+## Session 29: Domain Randomization & Sim-to-Real
+
+### EXP-154: Action Noise 0.5%
+- **Date**: 2025-12-29
+- **Config**: add_action_noise=True, std=0.005
+- **Duration**: ~60 min (1250 iters)
+- **Result**: STANDING (vx=0.007)
+- **Notes**: Action noise hurts training - corrupts control signal
+
+---
+
+### EXP-155: Action Noise 0.2%
+- **Date**: 2025-12-29
+- **Config**: add_action_noise=True, std=0.002
+- **Duration**: ~60 min (1250 iters)
+- **Result**: STANDING (vx=0.009)
+- **Notes**: Still hurts - even lower noise is counterproductive
+
+---
+
+### EXP-156: Action Delay 0-1 Steps
+- **Date**: 2025-12-29
+- **Config**: add_action_delay=True, steps=(0,1)
+- **Duration**: ~60 min (1250 iters)
+- **Result**: STANDING (vx=0.008)
+- **Notes**: Control delays also hurt training
+
+---
+
+### EXP-159: Lin Vel Noise + Obs Clipping
+- **Date**: 2025-12-29
+- **Config**: add_lin_vel_noise=True (std=0.05), clip_observations=True
+- **Duration**: ~60 min (1250 iters)
+- **Result**: STANDING (vx=0.008)
+- **Notes**:
+  - Doesn't hurt training (unlike action noise)
+  - Peak at 71% was vx=0.014 (WALKING)
+  - Same late-training regression pattern
+  - Implemented for sim-to-real transfer
+
+---
+
+### Session 29 Summary
+
+#### Key Findings
+
+1. **Action noise/delays hurt training**: Corrupts control signal when observation noise already present
+2. **Observation noise helps**: Regularization effect (Session 28 finding)
+3. **Lin_vel noise + obs clipping**: Neutral - doesn't hurt training, useful for sim-to-real
+
+#### Sim-to-Real Implementation
+
+New configs added:
+- `add_lin_vel_noise`: True (std=0.05 m/s + per-episode bias std=0.02)
+- `clip_observations`: True (raw ±50, approximating normalized ±5)
+
+#### Pending Changes
+
+Joint limit alignment (EXP-160, 161):
+- Shoulders: ±30° → ±25°
+- Thighs: ±90° → -55°/+5° (MAJOR)
+- Calves: ±90° → -5°/+80° (MAJOR)

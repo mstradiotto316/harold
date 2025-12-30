@@ -1920,22 +1920,23 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             force_min, force_max = self.cfg.domain_randomization.external_force_range
             torque_min, torque_max = self.cfg.domain_randomization.external_torque_range
             
-            forces = torch.zeros(self.num_envs, 3, device=self.device)
-            torques = torch.zeros(self.num_envs, 3, device=self.device)
-            
+            # Shape: [num_envs, num_bodies, 3] - required by Isaac Lab API
+            forces = torch.zeros(self.num_envs, 1, 3, device=self.device)
+            torques = torch.zeros(self.num_envs, 1, 3, device=self.device)
+
             # Generate random forces for selected environments
             num_forced = apply_force.sum()
-            forces[apply_force, :2] = sample_uniform(
+            forces[apply_force, 0, :2] = sample_uniform(
                 -force_max, force_max, (num_forced, 2), self.device
             )
-            forces[apply_force, 2] = sample_uniform(
+            forces[apply_force, 0, 2] = sample_uniform(
                 force_min, force_max, (num_forced,), self.device
             )
-            
-            torques[apply_force] = sample_uniform(
+
+            torques[apply_force, 0] = sample_uniform(
                 -torque_max, torque_max, (num_forced, 3), self.device
             )
-            
+
             # Apply forces to robot base
             self._robot.set_external_force_and_torque(
                 forces, torques, body_ids=[self._base_id[0]]

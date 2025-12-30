@@ -47,10 +47,11 @@ class ActionConfig:
             }
 
         if self.default_pose is None:
+            # MUST match simulation's athletic_pose!
             self.default_pose = np.array([
-                0.0, 0.0, 0.0, 0.0,       # Shoulders
-                0.3, 0.3, 0.3, 0.3,       # Thighs
-                -0.75, -0.75, -0.75, -0.75  # Calves
+                0.20, -0.20, 0.20, -0.20,   # Shoulders: alternating (matches sim)
+                0.70, 0.70, 0.70, 0.70,     # Thighs: 0.70 rad (matches sim)
+                -1.40, -1.40, -1.40, -1.40  # Calves: -1.40 rad (matches sim)
             ], dtype=np.float32)
 
         if self.joint_sign is None:
@@ -215,8 +216,9 @@ class ActionConverter:
             scaled = self._smooth_action * action_scale * self._joint_ranges
             targets = self.cfg.default_pose + scaled
 
-        # Apply safety limits
-        targets = self._apply_limits(targets)
+        # NOTE: Don't apply limits here - firmware already has correct limits
+        # in hardware convention. Applying RL-convention limits here was wrong.
+        # targets = self._apply_limits(targets)
 
         return targets.astype(np.float32)
 

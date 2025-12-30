@@ -4,7 +4,7 @@
  * - Commands: 12 joint radians in RL order [shoulders 4][thighs 4][calves 4], comma separated, terminated with '#'
  * - Keywords: "START#" enables command execution, "STOP#" disables and returns to nominal stance
  * - Watchdog: if no command within 250 ms, revert to safe stance and pause streaming
- * - Telemetry: every 50 ms send TELEM packet with joint rad (RL sign), load (percent), current (mA), temperature (C)
+ * - Telemetry: every 50 ms send TELEM packet with joint rad (RL sign), load (percent), current (mA), temperature (C), bus voltage (decivolts)
  */
 #include <SCServo.h>
 #include <cmath>
@@ -52,7 +52,7 @@ const float THIGH_MAX_DEG    =   5.0f;  // Backward limit - HITS BODY beyond thi
 const float CALF_MIN_DEG     =  -5.0f;  // Extension limit
 const float CALF_MAX_DEG     =  80.0f;  // Bend limit
 
-const uint16_t SERVO_SPEED = 1600;
+const uint16_t SERVO_SPEED = 2800;  // ~246°/sec (was 1600 = 140°/sec)
 const uint16_t SERVO_ACC   = 100;
 const uint16_t TORQUE_LIMIT = 1000;  // 100% max torque (0-1000 scale)
 const int SERVO_MID        = 2047;
@@ -73,6 +73,7 @@ struct ServoDiag {
   int load;        // -1000 .. 1000
   int current_mA;
   int temp_C;
+  int voltage_dV;  // bus voltage in decivolts (120 = 12.0V)
 };
 
 // --- Helpers ----------------------------------------------------------------
@@ -156,13 +157,14 @@ ServoDiag readServoDiag(int index) {
   d.ok = (res >= 0);
   if (!d.ok) {
     d.pos_rad = latest_targets[index];
-    d.load = d.current_mA = d.temp_C = 0;
+    d.load = d.current_mA = d.temp_C = d.voltage_dV = 0;
     return d;
   }
   int pos_units = st.ReadPos(-1);
   int load_raw  = st.ReadLoad(-1);
   int current   = st.ReadCurrent(-1);
   int temp      = st.ReadTemper(-1);
+  int voltage   = st.ReadVoltage(-1);  // Bus voltage in decivolts
 
   float deg = DIR_TABLE[id] * (pos_units - SERVO_MID) / UNITS_PER_DEG;
   float rad = deg * M_PI / 180.0f;
@@ -170,6 +172,7 @@ ServoDiag readServoDiag(int index) {
   d.load = load_raw;
   d.current_mA = current;
   d.temp_C = temp;
+  d.voltage_dV = voltage;
   return d;
 }
 
@@ -182,6 +185,15 @@ void sendTelemetry() {
   for (int i = 0; i < 12; ++i) {
     diag[i] = readServoDiag(i);
   }
+
+  // Find minimum bus voltage across all servos (worst case)
+  int min_voltage = 255;
+  for (int i = 0; i < 12; ++i) {
+    if (diag[i].ok && diag[i].voltage_dV > 0 && diag[i].voltage_dV < min_voltage) {
+      min_voltage = diag[i].voltage_dV;
+    }
+  }
+  if (min_voltage == 255) min_voltage = 0;  // No valid readings
 
   Serial.print("TELEM,");
   Serial.print(now);
@@ -200,9 +212,10 @@ void sendTelemetry() {
   }
   for (int i = 0; i < 12; ++i) {
     Serial.print(diag[i].temp_C);
-    if (i < 11) Serial.print(',');
+    Serial.print(',');
   }
-  Serial.println();
+  // Append bus voltage as final field (decivolts, e.g., 120 = 12.0V)
+  Serial.println(min_voltage);
 }
 
 void applyStop() {

@@ -42,10 +42,11 @@ class ObservationConfig:
     def __post_init__(self):
         if self.default_pose is None:
             # [shoulders(4), thighs(4), calves(4)]
+            # MUST match simulation's athletic_pose for correct observation computation!
             self.default_pose = np.array([
-                0.0, 0.0, 0.0, 0.0,       # Shoulders
-                0.3, 0.3, 0.3, 0.3,       # Thighs
-                -0.75, -0.75, -0.75, -0.75  # Calves
+                0.20, -0.20, 0.20, -0.20,   # Shoulders: alternating (matches sim)
+                0.70, 0.70, 0.70, 0.70,     # Thighs: 0.70 rad (matches sim)
+                -1.40, -1.40, -1.40, -1.40  # Calves: -1.40 rad (matches sim)
             ], dtype=np.float32)
 
         if self.default_commands is None:

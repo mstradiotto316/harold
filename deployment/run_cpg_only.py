@@ -78,12 +78,21 @@ def main():
 
         loop_count += 1
 
-        # Log every 2 seconds
-        if loop_count % 40 == 0:
+        # Log every 0.5 seconds
+        if loop_count % 10 == 0:
             elapsed = time.time() - start_time
             rate = loop_count / elapsed
             telem = esp32.read_telemetry()
-            print(f"t={elapsed:.1f}s | rate={rate:.1f}Hz | phase={cpg.phase:.2f}")
+            if telem.valid:
+                import numpy as np
+                abs_loads = np.abs(telem.loads) / 10.0  # Convert to %
+                max_load = np.max(abs_loads)
+                avg_load = np.mean(abs_loads)
+                voltage = telem.voltage_V
+                v_str = f"{voltage:.1f}V" if voltage > 0 else "N/A"
+                print(f"t={elapsed:.1f}s | {v_str} | load: max={max_load:.0f}% avg={avg_load:.0f}% | phase={cpg.phase:.2f}")
+            else:
+                print(f"t={elapsed:.1f}s | rate={rate:.1f}Hz | phase={cpg.phase:.2f}")
 
         # Maintain 20 Hz
         time.sleep(0.05)

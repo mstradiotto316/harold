@@ -220,11 +220,11 @@ class ScriptedGaitCfg:
     enabled: bool = False
 
     # Gait parameters validated on real hardware (Session 22)
-    frequency: float = 0.5  # 0.5 Hz gait (matches real servo response)
+    frequency: float = 0.7  # EXP-170: Optimal frequency (0.7 Hz best in sweep)
     swing_thigh: float = 0.40    # Thigh back during swing
     stance_thigh: float = 0.90   # Thigh forward during stance
     stance_calf: float = -0.90   # More extended stance
-    swing_calf: float = -1.40    # Bent during swing (was -1.55, reduced to match HW CALF_MAX=80°)
+    swing_calf: float = -1.35    # Bent during swing (EXP-165: reduced from -1.40 for safety margin)
     shoulder_amplitude: float = 0.05  # Reduced shoulder motion
     duty_cycle: float = 0.6
 
@@ -249,20 +249,20 @@ class CPGCfg:
     enabled: bool = False  # Set True via env var HAROLD_CPG=1
 
     # Base gait parameters - ALIGNED WITH ScriptedGaitCfg (Session 22 validated)
-    base_frequency: float = 0.5  # Hz - same as ScriptedGaitCfg (was 1.0)
+    base_frequency: float = 0.7  # Hz - EXP-170: Optimal (best in sweep)
     duty_cycle: float = 0.6      # 60% stance, 40% swing
 
     # Trajectory parameters - EXACT COPY from ScriptedGaitCfg (proven on hardware)
     swing_thigh: float = 0.40     # Thigh back during swing
     stance_thigh: float = 0.90    # Thigh forward during stance
     stance_calf: float = -0.90    # Extended during stance
-    swing_calf: float = -1.40     # Bent during swing (matched to HW CALF_MAX=80°)
+    swing_calf: float = -1.35     # Bent during swing (EXP-165: margin from limit)
     shoulder_amplitude: float = 0.05  # Same as ScriptedGaitCfg
 
     # Residual scaling - how much the policy can adjust the CPG trajectory
     # EXP-126: 0.15 allowed policy to reverse CPG motion (vx=-0.018)
     # Lowering to 0.05 to limit policy authority - can only fine-tune, not override
-    residual_scale: float = 0.05  # Very conservative (was 0.15)
+    residual_scale: float = 0.05  # EXP-166: 0.08 regressed, 0.05 is optimal
 
 
 @configclass
@@ -428,11 +428,12 @@ class DomainRandomizationCfg:
     action_delay_steps: tuple = (0, 1)        # Not used when disabled
 
     # === EXTERNAL DISTURBANCES ===
-    # EXP-157: External perturbations (pushes) - disabled for sim-to-real focus
-    apply_external_forces: bool = False       # Disabled - focus on sim-to-real first
-    external_force_probability: float = 0.01  # 1% per step when enabled
-    external_force_range: tuple = (0.3, 1.0)  # 0.3-1.0 N forces when enabled
-    external_torque_range: tuple = (0.05, 0.2) # 0.05-0.2 Nm torques when enabled
+    # EXP-164: External perturbations FAILED - caused falling and backward drift
+    # Even light forces (0.2-0.5N, 0.5% prob) broke training
+    apply_external_forces: bool = False       # DISABLED - causes instability
+    external_force_probability: float = 0.005 # 0.5% per step (conservative)
+    external_force_range: tuple = (0.2, 0.5)  # Light forces (0.2-0.5 N)
+    external_torque_range: tuple = (0.02, 0.1) # Light torques (0.02-0.1 Nm)
     
     # === TERRAIN RANDOMIZATION ===
     add_terrain_noise: bool = False           # Add height noise to terrain
@@ -586,13 +587,15 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # Joint limits (Session 30: aligned with hardware safe limits)
     # Sign convention: thighs/calves are inverted between sim and hardware
     # Hardware limits from deployment/config/hardware.yaml
+    # thigh hardware: [-55°, +5°] → sim: [-5°, +55°] = [-0.0873, +0.9599] rad
+    # calf hardware: [-5°, +80°] → sim: [-80°, +5°] = [-1.3963, +0.0873] rad
     joint_angle_max: tuple = (
         0.4363, 0.4363, 0.4363, 0.4363,  # shoulders: ±25° (hardware safe limit)
-        1.5708, 1.5708, 1.5708, 1.5708,  # thighs: ±90° (pending alignment)
-        1.5708, 1.5708, 1.5708, 1.5708   # calves: ±90° (pending alignment)
+        0.9599, 0.9599, 0.9599, 0.9599,  # thighs: sim +55° (hw -55°)
+        0.0873, 0.0873, 0.0873, 0.0873   # calves: sim +5° (hw -5°)
     )
     joint_angle_min: tuple = (
         -0.4363, -0.4363, -0.4363, -0.4363,  # shoulders: ±25°
-        -1.5708, -1.5708, -1.5708, -1.5708,  # thighs: pending
-        -1.5708, -1.5708, -1.5708, -1.5708   # calves: pending
+        -0.0873, -0.0873, -0.0873, -0.0873,  # thighs: sim -5° (hw +5°)
+        -1.3963, -1.3963, -1.3963, -1.3963   # calves: sim -80° (hw +80°)
     )

@@ -1,8 +1,8 @@
-# CPG Configuration - Matched to simulation (Session 24)
+# CPG Configuration - Matched to simulation (Session 30)
 # DO NOT MODIFY without updating simulation CPGCfg
 
 # Gait timing
-frequency_hz: 0.5        # Gait frequency (2 second cycle)
+frequency_hz: 0.7        # Gait frequency (Session 30: optimal in 0.5-0.8 sweep)
 duty_cycle: 0.6          # 60% stance, 40% swing
 
 # Leg trajectory angles (radians)
@@ -10,11 +10,11 @@ trajectory:
   swing_thigh: 0.40      # Thigh angle during swing phase
   stance_thigh: 0.90     # Thigh angle during stance phase
   stance_calf: -0.90     # Calf angle during stance phase
-  swing_calf: -1.40      # Calf angle during swing phase
+  swing_calf: -1.35      # Calf angle during swing phase (Session 30: margin from limit)
   shoulder_amplitude: 0.05  # Shoulder oscillation amplitude
 
 # Residual learning
-residual_scale: 0.05     # Policy output multiplier (very conservative)
+residual_scale: 0.05     # Policy output multiplier (Session 30: 0.08 regressed)
 
 # Control loop
 control:

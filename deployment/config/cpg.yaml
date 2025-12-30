@@ -27,8 +27,30 @@ joint_range:
   thigh: 0.90            # ±0.90 rad from default
   calf: 0.90             # ±0.90 rad from default
 
-# Default joint positions (athletic stance)
-default_pose:
+# Default joint positions - TWO CONVENTIONS
+# Hardware convention: what the servo encoders read at rest
+# RL convention: what the simulation training used
+# The relationship: hw = hw_default + (rl - rl_default) * joint_sign
+
+# Hardware default pose (servo encoder readings at athletic stance)
+hw_default_pose:
   shoulders: 0.0         # All shoulders at 0 rad
   thighs: 0.3            # All thighs at 0.3 rad
   calves: -0.75          # All calves at -0.75 rad
+
+# RL default pose (simulation training convention)
+# NOTE: Shoulders alternate for diagonal trot gait
+rl_default_pose:
+  shoulder_fl: 0.20      # FL shoulder: +0.20 rad
+  shoulder_fr: -0.20     # FR shoulder: -0.20 rad
+  shoulder_bl: 0.20      # BL shoulder: +0.20 rad
+  shoulder_br: -0.20     # BR shoulder: -0.20 rad
+  thighs: 0.70           # RL thighs at 0.70 rad
+  calves: -1.40          # RL calves at -1.40 rad
+
+# Joint sign for convention conversion (RL <-> Hardware)
+# Multiply relative positions by this to convert: rl_rel = hw_rel * joint_sign
+joint_sign:
+  shoulders: 1.0         # Same direction
+  thighs: -1.0           # Inverted
+  calves: -1.0           # Inverted

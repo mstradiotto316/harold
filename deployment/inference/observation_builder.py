@@ -30,8 +30,12 @@ from drivers.esp32_serial import ESP32Interface, Telemetry
 @dataclass
 class ObservationConfig:
     """Observation builder configuration."""
-    # Default joint positions (athletic stance)
-    default_pose: np.ndarray = None
+    # Hardware default pose (servo encoder readings at athletic stance)
+    hw_default_pose: np.ndarray = None
+
+    # Joint sign for HW -> RL convention conversion
+    # rl_relative = hw_relative * joint_sign
+    joint_sign: np.ndarray = None
 
     # Velocity commands [vx, vy, yaw_rate]
     default_commands: np.ndarray = None
@@ -40,13 +44,21 @@ class ObservationConfig:
     vel_filter_alpha: float = 0.5  # Low-pass filter coefficient
 
     def __post_init__(self):
-        if self.default_pose is None:
+        if self.hw_default_pose is None:
             # [shoulders(4), thighs(4), calves(4)]
-            # MUST match simulation's athletic_pose for correct observation computation!
-            self.default_pose = np.array([
-                0.20, -0.20, 0.20, -0.20,   # Shoulders: alternating (matches sim)
-                0.70, 0.70, 0.70, 0.70,     # Thighs: 0.70 rad (matches sim)
-                -1.40, -1.40, -1.40, -1.40  # Calves: -1.40 rad (matches sim)
+            # Hardware convention - what servo encoders read at rest
+            self.hw_default_pose = np.array([
+                0.0, 0.0, 0.0, 0.0,         # Shoulders: 0 rad
+                0.3, 0.3, 0.3, 0.3,         # Thighs: 0.3 rad
+                -0.75, -0.75, -0.75, -0.75  # Calves: -0.75 rad
+            ], dtype=np.float32)
+
+        if self.joint_sign is None:
+            # Sign conversion: rl_relative = hw_relative * joint_sign
+            self.joint_sign = np.array([
+                1.0, 1.0, 1.0, 1.0,         # Shoulders: same
+                -1.0, -1.0, -1.0, -1.0,     # Thighs: inverted
+                -1.0, -1.0, -1.0, -1.0      # Calves: inverted
             ], dtype=np.float32)
 
         if self.default_commands is None:
@@ -60,23 +72,41 @@ class ObservationConfig:
         with open(cpg_path) as f:
             data = yaml.safe_load(f)
 
-        pose = data.get("default_pose", {})
-        default_pose = np.array([
-            pose.get("shoulders", 0.0),
-            pose.get("shoulders", 0.0),
-            pose.get("shoulders", 0.0),
-            pose.get("shoulders", 0.0),
-            pose.get("thighs", 0.3),
-            pose.get("thighs", 0.3),
-            pose.get("thighs", 0.3),
-            pose.get("thighs", 0.3),
-            pose.get("calves", -0.75),
-            pose.get("calves", -0.75),
-            pose.get("calves", -0.75),
-            pose.get("calves", -0.75),
+        # Hardware default pose (servo encoder readings at athletic stance)
+        hw_pose = data.get("hw_default_pose", {})
+        hw_default_pose = np.array([
+            hw_pose.get("shoulders", 0.0),
+            hw_pose.get("shoulders", 0.0),
+            hw_pose.get("shoulders", 0.0),
+            hw_pose.get("shoulders", 0.0),
+            hw_pose.get("thighs", 0.3),
+            hw_pose.get("thighs", 0.3),
+            hw_pose.get("thighs", 0.3),
+            hw_pose.get("thighs", 0.3),
+            hw_pose.get("calves", -0.75),
+            hw_pose.get("calves", -0.75),
+            hw_pose.get("calves", -0.75),
+            hw_pose.get("calves", -0.75),
         ], dtype=np.float32)
 
-        return cls(default_pose=default_pose)
+        # Joint sign for HW -> RL conversion
+        js = data.get("joint_sign", {})
+        joint_sign = np.array([
+            js.get("shoulders", 1.0),
+            js.get("shoulders", 1.0),
+            js.get("shoulders", 1.0),
+            js.get("shoulders", 1.0),
+            js.get("thighs", -1.0),
+            js.get("thighs", -1.0),
+            js.get("thighs", -1.0),
+            js.get("thighs", -1.0),
+            js.get("calves", -1.0),
+            js.get("calves", -1.0),
+            js.get("calves", -1.0),
+            js.get("calves", -1.0),
+        ], dtype=np.float32)
+
+        return cls(hw_default_pose=hw_default_pose, joint_sign=joint_sign)
 
 
 class ObservationBuilder:
@@ -113,6 +143,8 @@ class ObservationBuilder:
         cpg_phase_sin: float,
         cpg_phase_cos: float,
         commands: Optional[np.ndarray] = None,
+        training_mean: Optional[np.ndarray] = None,
+        joint_pos_blend: float = 1.0,
     ) -> np.ndarray:
         """Build 50D observation vector.
 
@@ -121,6 +153,8 @@ class ObservationBuilder:
             cpg_phase_sin: sin(2*pi*phase) from CPG generator
             cpg_phase_cos: cos(2*pi*phase) from CPG generator
             commands: Optional [vx, vy, yaw_rate] commands
+            training_mean: Optional 50D training mean for blending
+            joint_pos_blend: Blend factor for joint positions (0=training mean, 1=actual)
 
         Returns:
             50D observation vector (numpy array)
@@ -147,12 +181,25 @@ class ObservationBuilder:
         telem = self.esp32.read_telemetry()
         positions = telem.positions if telem.valid else np.zeros(12)
 
-        # [9:21] Joint positions relative to default pose
-        obs[9:21] = positions - self.cfg.default_pose
+        # Convert hardware positions to RL-convention relative positions:
+        # 1. Compute relative position in hardware convention
+        # 2. Apply sign conversion: rl_relative = hw_relative * joint_sign
+        # This is needed because thighs/calves have opposite sign in RL vs hardware
+        hw_relative = positions - self.cfg.hw_default_pose
+        rl_relative = hw_relative * self.cfg.joint_sign
+
+        # [9:21] Joint positions relative to default pose (RL convention)
+        # Optionally blend with training mean for smoother startup
+        if training_mean is not None and joint_pos_blend < 1.0:
+            obs[9:21] = joint_pos_blend * rl_relative + (1 - joint_pos_blend) * training_mean[9:21]
+        else:
+            obs[9:21] = rl_relative
 
         # [21:33] Joint velocities (estimated via differentiation)
-        joint_vel = self._estimate_joint_velocities(positions, time_sec)
-        obs[21:33] = joint_vel
+        # Also needs sign conversion since velocities are derived from HW positions
+        hw_joint_vel = self._estimate_joint_velocities(positions, time_sec)
+        rl_joint_vel = hw_joint_vel * self.cfg.joint_sign
+        obs[21:33] = rl_joint_vel
 
         # [33:36] Velocity commands
         if commands is not None:
@@ -169,13 +216,55 @@ class ObservationBuilder:
 
         return obs
 
-    def update_prev_targets(self, targets: np.ndarray) -> None:
-        """Update previous targets for next observation.
+    def update_prev_target_delta(
+        self,
+        rl_targets: np.ndarray,
+        default_pose: np.ndarray,
+        training_mean: np.ndarray | None = None,
+        blend_factor: float = 0.3
+    ) -> None:
+        """Update previous target delta for next observation.
+
+        IMPORTANT: Simulation stores prev_target_delta = processed_actions - default_pose
+        This is the final targets (in RL convention) minus the default pose.
+
+        To prevent feedback divergence, we blend actual values with training mean.
 
         Args:
-            targets: 12D joint targets from action converter
+            rl_targets: 12D final joint targets in RL convention (CPG + residual)
+            default_pose: 12D default pose (hw_default_pose, matches simulation)
+            training_mean: 12D training mean for prev_targets (optional, for blending)
+            blend_factor: How much to trust actual values vs training mean (0=all training, 1=all actual)
         """
-        # Store the delta from default pose, not absolute targets
+        delta = (rl_targets - default_pose).astype(np.float32)
+
+        if training_mean is not None:
+            # Blend actual delta with training mean to prevent divergence
+            # This keeps normalized values closer to 0
+            self._prev_targets = blend_factor * delta + (1 - blend_factor) * training_mean
+        else:
+            # No blending - use actual values (may cause divergence)
+            self._prev_targets = delta
+
+    def update_prev_actions(self, raw_policy_output: np.ndarray) -> None:
+        """DEPRECATED: Use update_prev_target_delta() instead.
+
+        The simulation stores prev_target_delta = processed_actions - default_pose,
+        NOT raw policy output.
+        """
+        import warnings
+        warnings.warn("update_prev_actions is deprecated, use update_prev_target_delta", DeprecationWarning)
+        self._prev_targets = raw_policy_output.astype(np.float32)
+
+    def update_prev_targets(self, targets: np.ndarray) -> None:
+        """DEPRECATED: Use update_prev_actions() instead.
+
+        This method incorrectly stored (targets - default_pose) which doesn't
+        match what simulation expects (raw policy output).
+        """
+        # Keep for backwards compatibility but warn
+        import warnings
+        warnings.warn("update_prev_targets is deprecated, use update_prev_actions", DeprecationWarning)
         self._prev_targets = (targets - self.cfg.default_pose).astype(np.float32)
 
     def _estimate_joint_velocities(
@@ -214,12 +303,21 @@ class ObservationBuilder:
 
         return self._joint_vel
 
-    def reset(self) -> None:
-        """Reset observation builder state."""
+    def reset(self, prev_targets_init: np.ndarray | None = None) -> None:
+        """Reset observation builder state.
+
+        Args:
+            prev_targets_init: Optional initial values for prev_targets.
+                              If None, uses zeros. For better stability,
+                              initialize to training mean values.
+        """
         self._prev_positions = None
         self._prev_time = None
         self._joint_vel = np.zeros(12, dtype=np.float32)
-        self._prev_targets = np.zeros(12, dtype=np.float32)
+        if prev_targets_init is not None:
+            self._prev_targets = prev_targets_init.astype(np.float32)
+        else:
+            self._prev_targets = np.zeros(12, dtype=np.float32)
 
 
 def normalize_observation(

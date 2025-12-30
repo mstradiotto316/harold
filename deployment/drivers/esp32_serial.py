@@ -8,10 +8,14 @@ Protocol:
         - "START#"  -> "STATUS,STARTED"
         - "STOP#"   -> "STATUS,STOPPED"
         - "PING#"   -> "PONG"
-        - "[t0,t1,...,t11]#" -> 12 joint targets in radians
+        - "[t0,t1,...,t11]#" -> 12 joint targets in radians (SERVO order)
 
     Telemetry (ESP32 -> RPi, 20 Hz):
-        "TELEM,timestamp,pos*12,load*12,current*12,temp*12"
+        "TELEM,timestamp,pos*12,load*12,current*12,temp*12" (SERVO order)
+
+Joint Order:
+    ESP32 firmware uses RL order: [FL_sh, FR_sh, BL_sh, BR_sh, FL_th, FR_th, BL_th, BR_th, FL_ca, FR_ca, BL_ca, BR_ca]
+    This matches the policy order, so no conversion is needed.
 """
 import time
 from dataclasses import dataclass, field
@@ -21,6 +25,26 @@ from typing import Optional
 import serial
 import yaml
 import numpy as np
+
+# Joint order conversion indices
+# RL order: [FL_sh, FR_sh, BL_sh, BR_sh, FL_th, FR_th, BL_th, BR_th, FL_ca, FR_ca, BL_ca, BR_ca]
+# Servo order: [FL_sh, FL_th, FL_ca, FR_sh, FR_th, FR_ca, BL_sh, BL_th, BL_ca, BR_sh, BR_th, BR_ca]
+
+# To convert RL -> Servo: servo_arr[SERVO_IDX] = rl_arr[RL_TO_SERVO[SERVO_IDX]]
+RL_TO_SERVO = [0, 4, 8, 1, 5, 9, 2, 6, 10, 3, 7, 11]
+
+# To convert Servo -> RL: rl_arr[RL_IDX] = servo_arr[SERVO_TO_RL[RL_IDX]]
+SERVO_TO_RL = [0, 3, 6, 9, 1, 4, 7, 10, 2, 5, 8, 11]
+
+
+def rl_to_servo_order(rl_arr: np.ndarray) -> np.ndarray:
+    """Convert array from RL joint order to servo ID order."""
+    return rl_arr[RL_TO_SERVO]
+
+
+def servo_to_rl_order(servo_arr: np.ndarray) -> np.ndarray:
+    """Convert array from servo ID order to RL joint order."""
+    return servo_arr[SERVO_TO_RL]
 
 
 @dataclass
@@ -234,8 +258,12 @@ class ESP32Interface:
             print(f"ERROR: Expected 12 targets, got {len(targets)}")
             return False
 
+        # NOTE: ESP32 firmware already uses RL order (grouped by joint type)
+        # No conversion needed - send directly in RL order
+        targets_arr = np.asarray(targets, dtype=np.float32)
+
         # Format: [t0,t1,...,t11]#
-        values = ",".join(f"{t:.4f}" for t in targets)
+        values = ",".join(f"{t:.4f}" for t in targets_arr)
         msg = f"[{values}]#"
         self._write(msg)
         return True
@@ -264,6 +292,8 @@ class ESP32Interface:
 
         Format: TELEM,timestamp,pos*12,load*12,current*12,temp*12,voltage
         (voltage is optional for backwards compatibility)
+
+        Note: ESP32 sends data in SERVO order, we convert to RL order.
         """
         telem = Telemetry()
         try:
@@ -275,15 +305,19 @@ class ESP32Interface:
             telem.timestamp_ms = int(parts[idx])
             idx += 1
 
+            # Parse positions - ESP32 already sends in RL order
             telem.positions = np.array([float(parts[idx + i]) for i in range(12)], dtype=np.float32)
             idx += 12
 
+            # Parse loads - ESP32 already sends in RL order
             telem.loads = np.array([int(parts[idx + i]) for i in range(12)], dtype=np.int32)
             idx += 12
 
+            # Parse currents - ESP32 already sends in RL order
             telem.currents = np.array([int(parts[idx + i]) for i in range(12)], dtype=np.int32)
             idx += 12
 
+            # Parse temperatures - ESP32 already sends in RL order
             telem.temperatures = np.array([int(parts[idx + i]) for i in range(12)], dtype=np.int32)
             idx += 12
 

@@ -134,6 +134,11 @@ class RewardsCfg:
     command_tracking_weight_vy: float = 10.0   # Same weight as vx tracking
     command_tracking_sigma_vy: float = 0.1     # Same tolerance as vx tracking
 
+    # Yaw rate command tracking - Session 28: Extend controllability to turning
+    # Uses same exponential kernel: exp(-|yaw_rate - cmd_yaw|^2 / sigma^2) * weight
+    command_tracking_weight_yaw: float = 10.0   # Same weight as vx/vy tracking
+    command_tracking_sigma_yaw: float = 0.2     # Slightly higher tolerance for yaw (rad/s)
+
 
 @configclass
 class CommandCfg:
@@ -163,10 +168,11 @@ class CommandCfg:
     vy_min: float = -0.15
     vy_max: float = 0.15
 
-    # Yaw rate range (rad/s) - Phase 2+
-    # Set to 0 initially, expand later for turning
-    yaw_min: float = 0.0
-    yaw_max: float = 0.0
+    # Yaw rate range (rad/s) - Session 28: Enabled for turning
+    # Conservative range to start (about ±17 deg/s)
+    # Now supported with yaw tracking reward and modified yaw_rate_penalty
+    yaw_min: float = -0.30
+    yaw_max: float = 0.30
 
     # Probability of sampling zero velocity (for stopping behavior)
     # When triggered, sets vx=vy=yaw=0 regardless of ranges
@@ -315,12 +321,13 @@ class DomainRandomizationCfg:
     """
     
     # === MASTER SWITCHES ===
-    # EXP-090: Domain randomization made training HARDER - vx=0.0056 (MUCH WORSE)
+    # EXP-090: FULL domain randomization made training HARDER - vx=0.0056 (MUCH WORSE)
     # Robot learned to stand still to cope with uncertainty
-    # DISABLED - need to establish walking first, then add randomization
-    enable_randomization: bool = False  # DISABLED
+    # Session 28: Re-enabled for SENSOR NOISE ONLY to simulate gear backlash (~2°)
+    # All physics randomization flags remain False - only sensor noise is active
+    enable_randomization: bool = True   # Session 28: OPTIMAL for backlash robustness
     randomize_on_reset: bool = False
-    randomize_per_step: bool = False
+    randomize_per_step: bool = True     # Session 28: Per-step noise for backlash
     
     # === PHYSICS RANDOMIZATION ===
     # EXP-090: Domain randomization made training WORSE - DISABLED
@@ -375,10 +382,14 @@ class DomainRandomizationCfg:
     )
     
     # Joint Sensor Noise
+    # Session 28: Position noise simulates gear backlash (~1-3° in ST3215 servos)
+    # - 2° (0.035 rad): STANDING, vx=0.007 - too much noise
+    # - 1° (0.0175 rad): WALKING, vx=0.022 - OPTIMAL (31% better than baseline!)
+    # The noise acts as regularization, improving generalization
     add_joint_noise: bool = True              # Add noise to joint measurements
     joint_position_noise: GaussianNoiseCfg = GaussianNoiseCfg(
         mean=0.0,
-        std=0.005,                            # 0.005 rad (~0.3°) position noise
+        std=0.0175,                           # Session 28: 1° optimal for backlash robustness
         operation="add"
     )
     joint_velocity_noise: GaussianNoiseCfg = GaussianNoiseCfg(

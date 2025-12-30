@@ -1498,3 +1498,72 @@ The gear backlash CANNOT be fixed in hardware. Must model in simulation for robu
 | **H63** | Increasing P coefficient reduces backlash feel | **DISPROVEN** - causes oscillations |
 | **H64** | Backlash must be modeled in simulation | **TO TEST** - priority experiment |
 | **H65** | Observation noise can simulate backlash | **TO TEST** |
+
+---
+
+## Session 28 Key Observations (2025-12-29)
+
+### Observation: Position Noise as Regularization
+
+**Finding**: Adding 1° position noise to joint observations **improves** walking by 35%.
+
+- **Mechanism**: Noise prevents policy from relying on precise position feedback
+- **Result**: vx=0.023 (with noise) vs vx=0.017 (without noise)
+- **Interpretation**: The policy learns more robust control strategies when uncertain
+
+This is counterintuitive - adding noise typically hurts performance. But for sim-to-real, it acts as regularization that improves generalization.
+
+### Observation: Optimal Noise Level
+
+| Noise Level | Effect |
+|-------------|--------|
+| 0° | Baseline performance (vx=0.017) |
+| 1° (0.0175 rad) | **OPTIMAL** - 35% improvement (vx=0.023) |
+| 2° (0.035 rad) | Too much - regresses to standing (vx=0.007) |
+
+### Observation: Multi-Objective Learning Challenges
+
+**Finding**: Combining backlash noise + yaw tracking doesn't work (vx=0.003).
+
+Each feature works independently:
+- Backlash only: vx=0.023 (WALKING)
+- Yaw only: vx=0.011 (WALKING)
+- Combined: vx=0.003 (STANDING)
+
+**Hypothesis**: The policy struggles to optimize multiple objectives simultaneously when also dealing with observation uncertainty. May need curriculum learning.
+
+### New Hypotheses from Session 28
+
+- **H-S28-1**: Curriculum learning (train backlash first, then add yaw) may work better
+- **H-S28-2**: Lower yaw command range (±0.15 vs ±0.30) may help with combination
+- **H-S28-3**: Position noise helps sim-to-real transfer (needs hardware validation)
+
+### Observation: Curriculum Learning for Multi-Objective RL
+
+**Finding**: When combining multiple features (backlash + yaw), curriculum learning outperforms from-scratch training.
+
+| Approach | vx (m/s) | Verdict |
+|----------|----------|---------|
+| From scratch | 0.003 | STANDING |
+| Curriculum | 0.015 | WALKING |
+
+**Mechanism**: The policy struggles to optimize multiple objectives simultaneously. Training sequentially allows each skill to stabilize before adding complexity.
+
+### Observation: Training Duration Trade-offs
+
+**Finding**: For fine-tuning, shorter training (1250 iters) beats longer training (2500 iters).
+
+- EXP-152 (1250 iters): vx=0.015 WALKING
+- EXP-153 (2500 iters): vx=0.009 STANDING
+
+**Hypothesis**: Extended fine-tuning causes the policy to "forget" the base skills while over-optimizing for the new objective.
+
+### Observation: CPG + Residual Learning Architecture
+
+The Harold walking gait is a combination of:
+- **CPG (scripted)**: Provides timing, coordination, base trajectory
+- **Policy (learned)**: Provides balance, velocity tracking, adaptation
+
+The `residual_scale=0.05` limits policy authority to fine-tuning only. This prevents the policy from reversing or dramatically altering the proven CPG trajectory.
+
+**Implication**: The vx=0.023 achievement comes from the policy learning to USE the CPG trajectory effectively, not from learning a gait from scratch.

@@ -3119,3 +3119,59 @@ Session 34 large amplitude policy walked on hardware but was extremely jerky wit
 #### Next Step
 
 Test on hardware to verify reduced jerkiness.
+
+---
+
+### Session 35 Summary: Smooth Gait Development
+
+#### Problem
+Session 34 large amplitude policy walked on hardware but was extremely jerky with harsh shock absorption on each step.
+
+#### Root Causes
+1. **Underdamped actuators** - damping=30 (stiffness/damping ratio = 13.3, should be ~40)
+2. **Weak action filtering** - beta=0.18 allowed sharp transitions
+3. **No smoothness penalties** - No torque or action rate penalties
+
+#### Experiments Run
+
+| Exp | Changes | vx | Verdict |
+|-----|---------|-----|---------|
+| 35a | damping=60, beta=0.35 | 0.016 | WALKING |
+| 35b | damping=75, beta=0.40, torque=-0.02, action_rate=-0.5 | 0.002 | STANDING (too strong) |
+| 35c | damping=75, beta=0.40, torque=-0.01, action_rate=-0.1 | **0.017** | **WALKING** ✓ |
+| 35d | beta=0.50 | 0.009 | STANDING (too strong) |
+| 35e | CPG 0.5 Hz | 0.009 | STANDING (worse) |
+| 35f | no action_rate | 0.014 | WALKING (slightly worse) |
+| 35g | Final optimal settings | **0.017** | **WALKING** ✓ |
+
+#### Optimal Settings (Session 35g)
+
+| Parameter | Old | New |
+|-----------|-----|-----|
+| damping | 30 | **75** |
+| action_filter_beta | 0.18 | **0.40** |
+| torque_penalty | -0.005 | **-0.01** |
+| action_rate_penalty | 0 | **-0.1** |
+| CPG frequency | 0.7 | 0.7 (unchanged) |
+
+#### Files Updated
+
+1. `harold.py` - damping 30→75
+2. `harold_isaac_lab_env_cfg.py`:
+   - action_filter_beta 0.18→0.40
+   - torque_penalty -0.005→-0.01
+   - action_rate_penalty 0→-0.1 (new)
+3. `harold_isaac_lab_env.py` - Added action_rate_penalty reward
+4. `deployment/config/cpg.yaml` - action_filter_beta 0.18→0.40
+5. `deployment/policy/harold_policy.onnx` - Final smoothed policy
+
+#### Key Learnings
+
+1. **Damping is critical** - 75 >> 30 for reducing oscillations
+2. **Action filtering helps** - beta=0.40 optimal (0.50 too strong)
+3. **Penalties must be balanced** - torque=-0.01 and action_rate=-0.1 work together
+4. **Don't change CPG frequency** - 0.7 Hz remains optimal
+
+#### Next Step
+
+Test smooth gait policy on hardware to verify reduced jerkiness.

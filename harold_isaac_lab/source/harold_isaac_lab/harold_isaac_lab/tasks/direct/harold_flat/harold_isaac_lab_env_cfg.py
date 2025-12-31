@@ -57,7 +57,14 @@ class RewardsCfg:
     height_reward: float = 20.0         # Session 23: 15 was MUCH worse (height=0.57, vx=0.012)
 
     # Penalties
-    torque_penalty: float = -0.005      # Gentle energy regularizer
+    # Session 35: Increased torque penalty for smoother motion (was -0.005)
+    # -0.02 combined with action_rate may be too strong, trying -0.01
+    torque_penalty: float = -0.01       # 2x original for smoother motion
+
+    # Session 35: Action rate penalty - penalizes rapid action changes
+    # -0.5 was too strong, -0.1 is optimal (vx=0.017 with all smoothing)
+    # Tested: disabling gave vx=0.014, so -0.1 helps
+    action_rate_penalty: float = -0.1   # Optimal for smoothness + walking
     lat_vel_penalty: float = 12.0       # Penalize sideways skating
     yaw_rate_penalty: float = 1.0       # Dampen gratuitous spinning
     rear_support_bonus: float = 0.0     # Disabled - was encouraging standing
@@ -222,7 +229,8 @@ class ScriptedGaitCfg:
     enabled: bool = False
 
     # Gait parameters - Session 34: Backlash-tolerant amplitudes (aligned with CPGCfg)
-    frequency: float = 0.7  # EXP-170: Optimal frequency (0.7 Hz best in sweep)
+    # Session 35: Optimal frequency 0.7 Hz (0.5 Hz was worse)
+    frequency: float = 0.7  # Hz - Optimal from sweeps
     swing_thigh: float = 0.25    # Session 34: More back during swing (was 0.40)
     stance_thigh: float = 0.95   # Session 34: More forward during stance (was 0.90)
     stance_calf: float = -0.50   # Session 34: More extended stance (was -0.90)
@@ -257,7 +265,8 @@ class CPGCfg:
     enabled: bool = False  # Set True via env var HAROLD_CPG=1
 
     # Base gait parameters
-    base_frequency: float = 0.7  # Hz - EXP-170: Optimal (best in sweep)
+    # Session 35: 0.5 Hz was worse (vx=0.009), reverting to optimal 0.7 Hz
+    base_frequency: float = 0.7  # Hz - Optimal from previous sweeps
     duty_cycle: float = 0.6      # 60% stance, 40% swing
 
     # Trajectory parameters - SESSION 34: BACKLASH-TOLERANT AMPLITUDES
@@ -469,9 +478,9 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     state_space = 0
 
     # Action filtering (EMA low-pass)
-    # Session 35: Increased from 0.18 to 0.35 for smoother hardware motion
-    # Lower beta = more smoothing (65% carryover from previous action)
-    action_filter_beta: float = 0.35
+    # Session 35: beta=0.40 is optimal (0.50 prevented walking)
+    # Lower beta = more smoothing (60% carryover from previous action)
+    action_filter_beta: float = 0.40
 
     # Observation clipping (matches deployment clip_obs=5.0)
     # Session 29: Hardware deployment clips normalized obs to ±5.0

@@ -1781,3 +1781,76 @@ add_lin_vel_noise: True           # IMU drift
 clip_observations: True           # Match deployment
 apply_external_forces: False      # Causes failing
 ```
+
+---
+
+## Session 32 Observations (2025-12-30)
+
+### CRITICAL BUG: Double-Normalization Discovered
+
+**Finding**: The deployment code was applying observation normalization TWICE:
+1. Manual normalization in `harold_controller.py` (line 276)
+2. Internal normalization in ONNX model (baked in by `NormalizedPolicy` wrapper)
+
+**Root Cause**: The ONNX export script (`policy/export_policy.py`) wraps the policy with `NormalizedPolicy`:
+```python
+class NormalizedPolicy(torch.nn.Module):
+    def forward(self, obs: torch.Tensor):
+        norm_obs = (obs - self.running_mean) / torch.sqrt(self.running_var + self.eps)
+        mean, value, log_std = self.base(norm_obs)
+        return mean, value, log_std
+```
+
+But the deployment code ALSO normalized before calling ONNX:
+```python
+obs_norm = normalize_observation(obs, self.running_mean, self.running_var)
+outputs = self.policy.run(['mean'], {'obs': obs_norm...})  # DOUBLE NORMALIZATION!
+```
+
+**Effect**: For an observation at the training mean:
+1. First normalization: `(obs - mean) / std = 0`
+2. Second normalization: `(0 - mean) / std = -mean/std` (potentially large!)
+
+This caused extreme policy outputs and was likely the root cause of the "unstable behavior" that Session 31 tried to fix with blending and stat overrides.
+
+**Fix**: Remove manual normalization, pass raw observations to ONNX:
+```python
+outputs = self.policy.run(['mean'], {'obs': obs.reshape(1, -1)...})  # ONNX normalizes internally
+```
+
+### Observation: ONNX Includes Normalization by Design
+
+The export script's choice to include normalization in ONNX is actually good design:
+- Deployment is simpler (no need to track running stats separately)
+- Consistent behavior between training and inference
+- No risk of using wrong stats
+
+**Key Lesson**: When using an ONNX model, always verify whether preprocessing is baked in.
+
+### Observation: Session 31 Fixes Were Compensating
+
+The Session 31 fixes (lin_vel override, prev_target blending) were likely compensating for double-normalization:
+- Overriding stats tried to fix extreme normalized values
+- Blending kept values closer to 0
+
+With the actual bug fixed, these compensations may no longer be necessary.
+
+### New Hypotheses (Session 32)
+
+| ID | Hypothesis | Status |
+|----|------------|--------|
+| **H-S32-1** | Double normalization caused unstable outputs | **CONFIRMED** |
+| **H-S32-2** | ONNX + raw observations = correct behavior | **CONFIRMED** (validated on desktop) |
+| **H-S32-3** | Session 31 blending compensated for double-norm | **TO VERIFY** on hardware |
+| **H-S32-4** | With fix, blending may not be needed | **TO TEST** on hardware |
+
+### Validated: ONNX Matches PyTorch
+
+Ran quick validation comparing ONNX vs PyTorch outputs:
+```
+Max difference: 0.000003
+Mean difference: 0.000000
+✓ PASS: ONNX outputs match PyTorch outputs!
+```
+
+The ONNX export is correct; the deployment code was using it wrong.

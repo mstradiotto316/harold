@@ -4,6 +4,10 @@
 This script loads observation/action pairs recorded from Isaac Lab simulation
 and compares the ONNX policy outputs against the recorded simulation actions.
 
+IMPORTANT: The ONNX model (harold_policy.onnx) includes normalization internally!
+It expects RAW observations, not normalized. The export script wraps the policy
+with NormalizedPolicy which applies running stats normalization.
+
 Usage:
     python validate_onnx_vs_sim.py [--data sim_episode.json]
 
@@ -12,15 +16,15 @@ Expected JSON format:
     "metadata": {
         "checkpoint": "path/to/checkpoint.pt",
         "num_steps": 200,
-        "running_mean": [...],  # 50D
+        "running_mean": [...],  # 50D (for reference, ONNX uses these internally)
         "running_var": [...]    # 50D
     },
     "timesteps": [
         {
             "step": 0,
-            "obs_raw": [...],        # 50D raw observation
-            "obs_normalized": [...], # 50D normalized observation
-            "action": [...]          # 12D policy action
+            "obs_raw": [...],        # 50D raw observation -> PASS THIS TO ONNX
+            "obs_normalized": [...], # 50D normalized observation (for reference)
+            "action": [...]          # 12D expected policy action
         },
         ...
     ]
@@ -100,11 +104,12 @@ def main():
 
     for ts in timesteps:
         step = ts["step"]
-        obs_norm = np.array(ts["obs_normalized"], dtype=np.float32)
+        # IMPORTANT: Use RAW observations - ONNX model normalizes internally!
+        obs_raw = np.array(ts["obs_raw"], dtype=np.float32)
         sim_action = np.array(ts["action"], dtype=np.float32)
 
-        # Run ONNX inference
-        outputs = policy.run(['mean'], {'obs': obs_norm.reshape(1, -1)})
+        # Run ONNX inference with RAW observations
+        outputs = policy.run(['mean'], {'obs': obs_raw.reshape(1, -1)})
         onnx_action = outputs[0][0]
 
         # Compare
@@ -153,9 +158,10 @@ def main():
         print("\n\nAnalyzing systematic differences...")
         all_diffs = []
         for ts in timesteps:
-            obs_norm = np.array(ts["obs_normalized"], dtype=np.float32)
+            # Use RAW observations - ONNX normalizes internally
+            obs_raw = np.array(ts["obs_raw"], dtype=np.float32)
             sim_action = np.array(ts["action"], dtype=np.float32)
-            outputs = policy.run(['mean'], {'obs': obs_norm.reshape(1, -1)})
+            outputs = policy.run(['mean'], {'obs': obs_raw.reshape(1, -1)})
             onnx_action = outputs[0][0]
             all_diffs.append(onnx_action - sim_action)
 

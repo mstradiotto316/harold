@@ -34,7 +34,7 @@ except ImportError:
 from drivers.esp32_serial import ESP32Interface, ESP32Config
 from drivers.imu_reader_rpi5 import IMUReaderRPi5, IMUConfig
 from inference.cpg_generator import CPGGenerator, CPGConfig
-from inference.observation_builder import ObservationBuilder, ObservationConfig, normalize_observation
+from inference.observation_builder import ObservationBuilder, ObservationConfig
 from inference.action_converter import ActionConverter, ActionConfig
 
 
@@ -128,13 +128,13 @@ class HaroldController:
         self.running_var = np.array(metadata["running_variance"], dtype=np.float32)
         print(f"Loaded normalization stats (dim={len(self.running_mean)})")
 
-        # FIX: Override lin_vel statistics (indices 0-2)
-        # Training stats are corrupted: mean=[-4.7, 1.8, -44.6], which is physically impossible
-        # (Z velocity of -44.6 m/s = falling at 160 km/h)
-        # Use reasonable values: mean=0, std=0.5 m/s for a walking robot
-        print("  Overriding lin_vel stats (training values corrupted)")
-        self.running_mean[0:3] = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-        self.running_var[0:3] = np.array([0.25, 0.25, 0.25], dtype=np.float32)  # std=0.5 m/s
+        # NOTE: The ONNX model (harold_policy.onnx) already includes normalization!
+        # The export script wraps the policy with NormalizedPolicy which applies
+        # running stats normalization internally. We keep running_mean/var for:
+        # 1. Initializing prev_targets to training mean values
+        # 2. Joint position blending during warmup
+        # We do NOT use them for normalizing observations before ONNX inference.
+        # See: policy/export_policy.py - NormalizedPolicy class
 
         # Load ONNX policy
         if not self.policy_path.exists():
@@ -272,8 +272,9 @@ class HaroldController:
                     joint_pos_blend=joint_pos_blend
                 )
 
-                # 4. Normalize observation
-                obs_norm = normalize_observation(obs, self.running_mean, self.running_var)
+                # NOTE: Do NOT normalize here! The ONNX model (harold_policy.onnx)
+                # already includes normalization internally via NormalizedPolicy wrapper.
+                # See policy/export_policy.py for details.
 
                 # Check if warmup period is complete
                 if not policy_enabled and t >= warmup_duration:
@@ -281,10 +282,11 @@ class HaroldController:
                     print(f"[t={t:.1f}s] Warmup complete, enabling policy")
 
                 if policy_enabled:
-                    # 4. Run policy inference
+                    # 4. Run policy inference with RAW observations
+                    # ONNX model normalizes internally - pass raw obs!
                     outputs = self.policy.run(
                         ['mean'],
-                        {'obs': obs_norm.reshape(1, -1).astype(np.float32)}
+                        {'obs': obs.reshape(1, -1).astype(np.float32)}
                     )
                     action = outputs[0][0]  # [12]
                 else:

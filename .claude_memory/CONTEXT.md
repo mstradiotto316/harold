@@ -7,6 +7,42 @@ This file is part of the Harold memory system. The entry point is `/CLAUDE.md` w
 
 ---
 
+## Multi-Machine Workflow (Desktop ↔ RPi)
+
+Harold development spans TWO machines:
+- **Desktop**: Training (Isaac Lab), policy export, code development
+- **RPi 5 (onboard)**: Hardware deployment, real robot control
+
+### Transferring Work Between Machines
+
+The git repository is present on both machines. To transfer work:
+
+```bash
+# On source machine (e.g., desktop after making changes)
+git add -A
+git commit -m "Description of changes"
+git push
+
+# On destination machine (e.g., RPi to receive changes)
+git pull
+```
+
+### Session Handoff Protocol
+
+When ending a session and transferring to another machine:
+
+1. **Update memory files**: `NEXT_STEPS.md`, `OBSERVATIONS.md`, session log
+2. **Commit and push**: Include all code changes and memory updates
+3. **Document in NEXT_STEPS.md**: Clear instructions for the receiving agent
+4. **Note the machine context**: Sessions alternate between `desktop` and `rpi` suffixes
+
+### Current Session Files Pattern
+
+- `.claude_memory/sessions/YYYY-MM-DD_sessionNN_desktop.md` - Desktop sessions
+- `.claude_memory/sessions/YYYY-MM-DD_sessionNN_rpi.md` - RPi sessions
+
+---
+
 ## Goal
 Train a controllable walking gait for the Harold quadruped robot that can follow velocity commands.
 
@@ -25,7 +61,28 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 | USD model | `part_files/V4/harold_8.usd` |
 | Hardware gait script | `firmware/scripted_gait_test_1/scripted_gait_test_1.ino` |
 
-## Current State (2025-12-30, Session 30 Complete)
+## Current State (2025-12-30, Session 32 Complete)
+
+### Session 32: Double-Normalization Bug Fix (Desktop)
+
+**CRITICAL BUG DISCOVERED AND FIXED**:
+
+The deployment code was normalizing observations TWICE:
+1. Manual normalization in `harold_controller.py`
+2. ONNX model's internal `NormalizedPolicy` wrapper
+
+**Fix Applied**: Removed manual normalization, pass RAW observations to ONNX.
+
+**Validation Result**: ONNX matches PyTorch with max difference of 0.000003.
+
+**Next Step**: Pull changes on RPi, test on hardware.
+
+### Session 31: Deployment Stabilization (RPi)
+
+Applied compensatory fixes (may not be needed after Session 32 fix):
+- lin_vel stats override
+- prev_target blending
+- joint_pos blending during warmup
 
 ### Session 30: Joint Limit Alignment & CPG Optimization
 

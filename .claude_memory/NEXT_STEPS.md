@@ -1,119 +1,90 @@
 # Harold Next Steps
 
-## PRIORITY 0: Validate ONNX Policy Against Simulation (Session 31)
+## PRIORITY 0: Deploy Double-Normalization Fix to Hardware
 
-**Status**: Robot shows walking-like behavior but needs validation. Need to record simulation data to compare against ONNX policy outputs.
+**Status**: Critical bug discovered and fixed on desktop. Ready to deploy to RPi.
 
-### Background (Session 31 on RPi)
+### Background (Session 32)
 
-The deployment code was stabilized with several fixes:
-1. **lin_vel override** - Training stats were corrupted (Z vel mean = -44 m/s impossible)
-2. **prev_target blending** - 10% actual, 90% training mean to prevent feedback divergence
-3. **joint_pos blending** - 30% actual during warmup, gradual transition to 100%
+The ONNX validation revealed a **double-normalization bug** in `harold_controller.py`:
+- ONNX model includes normalization internally (via `NormalizedPolicy` wrapper in export)
+- Deployment code was ALSO normalizing before passing to ONNX
+- Result: Extreme policy outputs that Session 31 tried to fix with blending/overrides
 
-Robot showed walking-like motion on test stand, but suspended robot means IMU readings may not match what policy expects (no real acceleration/movement).
+The blending fixes in Session 31 were **compensating** for this bug, not fixing it.
 
-### Validation Task (RUN ON DESKTOP)
+### Files to Deploy to RPi
 
-**Goal**: Record observations and actions from Isaac Lab simulation, then compare ONNX policy outputs against recorded actions.
+1. **`deployment/inference/harold_controller.py`** - Key change: pass RAW observations to ONNX
+2. **`deployment/validation/validate_onnx_vs_sim.py`** - Uses raw observations
+3. **`deployment/validation/sim_episode.json`** - Test data for validation (optional)
 
-#### Step 1: Create Recording Script
-
-Create `harold_isaac_lab/scripts/skrl/record_episode.py`:
-
-```python
-"""Record observations and actions from a trained policy for ONNX validation."""
-
-import torch
-import numpy as np
-import json
-from pathlib import Path
-
-# Load checkpoint and run episode
-# For each timestep, record:
-#   - Raw observation (50D, before normalization)
-#   - Normalized observation (50D, after normalization)
-#   - Policy action output (12D)
-#   - Running mean/var used for normalization
-
-# Save to JSON file for transfer to RPi
-```
-
-#### Step 2: Run Recording
-
-```bash
-cd ~/Desktop/code_projects/harold
-source ~/Desktop/env_isaaclab/bin/activate
-
-python harold_isaac_lab/scripts/skrl/record_episode.py \
-    --checkpoint logs/skrl/harold_direct/2024-XX-XX_EXP-170/checkpoints/best_agent.pt \
-    --output deployment/validation/sim_episode.json \
-    --num_steps 200
-```
-
-#### Step 3: Transfer to RPi and Validate
+### Deployment Commands
 
 ```bash
 # On desktop
+cd ~/Desktop/code_projects/harold
+scp deployment/inference/harold_controller.py pi@harold.local:~/Desktop/harold/deployment/inference/
+scp deployment/validation/validate_onnx_vs_sim.py pi@harold.local:~/Desktop/harold/deployment/validation/
 scp deployment/validation/sim_episode.json pi@harold.local:~/Desktop/harold/deployment/validation/
 
-# On RPi - run validation script (already exists or create)
-python validate_onnx_vs_sim.py
+# On RPi - validate ONNX first
+cd ~/Desktop/harold
+python deployment/validation/validate_onnx_vs_sim.py
+
+# If validation passes, run controller
+python deployment/inference/harold_controller.py
 ```
 
-#### Expected Output
+### Expected Behavior After Fix
 
-For each timestep, compare:
-- `sim_action` (from recording) vs `onnx_action` (from ONNX inference)
-- Should match within floating point tolerance (~1e-5)
+- Policy outputs should be bounded in a reasonable range without blending hacks
+- Robot behavior should match simulation more closely
+- Warmup blending may no longer be necessary
 
-If they don't match, the discrepancy reveals:
-- Observation format mismatch
-- Normalization differences
-- Coordinate convention issues
+### What to Test
+
+1. **Validation**: Run `validate_onnx_vs_sim.py` on RPi - should show near-zero error
+2. **Controller without warmup**: Try `--warmup-cycles 0` to see if warmup is still needed
+3. **Walking**: Does robot walk forward smoothly?
 
 ---
 
-## Session 31 Fixes Applied (on RPi)
+## Session 32 Fixes Applied (on Desktop)
 
 | Fix | File | Description |
 |-----|------|-------------|
-| lin_vel override | `harold_controller.py:131-137` | mean=0, std=0.5 (training had impossible values) |
-| prev_target blend | `observation_builder.py:215-243` | 10% actual, 90% training mean |
-| joint_pos blend | `harold_controller.py:255-272` | 30% during warmup → 100% after transition |
+| Remove manual normalization | `harold_controller.py:275-277` | ONNX normalizes internally |
+| Use raw observations | `harold_controller.py:287-290` | Pass raw obs to ONNX, not normalized |
+| Update validation | `validate_onnx_vs_sim.py:107-112` | Use obs_raw, not obs_normalized |
 
-### Test Results (Simulated Loop)
+### Validation Results (Desktop)
 
-| Metric | Before Fixes | After Fixes |
-|--------|-------------|-------------|
-| Policy output range | [-36, +25] | [-8, +14] |
-| Max correction | 93° | 41° |
-| Stability | Divergent | Bounded |
+```
+ONNX output range: [-5.0492, 7.8849]
+PyTorch output range: [-5.0492, 7.8849]
+Max difference: 0.000003
+✓ PASS: ONNX outputs match PyTorch outputs!
+```
 
 ---
 
 ## Previous Session Summary
 
+### Session 31 Achievements (RPi)
+
+Fixed several deployment issues:
+1. ✅ lin_vel stats override (training values were corrupted)
+2. ✅ prev_target blending (10% actual, 90% training mean)
+3. ✅ joint_pos blending during warmup
+
+**NOTE**: These fixes may have been compensating for the double-normalization bug.
+
 ### Session 30 Achievements
+
 1. Joint limits aligned with hardware
 2. CPG frequency optimized to 0.7 Hz
 3. Best policy exported - EXP-170 (vx=0.018 m/s)
-
-### Session 30 Experiments
-
-| EXP | Config | vx | Verdict |
-|-----|--------|-----|---------|
-| 160 | Shoulders ±25° | 0.016 | WALKING |
-| 161 | Thighs aligned | 0.017 | WALKING |
-| 162 | Calves aligned | 0.013 | WALKING |
-| 163 | Extended training | 0.017 | WALKING |
-| 164 | External perturbations | -0.044 | FAILING |
-| 165 | swing_calf -1.35 | 0.011 | WALKING |
-| 166 | residual_scale 0.08 | 0.007 | STANDING |
-| 167 | Freq 0.6 Hz | 0.010 | STANDING |
-| 168 | Freq 0.7 Hz | 0.016 | WALKING |
-| 169 | Freq 0.8 Hz | 0.010 | STANDING |
-| **170** | **0.7 Hz, extended** | **0.018** | **WALKING** |
 
 ---
 
@@ -139,24 +110,26 @@ apply_external_forces: False
 
 ---
 
-## Previous Deployment Fixes (Session 29-31)
+## CRITICAL: ONNX Model Expects RAW Observations
 
-1. ✅ Gravity sign flip (Z-up → Z-down)
-2. ✅ Default commands 0.3 m/s
-3. ✅ Observation clipping ±5.0
-4. ✅ 3-cycle CPG warmup
-5. ✅ Servo speed 2800
-6. ✅ Default pose corrected
-7. ✅ Voltage monitoring added
-8. ✅ lin_vel stats override (Session 31)
-9. ✅ prev_target blending (Session 31)
-10. ✅ joint_pos blending (Session 31)
+The ONNX export (`policy/export_policy.py`) wraps the policy with `NormalizedPolicy`:
+
+```python
+class NormalizedPolicy(torch.nn.Module):
+    def forward(self, obs: torch.Tensor):
+        norm_obs = (obs - self.running_mean) / torch.sqrt(self.running_var + self.eps)
+        mean, value, log_std = self.base(norm_obs)
+        return mean, value, log_std
+```
+
+**ALWAYS pass RAW observations to `harold_policy.onnx`.** Do NOT normalize before calling.
 
 ---
 
 ## Future Experiments (If Needed)
 
-1. **Higher velocity** - Train with vx_target > 0.2 m/s
-2. **Lateral motion** - Enable vy tracking
-3. **Yaw tracking** - Curriculum approach
-4. **Friction randomization** - For different floor surfaces
+1. **Remove warmup blending** - May not be needed after fix
+2. **Higher velocity** - Train with vx_target > 0.2 m/s
+3. **Lateral motion** - Enable vy tracking
+4. **Yaw tracking** - Curriculum approach
+5. **Friction randomization** - For different floor surfaces

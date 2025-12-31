@@ -61,11 +61,35 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 | USD model | `part_files/V4/harold_8.usd` |
 | Hardware gait script | `firmware/scripted_gait_test_1/scripted_gait_test_1.ino` |
 
-## Current State (2025-12-30, Session 34 Complete)
+## Current State (2025-12-31, Session 35 Complete)
+
+### Session 35: Smooth Gait Development & Damping Optimization (Desktop)
+
+**SMOOTH GAIT OPTIMIZED**:
+
+Session 34 hardware test showed jerky walking. Session 35 completed damping sweep:
+
+| Damping | vx (m/s) | Contact | Verdict |
+|---------|----------|---------|---------|
+| 30 (original) | 0.016 | -0.024 | WALKING (jerky) |
+| 100 | 0.014 | -0.0002 | WALKING |
+| 125 | 0.034 | -0.015 | WALKING |
+| **150** | **0.036** | -0.014 | **WALKING (BEST)** |
+| 175 | -0.024 | -0.002 | STANDING (too high) |
+
+**Key Finding**: U-shaped velocity curve. Higher damping (125-150) gives faster walking!
+
+**Final Configuration**:
+| Parameter | Value |
+|-----------|-------|
+| damping | **150** |
+| action_filter_beta | 0.40 |
+| torque_penalty | -0.01 |
+| action_rate_penalty | -0.1 |
+
+**Next Step**: Test smooth gait policy on hardware.
 
 ### Session 34: Large Amplitude CPG for Backlash Tolerance (Desktop)
-
-**BACKLASH-TOLERANT GAIT DESIGNED**:
 
 Session 33 discovered ~30° servo backlash was absorbing entire calf swing (26°).
 Session 34 increased calf amplitude to 50° to exceed backlash zone.
@@ -77,8 +101,6 @@ Session 34 increased calf amplitude to 50° to exceed backlash zone.
 | Thigh | 29° (0.40 to 0.90) | **40°** (0.25 to 0.95) |
 
 **Training Result**: vx=0.020 m/s, WALKING (no regression)
-
-**Next Step**: Pull changes on RPi, test large amplitude on hardware.
 
 ### Session 33: Hardware Walking Test & Backlash Discovery (RPi)
 
@@ -136,19 +158,23 @@ target_joints = CPG_base_trajectory + policy_output * residual_scale
 - **Policy (learned)**: Provides balance corrections, velocity tracking, adaptation
 - **residual_scale=0.05**: Policy can only fine-tune, not override CPG
 
-### Best Configuration (Session 30)
+### Best Configuration (Session 35)
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | stiffness | 400 | Sim-to-real aligned |
-| damping | 30 | Proportional to stiffness |
+| **damping** | **150** | **OPTIMAL (Session 35 sweep)** |
+| action_filter_beta | 0.40 | Smooth action transitions |
+| torque_penalty | -0.01 | Moderate torque penalty |
+| action_rate_penalty | -0.1 | Penalizes rapid changes |
 | CPG frequency | **0.7 Hz** | **OPTIMAL (Session 30 sweep)** |
 | CPG mode | ENABLED | `HAROLD_CPG=1` |
 | Command tracking | ENABLED | `HAROLD_CMD_TRACK=1` |
 | Dynamic commands | ENABLED | `HAROLD_DYN_CMD=1` |
 | vx_range | 0.10-0.45 | Optimal range |
 | residual_scale | 0.05 | 0.08 causes regression |
-| swing_calf | -1.35 | Safety margin from limit |
+| swing_calf | -1.38 | Session 34 large amplitude |
+| stance_calf | -0.50 | Session 34 large amplitude |
 | joint_position_noise | **0.0175 rad (~1°)** | **OPTIMAL for backlash** |
 
 ### Key Findings from Session 28

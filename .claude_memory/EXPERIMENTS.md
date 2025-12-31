@@ -3175,3 +3175,53 @@ Session 34 large amplitude policy walked on hardware but was extremely jerky wit
 #### Next Step
 
 Test smooth gait policy on hardware to verify reduced jerkiness.
+
+---
+
+### Session 35 Damping Sweep (2025-12-31)
+
+#### Objective
+Find optimal damping value for smooth gait while maintaining walking ability.
+
+#### Experiments
+
+| Damping | vx (m/s) | Contact | Height | Verdict | Run ID |
+|---------|----------|---------|--------|---------|--------|
+| 30 (baseline) | 0.016 | -0.024 | 1.14 | WALKING | Session 34 |
+| 75 | 0.014 | -0.005 | 1.18 | WALKING | 35g |
+| 100 | 0.014 | -0.0002 | 1.24 | WALKING | 2025-12-31_06-07-27 |
+| 125 | 0.034 | -0.015 | 1.36 | WALKING | 2025-12-31_07-09-12 |
+| **150** | **0.036** | -0.014 | 1.30 | **WALKING (BEST)** | **2025-12-31_08-05-56** |
+| 175 | -0.024 | -0.002 | 1.65 | STANDING | 2025-12-31_09-01-23 |
+
+#### Key Findings
+
+1. **U-shaped velocity curve**: vx drops at medium damping (75-100), rises at high damping (125-150)
+2. **Optimal damping = 150**: Best forward velocity (0.036 m/s) with acceptable contact (-0.014)
+3. **Damping > 175 breaks walking**: Robot learns to stand tall (height=1.65!) but won't walk forward
+4. **Contact vs velocity trade-off**: Lower damping = lower contact, but also lower velocity
+
+#### Surprising Result
+
+Higher damping (125-150) actually produced **faster** walking than medium damping (75-100). Hypothesis: High damping provides more stable platform for CPG to generate effective thrust.
+
+#### Final Configuration (damping=150)
+
+```python
+actuators={
+    "all_joints": ImplicitActuatorCfg(
+        effort_limit_sim=2.8,
+        stiffness=400.0,
+        damping=150.0,  # Session 35 optimal
+    ),
+},
+```
+
+#### Files Updated
+
+1. `harold.py` - damping set to 150
+2. `deployment/policy/harold_policy.onnx` - Exported from damping=150 best checkpoint
+
+#### Next Step
+
+Test damping=150 policy on hardware - should be smoother than previous policies.

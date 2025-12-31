@@ -1,109 +1,62 @@
 # Harold Next Steps
 
-## PRIORITY 0: Test Large Amplitude CPG on Hardware
+## PRIORITY 0: Test Smooth Gait Policy on Hardware
 
-**Status**: Policy exported, ready for hardware test.
+**Status**: Session 35 complete. Smooth gait policy exported with optimal damping=150.
 
-### Session 34 Summary
+### Session 35 Summary
 
-1. ✅ Designed backlash-tolerant large amplitude trajectory (50° calf swing)
-2. ✅ Trained and validated in simulation (vx=0.020 m/s, WALKING)
-3. ✅ Exported policy and updated deployment config
-4. 🔲 **Test on hardware** - Will feet lift with 50° swing vs 30° backlash?
+1. ✅ Hardware test showed Session 34 policy was jerky
+2. ✅ Completed damping sweep (30→60→75→100→125→150→175)
+3. ✅ Found optimal damping=150 (best vx=0.036 m/s)
+4. ✅ Exported smooth policy to deployment/policy/harold_policy.onnx
+5. 🔲 **Test on hardware** - Should be smoother than previous policies
 
-### Changes Applied
+### Damping Sweep Results
 
-| Joint | Old Amplitude | New Amplitude |
-|-------|--------------|---------------|
-| Calf | 26° (-1.35 to -0.90) | **50°** (-1.38 to -0.50) |
-| Thigh | 29° (0.40 to 0.90) | **40°** (0.25 to 0.95) |
+| Damping | vx (m/s) | Contact | Verdict |
+|---------|----------|---------|---------|
+| 30 (original) | 0.016 | -0.024 | WALKING (jerky) |
+| 75 | 0.014 | -0.005 | WALKING |
+| 100 | 0.014 | -0.0002 | WALKING |
+| 125 | 0.034 | -0.015 | WALKING |
+| **150** | **0.036** | -0.014 | **WALKING (BEST)** |
+| 175 | -0.024 | -0.002 | STANDING (too high) |
 
-### Files Updated
+### Key Findings
 
-- `harold_isaac_lab_env_cfg.py` - CPGCfg & ScriptedGaitCfg
-- `deployment/config/cpg.yaml` - Hardware trajectory parameters
-- `deployment/policy/harold_policy.onnx` - New trained policy
+- **U-shaped velocity curve**: vx drops at medium damping, rises at high damping
+- **Optimal = 150**: Best forward velocity with acceptable contact
+- **>175 breaks walking**: Robot prefers standing to walking
 
----
+### Current Settings (Session 35 Final)
 
-## If Hardware Test Still Fails: Experiment 2 - Asymmetric Trajectory
-
-**Hypothesis**: Fast swing + slow stance avoids backlash issues better than larger sinusoid.
-
-**Concept**:
-- Swing phase (30% duty): Fast, unidirectional motion (no reversal)
-- Brief pause at apex (pre-load against backlash)
-- Stance phase (70% duty): Slow, sustained push
-
-**Implementation**: Modify `_compute_leg_trajectory()` in `harold_isaac_lab_env.py`.
-
-Current trajectory uses sinusoidal swing:
-```python
-swing_lift = torch.sin(swing_progress * math.pi)  # 0 -> 1 -> 0
-calf_swing = stance_calf + (swing_calf - stance_calf) * swing_lift
-```
-
-This reverses direction at mid-swing (loses 30° to backlash each reversal).
-
-Proposed asymmetric trajectory:
-```python
-# Swing phase: fast unidirectional motion (first 60% of swing)
-# Apex: brief hold (60-70% of swing)
-# Return: controlled descent (70-100% of swing)
-if swing_progress < 0.6:
-    # Fast lift (0 -> 1)
-    calf_swing = stance_calf + (swing_calf - stance_calf) * (swing_progress / 0.6)
-elif swing_progress < 0.7:
-    # Hold at apex (pre-load)
-    calf_swing = swing_calf
-else:
-    # Controlled return (1 -> 0)
-    calf_swing = stance_calf + (swing_calf - stance_calf) * (1.0 - (swing_progress - 0.7) / 0.3)
-```
+| Parameter | Value |
+|-----------|-------|
+| damping | 150 |
+| action_filter_beta | 0.40 |
+| torque_penalty | -0.01 |
+| action_rate_penalty | -0.1 |
+| CPG frequency | 0.7 Hz |
 
 ---
 
-## If Both Fail: Experiment 3 - Higher Position Noise
+## If Hardware Still Jerky: Fine-Tune Smoothness
 
-**Hypothesis**: Training with 15° position noise (half of backlash) improves transfer.
+Possible next steps if hardware test reveals issues:
 
-**Caution**: Session 28 showed 2° noise hurt training. May need curriculum.
-
-**Changes**:
-```python
-# In DomainRandomizationCfg
-joint_position_noise: 0.0175 → 0.26  # ~15° instead of ~1°
-```
-
----
-
-## Technical Constraints for Gait Design
-
-### Backlash Behavior (from Session 33 hardware testing)
-
-| Motion Type | Backlash Impact |
-|-------------|-----------------|
-| Holding position | None - servos strong |
-| Sustained push/pull | Minimal - motion transfers |
-| Direction reversal | ~30° lost |
-| Small oscillations | Entirely absorbed |
-
-### Design Rules
-
-1. **Amplitude > 45°** for any joint motion to exceed backlash
-2. **Avoid sinusoids** - they reverse direction smoothly (bad for backlash)
-3. **Use asymmetric waveforms** - fast one way, slow the other
-4. **Pre-load at apex** - brief pause before load-bearing phase
-5. **Unidirectional phases** - complete full motion before reversing
+1. **Higher damping (closer to 175)**: Current 150 may not be smooth enough
+2. **Stronger action filter (beta=0.35)**: Current 0.40 may allow too much high-frequency noise
+3. **CPG trajectory shaping**: Asymmetric swing/stance for smoother foot placement
 
 ---
 
 ## Deployment Status
 
-- ✅ ONNX validation passing
+- ✅ ONNX validation passing (errors ~10^-6)
 - ✅ Controller runs stable at 20 Hz
-- ✅ Warmup removed (immediate policy engagement)
 - ✅ harold.service disabled (manual control only)
+- ✅ Smooth gait policy exported (damping=150)
 - ⚠️ FL shoulder (ID 2) needs recalibration
 
 ---
@@ -112,9 +65,9 @@ joint_position_noise: 0.0175 → 0.26  # ~15° instead of ~1°
 
 End goal is **remote-controlled walking in any direction + rotation**.
 
-Current CPG is forward-only. After solving backlash issue, architecture needs:
+Current CPG is forward-only. After achieving smooth walking:
 - Parameterized CPG taking (vx, vy, yaw) commands, OR
 - Higher policy authority (residual_scale > 0.05), OR
 - Pure RL without CPG base trajectory
 
-But first: **test large amplitude on hardware**.
+But first: **test smooth gait on hardware**.

@@ -106,11 +106,12 @@ HAROLD_V4_CFG = ArticulationCfg(
             # FeeTech ST3215 servo: max 2.94 Nm @ 12V
             # Session 22: Real robot has more "give" than sim with stiffness=1200
             # Session 24: RESTORED to 400/30 for sim-to-real alignment
-            # Session 35: Increased damping for smooth gait (30→60→75)
+            # Session 35: Increased damping for smooth gait
+            # Sweep results: 150 optimal (125-150 best vx, >175 = standing only)
             # CPG provides walking structure, policy adds balance corrections
             effort_limit_sim=2.8,
             stiffness=400.0,   # Sim-to-real aligned (Session 22 validated on hardware)
-            damping=75.0,      # Session 35: Further increased for maximum smoothness
+            damping=150.0,     # Session 35: Optimal - vx=0.036, contact=-0.014
         ),
     },
 )

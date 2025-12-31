@@ -388,8 +388,8 @@ def main():
     parser.add_argument(
         "--warmup-cycles",
         type=int,
-        default=3,
-        help="CPG cycles before enabling policy (0 to disable warmup)",
+        default=0,
+        help="CPG cycles before enabling policy (default: 0, immediate)",
     )
     args = parser.parse_args()
 

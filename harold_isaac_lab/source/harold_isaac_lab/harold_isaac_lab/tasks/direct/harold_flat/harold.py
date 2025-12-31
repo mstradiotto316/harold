@@ -93,10 +93,11 @@ HAROLD_V4_CFG = ArticulationCfg(
             'bl_thigh_joint': 0.70,
             'br_thigh_joint': 0.70,
 
-            'fl_calf_joint': -1.40,
-            'fr_calf_joint': -1.40,
-            'bl_calf_joint': -1.40,
-            'br_calf_joint': -1.40,
+            # Session 35: Fixed calf spawn to be within limit (-1.3963)
+            'fl_calf_joint': -1.39,
+            'fr_calf_joint': -1.39,
+            'bl_calf_joint': -1.39,
+            'br_calf_joint': -1.39,
         }
     ),
 
@@ -107,11 +108,11 @@ HAROLD_V4_CFG = ArticulationCfg(
             # Session 22: Real robot has more "give" than sim with stiffness=1200
             # Session 24: RESTORED to 400/30 for sim-to-real alignment
             # Session 35: Increased damping for smooth gait
-            # Sweep results: 150 optimal (125-150 best vx, >175 = standing only)
+            # Sweep results: 125-150 best vx, >175 = standing only
             # CPG provides walking structure, policy adds balance corrections
             effort_limit_sim=2.8,
             stiffness=400.0,   # Sim-to-real aligned (Session 22 validated on hardware)
-            damping=150.0,     # Session 35: Optimal - vx=0.036, contact=-0.014
+            damping=125.0,     # Session 35: Reverting to 125 (safer, vx=0.034)
         ),
     },
 )

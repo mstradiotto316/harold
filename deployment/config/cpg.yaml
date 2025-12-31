@@ -1,4 +1,4 @@
-# CPG Configuration - Matched to simulation (Session 30)
+# CPG Configuration - Matched to simulation (Session 34)
 # DO NOT MODIFY without updating simulation CPGCfg
 
 # Gait timing
@@ -6,11 +6,15 @@ frequency_hz: 0.7        # Gait frequency (Session 30: optimal in 0.5-0.8 sweep)
 duty_cycle: 0.6          # 60% stance, 40% swing
 
 # Leg trajectory angles (radians)
+# Session 34: BACKLASH-TOLERANT AMPLITUDES
+# Hardware has ~30° backlash on direction reversal. All motions must exceed this.
+# Old calf: -1.35 to -0.90 = 26° (absorbed by backlash)
+# New calf: -1.38 to -0.50 = 50° (exceeds backlash with 20° margin)
 trajectory:
-  swing_thigh: 0.40      # Thigh angle during swing phase
-  stance_thigh: 0.90     # Thigh angle during stance phase
-  stance_calf: -0.90     # Calf angle during stance phase
-  swing_calf: -1.35      # Calf angle during swing phase (Session 30: margin from limit)
+  swing_thigh: 0.25      # Session 34: More back during swing (was 0.40)
+  stance_thigh: 0.95     # Session 34: More forward during stance (was 0.90)
+  stance_calf: -0.50     # Session 34: More extended during stance (was -0.90)
+  swing_calf: -1.38      # Session 34: Close to limit (was -1.35)
   shoulder_amplitude: 0.05  # Shoulder oscillation amplitude
 
 # Residual learning

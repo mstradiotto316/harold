@@ -1964,3 +1964,56 @@ This is similar to industrial robot techniques for geared joints - "wind up" aga
 
 - **FL shoulder (ID 2) lost center again** - servo drift/calibration issue persists
 - **systemd harold.service was auto-starting** - disabled for manual testing
+
+---
+
+## Session 34 Observations (2025-12-30)
+
+### Observation: Large Amplitude CPG Works in Simulation
+
+**Finding**: Increased calf swing amplitude from 26° to 50° achieves similar performance to previous best.
+
+**Training Progression**:
+| Progress | vx (m/s) | Verdict |
+|----------|----------|---------|
+| 11% | 0.014 | WALKING |
+| 31% | 0.010 | STANDING (dip) |
+| 51% | 0.016 | WALKING |
+| 71% | 0.016 | WALKING |
+| 89% | 0.017 | WALKING |
+| 99% | 0.019 | WALKING |
+| Final | **0.020** | **WALKING** |
+
+**Key insight**: Unlike previous experiments, velocity IMPROVED over training rather than regressing. This may be due to the larger motion providing clearer feedback gradients.
+
+### Observation: Amplitude Analysis
+
+**Old trajectory** (absorbed by backlash):
+- Calf: -1.35 to -0.90 = 0.45 rad = **26°**
+- Thigh: 0.40 to 0.90 = 0.50 rad = **29°**
+
+**New trajectory** (exceeds backlash):
+- Calf: -1.38 to -0.50 = 0.88 rad = **50°**
+- Thigh: 0.25 to 0.95 = 0.70 rad = **40°**
+
+**Backlash zone**: ~30° (from Session 33 hardware testing)
+
+With new amplitude:
+- Calf: 50° - 30° backlash = **20° actual motion** (should lift feet)
+- Thigh: 40° - 30° backlash = **10° actual motion** (marginal)
+
+### Observation: Simulation Doesn't Model Backlash
+
+Simulation achieved vx=0.020 with BOTH old and new trajectories. This confirms:
+1. Simulation physics works fine without backlash
+2. Hardware test is the only way to validate backlash mitigation
+3. vx improvement in sim may be coincidental, not causal
+
+### New Hypotheses (Session 34)
+
+| ID | Hypothesis | Status |
+|----|------------|--------|
+| **H-S34-1** | 50° calf amplitude exceeds 30° backlash | TO TEST on hardware |
+| **H-S34-2** | Thigh amplitude (40°) may still be marginal | TO OBSERVE |
+| **H-S34-3** | Asymmetric trajectory may work even better | TO TEST if needed |
+| **H-S34-4** | No mid-training regression with larger amplitude | OBSERVED (not yet explained) |

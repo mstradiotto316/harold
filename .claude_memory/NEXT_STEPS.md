@@ -1,52 +1,73 @@
 # Harold Next Steps
 
-## PRIORITY 0: Redesign CPG for Backlash-Tolerant Gait
+## PRIORITY 0: Test Large Amplitude CPG on Hardware
 
-**Status**: Hardware test revealed ~30° servo backlash prevents foot lifting with current CPG.
+**Status**: Policy exported, ready for hardware test.
 
-### Session 33 Hardware Test Summary
+### Session 34 Summary
 
-1. ✅ Double-normalization fix validated
-2. ✅ Deployment pipeline works (20 Hz stable)
-3. ❌ **Feet never lifted** - robot shuffled forward by dragging
-4. ❌ Current CPG swing amplitude (~29°) entirely absorbed by backlash
+1. ✅ Designed backlash-tolerant large amplitude trajectory (50° calf swing)
+2. ✅ Trained and validated in simulation (vx=0.020 m/s, WALKING)
+3. ✅ Exported policy and updated deployment config
+4. 🔲 **Test on hardware** - Will feet lift with 50° swing vs 30° backlash?
 
-### Root Cause
+### Changes Applied
 
-Servos have ~30° mechanical backlash. This only affects **direction reversals**, not sustained motion or holding under load.
+| Joint | Old Amplitude | New Amplitude |
+|-------|--------------|---------------|
+| Calf | 26° (-1.35 to -0.90) | **50°** (-1.38 to -0.50) |
+| Thigh | 29° (0.40 to 0.90) | **40°** (0.25 to 0.95) |
 
-Current sinusoidal CPG reverses direction twice per cycle → motion lost to backlash at each reversal.
+### Files Updated
+
+- `harold_isaac_lab_env_cfg.py` - CPGCfg & ScriptedGaitCfg
+- `deployment/config/cpg.yaml` - Hardware trajectory parameters
+- `deployment/policy/harold_policy.onnx` - New trained policy
 
 ---
 
-## Experiments for Desktop Agent
+## If Hardware Test Still Fails: Experiment 2 - Asymmetric Trajectory
 
-### Experiment 1: Larger Amplitude CPG
-
-**Hypothesis**: Swing amplitude > 45° will exceed backlash zone and produce actual foot lift.
-
-**Changes to test**:
-```python
-# In CPGCfg (harold_isaac_lab_env_cfg.py)
-swing_calf: -1.50  → -1.70  # Increase swing amplitude
-stance_calf: -0.90 → -0.60  # More extension during stance
-# Total amplitude: ~63° (vs current ~29°)
-```
-
-### Experiment 2: Asymmetric Trajectory
-
-**Hypothesis**: Fast swing + slow stance avoids backlash issues.
+**Hypothesis**: Fast swing + slow stance avoids backlash issues better than larger sinusoid.
 
 **Concept**:
-- Swing phase (30% duty): Fast, unidirectional motion
+- Swing phase (30% duty): Fast, unidirectional motion (no reversal)
+- Brief pause at apex (pre-load against backlash)
 - Stance phase (70% duty): Slow, sustained push
-- Brief pause at transitions to pre-load against backlash
 
-**Implementation**: Modify `_compute_leg_trajectory()` to use asymmetric waveform instead of sinusoid.
+**Implementation**: Modify `_compute_leg_trajectory()` in `harold_isaac_lab_env.py`.
 
-### Experiment 3: Higher Observation Noise for Backlash Robustness
+Current trajectory uses sinusoidal swing:
+```python
+swing_lift = torch.sin(swing_progress * math.pi)  # 0 -> 1 -> 0
+calf_swing = stance_calf + (swing_calf - stance_calf) * swing_lift
+```
+
+This reverses direction at mid-swing (loses 30° to backlash each reversal).
+
+Proposed asymmetric trajectory:
+```python
+# Swing phase: fast unidirectional motion (first 60% of swing)
+# Apex: brief hold (60-70% of swing)
+# Return: controlled descent (70-100% of swing)
+if swing_progress < 0.6:
+    # Fast lift (0 -> 1)
+    calf_swing = stance_calf + (swing_calf - stance_calf) * (swing_progress / 0.6)
+elif swing_progress < 0.7:
+    # Hold at apex (pre-load)
+    calf_swing = swing_calf
+else:
+    # Controlled return (1 -> 0)
+    calf_swing = stance_calf + (swing_calf - stance_calf) * (1.0 - (swing_progress - 0.7) / 0.3)
+```
+
+---
+
+## If Both Fail: Experiment 3 - Higher Position Noise
 
 **Hypothesis**: Training with 15° position noise (half of backlash) improves transfer.
+
+**Caution**: Session 28 showed 2° noise hurt training. May need curriculum.
 
 **Changes**:
 ```python
@@ -54,13 +75,11 @@ stance_calf: -0.90 → -0.60  # More extension during stance
 joint_position_noise: 0.0175 → 0.26  # ~15° instead of ~1°
 ```
 
-**Caution**: Session 28 showed 2° noise hurt training. May need curriculum.
-
 ---
 
 ## Technical Constraints for Gait Design
 
-### Backlash Behavior (from hardware testing)
+### Backlash Behavior (from Session 33 hardware testing)
 
 | Motion Type | Backlash Impact |
 |-------------|-----------------|
@@ -98,4 +117,4 @@ Current CPG is forward-only. After solving backlash issue, architecture needs:
 - Higher policy authority (residual_scale > 0.05), OR
 - Pure RL without CPG base trajectory
 
-But first: **get feet off the ground with backlash-aware gait design**.
+But first: **test large amplitude on hardware**.

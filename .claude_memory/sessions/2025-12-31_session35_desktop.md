@@ -89,10 +89,60 @@ Systematic damping sweep to find optimal value:
 - Episode length: 408 (PASS)
 - Verdict: WALKING
 
+### Phase 3: Bug Fixes & Validation Improvements
+
+After observing robot collapse in headed simulation:
+
+1. **Fixed calf spawn pose bug**: Spawn at -1.40 rad exceeded limit (-1.3963 rad)
+   - Changed spawn to -1.39 rad for all calves
+
+2. **Reverted damping 150 → 125**: Safer value after observing instability
+   - damping=125 still gives good vx=0.032 m/s
+
+3. **Improved episode length threshold**: 100 → 300 (5s → 15s)
+   - Catches robots that fall repeatedly even with good vx
+   - A robot must survive 15+ seconds to be considered healthy
+
+**Latest result (damping=125, fixed spawn):**
+- Episode length: 402 (PASS > 300)
+- Forward velocity: 0.032 m/s (PASS)
+- Height reward: 1.40 (PASS)
+- Upright mean: 0.965 (PASS)
+- Body contact: -0.002 (PASS)
+- Verdict: WALKING
+
+## Final Configuration
+
+| Parameter | Value |
+|-----------|-------|
+| damping | 125 |
+| action_filter_beta | 0.40 |
+| torque_penalty | -0.01 |
+| action_rate_penalty | -0.1 |
+| calf_spawn | -1.39 rad |
+| episode_length_threshold | 300 (15s) |
+
+## Files Changed
+
+1. **harold.py**
+   - damping: 30 → 125
+   - calf spawn: -1.40 → -1.39
+
+2. **harold_isaac_lab_env_cfg.py**
+   - action_filter_beta: 0.18 → 0.40
+   - torque_penalty: -0.005 → -0.01
+   - action_rate_penalty: 0 → -0.1
+
+3. **harold_isaac_lab_env.py**
+   - Added action_rate_penalty reward computation
+
+4. **scripts/harold.py**
+   - episode_length threshold: 100 → 300
+
 ## Next Steps (for RPi session)
 
 1. `git pull` to get updated policy and config
-2. Test damping=150 policy on hardware
+2. Test damping=125 policy on hardware
 3. Observe if gait is smoother than Session 34
 4. Report feedback for further tuning if needed
 
@@ -100,5 +150,6 @@ Systematic damping sweep to find optimal value:
 
 1. **Higher damping can improve walking**: Counter-intuitive but damping=150 > damping=75
 2. **There's a damping ceiling**: >175 causes robot to prefer standing
-3. **Smoothness parameters interact**: beta, damping, torque all affect each other
-4. **Systematic sweeps are valuable**: Found optimal damping through sweep, not intuition
+3. **Spawn pose matters**: Exceeding joint limits at spawn causes physics issues
+4. **Episode length is key stability metric**: vx alone can be misleading (falling forward generates positive vx)
+5. **Systematic sweeps are valuable**: Found optimal damping through sweep, not intuition

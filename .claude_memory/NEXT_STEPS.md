@@ -2,52 +2,49 @@
 
 ## PRIORITY 0: Test Smooth Gait Policy on Hardware
 
-**Status**: Session 35 complete. Smooth gait policy exported with optimal damping=150.
+**Status**: Session 35 complete. Stable policy with damping=125 and fixed spawn pose.
 
 ### Session 35 Summary
 
 1. ✅ Hardware test showed Session 34 policy was jerky
 2. ✅ Completed damping sweep (30→60→75→100→125→150→175)
-3. ✅ Found optimal damping=150 (best vx=0.036 m/s)
-4. ✅ Exported smooth policy to deployment/policy/harold_policy.onnx
-5. 🔲 **Test on hardware** - Should be smoother than previous policies
+3. ✅ Fixed calf spawn bug (-1.40 → -1.39, was exceeding limit)
+4. ✅ Reverted damping 150 → 125 (safer value)
+5. ✅ Improved episode_length threshold (100 → 300 = 15s minimum)
+6. 🔲 **Test on hardware** - Should be smoother than previous policies
 
-### Damping Sweep Results
+### Latest Training Result (damping=125)
 
-| Damping | vx (m/s) | Contact | Verdict |
-|---------|----------|---------|---------|
-| 30 (original) | 0.016 | -0.024 | WALKING (jerky) |
-| 75 | 0.014 | -0.005 | WALKING |
-| 100 | 0.014 | -0.0002 | WALKING |
-| 125 | 0.034 | -0.015 | WALKING |
-| **150** | **0.036** | -0.014 | **WALKING (BEST)** |
-| 175 | -0.024 | -0.002 | STANDING (too high) |
-
-### Key Findings
-
-- **U-shaped velocity curve**: vx drops at medium damping, rises at high damping
-- **Optimal = 150**: Best forward velocity with acceptable contact
-- **>175 breaks walking**: Robot prefers standing to walking
+| Metric | Value |
+|--------|-------|
+| Episode length | 402 (PASS > 300) |
+| Forward velocity | 0.032 m/s |
+| Height reward | 1.40 |
+| Upright mean | 0.965 |
+| Body contact | -0.002 |
+| Verdict | WALKING |
 
 ### Current Settings (Session 35 Final)
 
 | Parameter | Value |
 |-----------|-------|
-| damping | 150 |
+| damping | 125 |
 | action_filter_beta | 0.40 |
 | torque_penalty | -0.01 |
 | action_rate_penalty | -0.1 |
+| calf_spawn | -1.39 rad |
+| episode_length_threshold | 300 (15s) |
 | CPG frequency | 0.7 Hz |
 
 ---
 
-## If Hardware Still Jerky: Fine-Tune Smoothness
+## Validation Improvements Made
 
-Possible next steps if hardware test reveals issues:
+1. **Episode length threshold raised**: 100 → 300 (5s → 15s)
+   - Catches robots that fall repeatedly even if vx looks good
+   - A robot must survive 15+ seconds to pass
 
-1. **Higher damping (closer to 175)**: Current 150 may not be smooth enough
-2. **Stronger action filter (beta=0.35)**: Current 0.40 may allow too much high-frequency noise
-3. **CPG trajectory shaping**: Asymmetric swing/stance for smoother foot placement
+2. **Spawn pose fixed**: Calf at -1.39 rad (within -1.3963 limit)
 
 ---
 
@@ -56,7 +53,7 @@ Possible next steps if hardware test reveals issues:
 - ✅ ONNX validation passing (errors ~10^-6)
 - ✅ Controller runs stable at 20 Hz
 - ✅ harold.service disabled (manual control only)
-- ✅ Smooth gait policy exported (damping=150)
+- ✅ Stable policy exported (damping=125)
 - ⚠️ FL shoulder (ID 2) needs recalibration
 
 ---

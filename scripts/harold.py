@@ -80,7 +80,7 @@ class MetricSpec:
     display_name: str       # Human-readable name for output
 
 METRICS = [
-    MetricSpec('episode_length', 'Episode / Total timesteps (mean)', 100, True, 'Episode Length'),
+    MetricSpec('episode_length', 'Episode / Total timesteps (mean)', 300, True, 'Episode Length'),  # Session 35: raised from 100 (15s minimum for stable walking)
     MetricSpec('upright_mean', 'Info / Episode_Metric/upright_mean', 0.9, True, 'Upright Mean'),
     MetricSpec('height_reward', 'Info / Episode_Reward/height_reward', 0.5, True, 'Height Reward'),  # Session 24: lowered from 1.2 (CPG gait has different natural height)
     MetricSpec('body_contact', 'Info / Episode_Reward/body_contact_penalty', -0.1, True, 'Body Contact'),

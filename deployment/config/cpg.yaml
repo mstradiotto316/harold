@@ -23,7 +23,7 @@ residual_scale: 0.05     # Policy output multiplier (Session 30: 0.08 regressed)
 # Control loop
 control:
   rate_hz: 20            # Control frequency (50ms period)
-  action_filter_beta: 0.35  # Session 35: Increased for smoother motion (was 0.18)
+  action_filter_beta: 0.40  # Session 35: Optimal (0.50 too strong, 0.35 OK but 0.40 best)
 
 # Joint action ranges (for scaling policy output)
 joint_range:

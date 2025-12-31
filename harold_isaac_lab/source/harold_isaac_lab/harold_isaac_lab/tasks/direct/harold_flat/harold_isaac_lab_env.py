@@ -293,6 +293,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "command_tracking",
             "command_tracking_vy",  # Session 27: Lateral command tracking
             "command_tracking_yaw",  # Session 28: Yaw rate command tracking
+            "action_rate_penalty",  # Session 35: Penalize rapid action changes
         ]
 
         # --- Diagonal Gait Tracking (EXP-055) ---
@@ -1411,6 +1412,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "command_tracking": command_tracking,
             "command_tracking_vy": command_tracking_vy,  # Session 27: Lateral command tracking
             "command_tracking_yaw": command_tracking_yaw,  # Session 28: Yaw rate command tracking
+            # Session 35: Penalize rapid action changes for smoother motion
+            "action_rate_penalty": rewards_cfg.action_rate_penalty * torch.sum(
+                torch.square(self._actions - self._previous_actions), dim=1
+            ),
         }
 
         total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

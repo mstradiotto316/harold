@@ -163,7 +163,7 @@ target_joints = CPG_base_trajectory + policy_output * residual_scale
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | stiffness | 400 | Sim-to-real aligned |
-| **damping** | **150** | **OPTIMAL (Session 35 sweep)** |
+| **damping** | **125** | **Reverted from 150 for safety** |
 | action_filter_beta | 0.40 | Smooth action transitions |
 | torque_penalty | -0.01 | Moderate torque penalty |
 | action_rate_penalty | -0.1 | Penalizes rapid changes |
@@ -175,7 +175,9 @@ target_joints = CPG_base_trajectory + policy_output * residual_scale
 | residual_scale | 0.05 | 0.08 causes regression |
 | swing_calf | -1.38 | Session 34 large amplitude |
 | stance_calf | -0.50 | Session 34 large amplitude |
+| calf_spawn | -1.39 | Fixed to be within limit (-1.3963) |
 | joint_position_noise | **0.0175 rad (~1°)** | **OPTIMAL for backlash** |
+| episode_length_threshold | **300** | **15s minimum for stability** |
 
 ### Key Findings from Session 28
 

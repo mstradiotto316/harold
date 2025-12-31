@@ -61,34 +61,40 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 | USD model | `part_files/V4/harold_8.usd` |
 | Hardware gait script | `firmware/scripted_gait_test_1/scripted_gait_test_1.ino` |
 
-## Current State (2025-12-30, Session 32 Complete)
+## Current State (2025-12-30, Session 34 Complete)
+
+### Session 34: Large Amplitude CPG for Backlash Tolerance (Desktop)
+
+**BACKLASH-TOLERANT GAIT DESIGNED**:
+
+Session 33 discovered ~30° servo backlash was absorbing entire calf swing (26°).
+Session 34 increased calf amplitude to 50° to exceed backlash zone.
+
+**Changes Applied**:
+| Joint | Old Amplitude | New Amplitude |
+|-------|--------------|---------------|
+| Calf | 26° (-1.35 to -0.90) | **50°** (-1.38 to -0.50) |
+| Thigh | 29° (0.40 to 0.90) | **40°** (0.25 to 0.95) |
+
+**Training Result**: vx=0.020 m/s, WALKING (no regression)
+
+**Next Step**: Pull changes on RPi, test large amplitude on hardware.
+
+### Session 33: Hardware Walking Test & Backlash Discovery (RPi)
+
+**Critical Finding**: ~30° servo backlash on direction reversals.
+- Feet never lifted with old gait
+- Robot shuffled by pushing, not stepping
+- Servos strong under load, issue is only at direction changes
 
 ### Session 32: Double-Normalization Bug Fix (Desktop)
 
-**CRITICAL BUG DISCOVERED AND FIXED**:
-
-The deployment code was normalizing observations TWICE:
-1. Manual normalization in `harold_controller.py`
-2. ONNX model's internal `NormalizedPolicy` wrapper
-
-**Fix Applied**: Removed manual normalization, pass RAW observations to ONNX.
-
-**Validation Result**: ONNX matches PyTorch with max difference of 0.000003.
-
-**Next Step**: Pull changes on RPi, test on hardware.
-
-### Session 31: Deployment Stabilization (RPi)
-
-Applied compensatory fixes (may not be needed after Session 32 fix):
-- lin_vel stats override
-- prev_target blending
-- joint_pos blending during warmup
+Fixed critical bug where observations were normalized twice.
 
 ### Session 30: Joint Limit Alignment & CPG Optimization
 
-**Key Achievements**:
-1. **Joint limits aligned with hardware** - All limits now match hardware safe ranges
-2. **CPG frequency optimized** - 0.7 Hz found optimal (sweep 0.5-0.8)
+1. **Joint limits aligned with hardware** - All limits match safe ranges
+2. **CPG frequency optimized** - 0.7 Hz found optimal
 3. **Best policy exported** - vx=0.018 m/s (EXP-170)
 
 **Hardware-Aligned Joint Limits**:

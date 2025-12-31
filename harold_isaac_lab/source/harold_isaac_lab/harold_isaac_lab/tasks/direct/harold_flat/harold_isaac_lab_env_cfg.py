@@ -210,8 +210,10 @@ class ScriptedGaitCfg:
     (141% of 0.1 m/s target!) with stiffness=1200.
 
     Session 22 RESULT: SUCCESS - Real robot walks forward with this gait.
-    Aligned parameters: stiffness=400, frequency=0.5 Hz.
-    Sim achieves vx=+0.04 m/s with hardware-aligned soft settings.
+
+    Session 34: BACKLASH-TOLERANT UPDATE - Hardware testing (Session 33) revealed
+    ~30° servo backlash. Old amplitude (26°) was absorbed. New amplitude (50°)
+    should exceed backlash with margin for actual foot lift.
 
     Use HAROLD_SCRIPTED_GAIT=1 to enable for physics validation.
     """
@@ -219,13 +221,13 @@ class ScriptedGaitCfg:
     # Master switch - enable via env var HAROLD_SCRIPTED_GAIT=1
     enabled: bool = False
 
-    # Gait parameters validated on real hardware (Session 22)
+    # Gait parameters - Session 34: Backlash-tolerant amplitudes (aligned with CPGCfg)
     frequency: float = 0.7  # EXP-170: Optimal frequency (0.7 Hz best in sweep)
-    swing_thigh: float = 0.40    # Thigh back during swing
-    stance_thigh: float = 0.90   # Thigh forward during stance
-    stance_calf: float = -0.90   # More extended stance
-    swing_calf: float = -1.35    # Bent during swing (EXP-165: reduced from -1.40 for safety margin)
-    shoulder_amplitude: float = 0.05  # Reduced shoulder motion
+    swing_thigh: float = 0.25    # Session 34: More back during swing (was 0.40)
+    stance_thigh: float = 0.95   # Session 34: More forward during stance (was 0.90)
+    stance_calf: float = -0.50   # Session 34: More extended stance (was -0.90)
+    swing_calf: float = -1.38    # Session 34: Close to limit (was -1.35)
+    shoulder_amplitude: float = 0.05  # Unchanged
     duty_cycle: float = 0.6
 
 
@@ -235,6 +237,12 @@ class CPGCfg:
 
     Session 24: NOW ALIGNED with ScriptedGaitCfg - uses the same duty-cycle based
     trajectory that achieved vx=+0.141 m/s in sim and walks on real hardware.
+
+    Session 34: BACKLASH-TOLERANT UPDATE - Hardware testing (Session 33) revealed
+    ~30° servo backlash absorbs direction reversals. Old calf amplitude (26°) was
+    entirely absorbed by backlash, causing feet to never lift.
+
+    New design principle: All joint motions > 45° to exceed backlash zone.
 
     Architecture:
         target_joints = CPG_base_trajectory + policy_output * residual_scale
@@ -248,16 +256,19 @@ class CPGCfg:
     # Enable CPG-based action space
     enabled: bool = False  # Set True via env var HAROLD_CPG=1
 
-    # Base gait parameters - ALIGNED WITH ScriptedGaitCfg (Session 22 validated)
+    # Base gait parameters
     base_frequency: float = 0.7  # Hz - EXP-170: Optimal (best in sweep)
     duty_cycle: float = 0.6      # 60% stance, 40% swing
 
-    # Trajectory parameters - EXACT COPY from ScriptedGaitCfg (proven on hardware)
-    swing_thigh: float = 0.40     # Thigh back during swing
-    stance_thigh: float = 0.90    # Thigh forward during stance
-    stance_calf: float = -0.90    # Extended during stance
-    swing_calf: float = -1.35     # Bent during swing (EXP-165: margin from limit)
-    shoulder_amplitude: float = 0.05  # Same as ScriptedGaitCfg
+    # Trajectory parameters - SESSION 34: BACKLASH-TOLERANT AMPLITUDES
+    # Hardware has ~30° backlash on direction reversal. All motions must exceed this.
+    # Old calf: -1.35 to -0.90 = 26° (absorbed by backlash)
+    # New calf: -1.38 to -0.50 = 50° (exceeds backlash with 20° margin)
+    swing_thigh: float = 0.25     # Session 34: More back during swing (was 0.40)
+    stance_thigh: float = 0.95    # Session 34: More forward during stance (was 0.90, close to 0.9599 limit)
+    stance_calf: float = -0.50    # Session 34: More extended during stance (was -0.90)
+    swing_calf: float = -1.38     # Session 34: Close to limit -1.3963 (was -1.35)
+    shoulder_amplitude: float = 0.05  # Unchanged - shoulders have less backlash
 
     # Residual scaling - how much the policy can adjust the CPG trajectory
     # EXP-126: 0.15 allowed policy to reverse CPG motion (vx=-0.018)

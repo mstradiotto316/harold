@@ -3001,3 +3001,69 @@ Updated joint limits in harold_isaac_lab_env_cfg.py:
 - joint_angle_max/min aligned with hardware
 
 Policy exported to deployment/policy/harold_policy.onnx
+
+---
+
+### EXP-171: Session 34 - Large Amplitude CPG for Backlash Tolerance
+- **Date**: 2025-12-30
+- **ID**: `2025-12-30_21-53-33_ppo_torch`
+- **Config**: Backlash-tolerant large amplitude trajectory
+  - swing_calf: -1.35 → -1.38 (closer to limit)
+  - stance_calf: -0.90 → -0.50 (more extended)
+  - swing_thigh: 0.40 → 0.25 (more back)
+  - stance_thigh: 0.90 → 0.95 (more forward)
+  - Calf amplitude: 26° → 50° (exceeds 30° backlash)
+  - Thigh amplitude: 29° → 40°
+- **Duration**: ~60 min (1250 iters)
+- **Result**: **WALKING (vx=0.020)**
+- **Metrics**:
+  - Forward velocity: 0.020 m/s (PASS)
+  - Height reward: 1.54 (PASS)
+  - Upright mean: 0.97 (PASS)
+  - Episode length: 473 (PASS)
+  - Body contact: -0.00 (PASS)
+- **Notes**:
+  - No mid-training regression (velocity improved throughout training)
+  - Designed to exceed ~30° hardware backlash discovered in Session 33
+  - Policy exported for hardware backlash test
+
+---
+
+### Session 34 Summary
+
+#### Background (from Session 33 Hardware Test)
+
+Hardware testing revealed critical discovery:
+- **~30° servo backlash** on direction reversals
+- Old calf swing (26°) was entirely absorbed by backlash
+- Result: feet never lifted, robot shuffled by pushing
+
+#### Design Principle
+
+All joint motions must exceed 45° to overcome 30° backlash with margin.
+
+#### Changes Made
+
+| Joint | Old Amplitude | New Amplitude |
+|-------|--------------|---------------|
+| Calf | 26° (-1.35 to -0.90) | **50°** (-1.38 to -0.50) |
+| Thigh | 29° (0.40 to 0.90) | **40°** (0.25 to 0.95) |
+
+#### Files Updated
+
+1. `harold_isaac_lab_env_cfg.py`:
+   - CPGCfg trajectory parameters
+   - ScriptedGaitCfg trajectory parameters
+
+2. `deployment/config/cpg.yaml`:
+   - Trajectory parameters matched to simulation
+
+3. `deployment/policy/harold_policy.onnx`:
+   - New policy exported for hardware testing
+
+#### Next Steps
+
+1. Test large-amplitude policy on hardware to verify feet lift
+2. If still insufficient, implement asymmetric trajectory (fast swing, slow stance)
+3. Consider even larger amplitude or pre-load pause at apex
+

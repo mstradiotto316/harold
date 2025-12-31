@@ -1,98 +1,101 @@
 # Harold Next Steps
 
-## PRIORITY 0: Observe Robot Walking Behavior
+## PRIORITY 0: Redesign CPG for Backlash-Tolerant Gait
 
-**Status**: Controller validated, ready for walking tests.
+**Status**: Hardware test revealed ~30° servo backlash prevents foot lifting with current CPG.
 
-### Session 33 Completed (RPi)
+### Session 33 Hardware Test Summary
 
-1. ✅ ONNX validation passed (max error 0.000001)
-2. ✅ Controller runs stable at 20 Hz
-3. ✅ Warmup no longer necessary (tested `--warmup-cycles 0`)
-4. ✅ Double-normalization fix confirmed working
+1. ✅ Double-normalization fix validated
+2. ✅ Deployment pipeline works (20 Hz stable)
+3. ❌ **Feet never lifted** - robot shuffled forward by dragging
+4. ❌ Current CPG swing amplitude (~29°) entirely absorbed by backlash
 
-### Next Hardware Tests
+### Root Cause
 
-1. **Run controller and observe walking**
-   ```bash
-   python deployment/inference/harold_controller.py
-   ```
-   - Does robot walk forward?
-   - Is motion smooth?
-   - Any instability at startup?
+Servos have ~30° mechanical backlash. This only affects **direction reversals**, not sustained motion or holding under load.
 
-2. **Test without warmup permanently**
-   ```bash
-   python deployment/inference/harold_controller.py --warmup-cycles 0
-   ```
-   - Compare behavior to warmup mode
-   - If stable, consider making 0 the default
-
-3. **Surface testing**
-   - Hardwood (lower friction)
-   - Short carpet (medium friction)
-   - Long carpet (higher friction)
+Current sinusoidal CPG reverses direction twice per cycle → motion lost to backlash at each reversal.
 
 ---
 
-## Session 32-33 Summary
+## Experiments for Desktop Agent
 
-### Bug Fixed
-- **Double-normalization**: Deployment was normalizing observations twice
-- **Fix**: Pass RAW observations to ONNX (it normalizes internally)
-- **Validation**: ONNX matches PyTorch with error < 0.000003
+### Experiment 1: Larger Amplitude CPG
 
-### Warmup Status
-- Previously: 3 CPG cycles before policy (compensating for bug)
-- Now: Optional (`--warmup-cycles 0` works fine)
-- Default still 3 for safety, but can be disabled
+**Hypothesis**: Swing amplitude > 45° will exceed backlash zone and produce actual foot lift.
 
----
-
-## Optimal Configuration
-
+**Changes to test**:
 ```python
-# CPG (optimal)
-base_frequency: 0.7  # Hz
-swing_calf: -1.35    # Safety margin
-residual_scale: 0.05
-
-# Joint limits (simulation frame)
-shoulder: ±0.4363 rad (±25°)
-thigh: -0.0873 to +0.9599 rad (-5° to +55°)
-calf: -1.3963 to +0.0873 rad (-80° to +5°)
-
-# Domain randomization
-joint_position_noise: 0.0175 rad (~1°)
-add_lin_vel_noise: True
-clip_observations: True
-apply_external_forces: False
+# In CPGCfg (harold_isaac_lab_env_cfg.py)
+swing_calf: -1.50  → -1.70  # Increase swing amplitude
+stance_calf: -0.90 → -0.60  # More extension during stance
+# Total amplitude: ~63° (vs current ~29°)
 ```
+
+### Experiment 2: Asymmetric Trajectory
+
+**Hypothesis**: Fast swing + slow stance avoids backlash issues.
+
+**Concept**:
+- Swing phase (30% duty): Fast, unidirectional motion
+- Stance phase (70% duty): Slow, sustained push
+- Brief pause at transitions to pre-load against backlash
+
+**Implementation**: Modify `_compute_leg_trajectory()` to use asymmetric waveform instead of sinusoid.
+
+### Experiment 3: Higher Observation Noise for Backlash Robustness
+
+**Hypothesis**: Training with 15° position noise (half of backlash) improves transfer.
+
+**Changes**:
+```python
+# In DomainRandomizationCfg
+joint_position_noise: 0.0175 → 0.26  # ~15° instead of ~1°
+```
+
+**Caution**: Session 28 showed 2° noise hurt training. May need curriculum.
 
 ---
 
-## Future Experiments (If Current Policy Insufficient)
+## Technical Constraints for Gait Design
 
-1. **Higher velocity training** - vx_target > 0.2 m/s
-2. **Lateral motion** - Enable vy tracking
-3. **Yaw tracking** - Curriculum approach (backlash → yaw)
-4. **Friction randomization** - For different floor surfaces
-5. **New policy export** - If EXP-170 underperforms on hardware
+### Backlash Behavior (from hardware testing)
+
+| Motion Type | Backlash Impact |
+|-------------|-----------------|
+| Holding position | None - servos strong |
+| Sustained push/pull | Minimal - motion transfers |
+| Direction reversal | ~30° lost |
+| Small oscillations | Entirely absorbed |
+
+### Design Rules
+
+1. **Amplitude > 45°** for any joint motion to exceed backlash
+2. **Avoid sinusoids** - they reverse direction smoothly (bad for backlash)
+3. **Use asymmetric waveforms** - fast one way, slow the other
+4. **Pre-load at apex** - brief pause before load-bearing phase
+5. **Unidirectional phases** - complete full motion before reversing
 
 ---
 
-## Controller CLI Reference
+## Deployment Status
 
-```bash
-# Basic run
-python deployment/inference/harold_controller.py
+- ✅ ONNX validation passing
+- ✅ Controller runs stable at 20 Hz
+- ✅ Warmup removed (immediate policy engagement)
+- ✅ harold.service disabled (manual control only)
+- ⚠️ FL shoulder (ID 2) needs recalibration
 
-# No warmup (now safe after bug fix)
-python deployment/inference/harold_controller.py --warmup-cycles 0
+---
 
-# Skip IMU calibration
-python deployment/inference/harold_controller.py --calibrate 0
+## Long-Term Goal Reminder
 
-# Direct policy mode (no CPG - not recommended)
-python deployment/inference/harold_controller.py --no-cpg
-```
+End goal is **remote-controlled walking in any direction + rotation**.
+
+Current CPG is forward-only. After solving backlash issue, architecture needs:
+- Parameterized CPG taking (vx, vy, yaw) commands, OR
+- Higher policy authority (residual_scale > 0.05), OR
+- Pure RL without CPG base trajectory
+
+But first: **get feet off the ground with backlash-aware gait design**.

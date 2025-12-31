@@ -1889,3 +1889,78 @@ This catches preprocessing bugs like double-normalization before hardware testin
 | **H-S33-1** | Warmup was masking double-normalization bug | **CONFIRMED** |
 | **H-S33-2** | With fix, warmup can be disabled | **CONFIRMED** |
 | **H-S33-3** | Session 31 blending may be fully removable | TO TEST |
+
+---
+
+## Session 33 Continued: Hardware Walking Test & Backlash Discovery
+
+### First Real Walking Test Results
+
+**Test conditions**: Living room floor, policy from EXP-170
+
+**Observations**:
+- Robot moved forward in a walking-like motion
+- **No feet ever left the ground** - all four feet dragged/pushed
+- Motion was shuffling, not stepping
+- Robot progressed forward via pushing, not stepping
+
+### CRITICAL DISCOVERY: ~30° Servo Backlash
+
+**Finding**: Servos have approximately 30° of mechanical backlash (dead zone).
+
+**User observation**: "I can simply flick a straightened leg and watch it sway like a pendulum"
+
+**Key insight from user**:
+> "Although there may be a lot of dead zone on these servos, I still think they are fairly powerful if we optimise the gait. They hold their position well under load, it is the switching directions where the backlash becomes an issue. Thus, we can design gaits that avoid that."
+
+### Backlash Behavior Analysis
+
+| Condition | Servo Behavior |
+|-----------|----------------|
+| Holding position under load | **STRONG** - servos hold well |
+| Sustained motion (one direction) | **GOOD** - motion transfers |
+| Direction reversal | **LOST** - ~30° absorbed by backlash |
+
+**Root cause of foot dragging**:
+- CPG calf swing is ~29° (from -1.40 to -0.90 rad)
+- Direction reversal at swing→stance transition
+- Backlash absorbs entire swing motion
+- Foot never actually lifts
+
+### Implications for Gait Design
+
+**Avoid:**
+- Sinusoidal trajectories (reverse direction twice per cycle)
+- Abrupt direction changes
+- Small-amplitude oscillations (entirely absorbed by backlash)
+
+**Design for:**
+1. **Asymmetric trajectories** - Fast swing, slow stance
+2. **Pre-loading** - Take up slack before load-bearing phase
+3. **Unidirectional phases** - Complete full motion before reversing
+4. **Larger amplitudes** - Exceed backlash zone significantly
+5. **Pause at apex** - Allow backlash to settle before stance
+
+**Proposed trajectory structure:**
+```
+Swing phase:  Fast, unidirectional (forward)
+Apex:         Brief pause (pre-load against backlash)
+Stance phase: Slow, sustained push (backward)
+```
+
+This is similar to industrial robot techniques for geared joints - "wind up" against backlash before precision movements.
+
+### New Hypotheses (Session 33 Hardware Test)
+
+| ID | Hypothesis | Status |
+|----|------------|--------|
+| **H-S33-4** | ~30° backlash prevents foot lifting with current CPG | **CONFIRMED** |
+| **H-S33-5** | Backlash only affects direction reversals, not sustained motion | **CONFIRMED** |
+| **H-S33-6** | Asymmetric trajectories can work around backlash | TO TEST |
+| **H-S33-7** | Pre-load pause at apex enables clean stance transition | TO TEST |
+| **H-S33-8** | Larger amplitude motions (>30°) will transfer despite backlash | TO TEST |
+
+### Other Issues Noted
+
+- **FL shoulder (ID 2) lost center again** - servo drift/calibration issue persists
+- **systemd harold.service was auto-starting** - disabled for manual testing

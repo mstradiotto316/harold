@@ -3067,3 +3067,55 @@ All joint motions must exceed 45° to overcome 30° backlash with margin.
 2. If still insufficient, implement asymmetric trajectory (fast swing, slow stance)
 3. Consider even larger amplitude or pre-load pause at apex
 
+
+---
+
+### EXP-172: Session 35 - Smooth Gait (damping=60, beta=0.35)
+- **Date**: 2025-12-30
+- **ID**: `2025-12-30_23-31-53_ppo_torch`
+- **Config**: Increased damping and action filtering for smoother hardware motion
+  - damping: 30 → 60 (reduced oscillations)
+  - action_filter_beta: 0.18 → 0.35 (stronger EMA smoothing)
+- **Duration**: ~60 min (1250 iters)
+- **Result**: **WALKING (vx=0.016)**
+- **Metrics**:
+  - Forward velocity: 0.016 m/s (PASS) - slightly lower than Session 34's 0.020
+  - Height reward: 1.14 (PASS)
+  - Upright mean: 0.97 (PASS)
+  - Episode length: 477 (PASS)
+- **Notes**:
+  - Hardware complained of jerky gait with Session 34 policy
+  - This experiment adds damping for oscillation reduction
+  - Velocity slightly lower but expected with damping
+  - Ready for hardware test to verify smoothness improvement
+
+---
+
+### Session 35 Summary
+
+#### Problem
+
+Session 34 large amplitude policy walked on hardware but was extremely jerky with harsh shock absorption on each step.
+
+#### Root Causes Identified
+
+1. **Underdamped actuators** - stiffness/damping ratio = 13.3 (should be ~40 for critical damping)
+2. **Weak action filtering** - beta=0.18 allowed sharp transitions through
+
+#### Changes Made
+
+| Parameter | Old | New |
+|-----------|-----|-----|
+| damping | 30 | 60 |
+| action_filter_beta | 0.18 | 0.35 |
+
+#### Files Updated
+
+1. `harold.py` - Actuator damping
+2. `harold_isaac_lab_env_cfg.py` - Action filter beta
+3. `deployment/config/cpg.yaml` - Action filter beta
+4. `deployment/policy/harold_policy.onnx` - New smoothed policy
+
+#### Next Step
+
+Test on hardware to verify reduced jerkiness.

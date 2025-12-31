@@ -1,4 +1,4 @@
-# CPG Configuration - Matched to simulation (Session 34)
+# CPG Configuration - Matched to simulation (Session 35)
 # DO NOT MODIFY without updating simulation CPGCfg
 
 # Gait timing
@@ -23,7 +23,7 @@ residual_scale: 0.05     # Policy output multiplier (Session 30: 0.08 regressed)
 # Control loop
 control:
   rate_hz: 20            # Control frequency (50ms period)
-  action_filter_beta: 0.18  # EMA filter coefficient
+  action_filter_beta: 0.35  # Session 35: Increased for smoother motion (was 0.18)
 
 # Joint action ranges (for scaling policy output)
 joint_range:

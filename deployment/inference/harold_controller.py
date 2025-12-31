@@ -385,6 +385,12 @@ def main():
         default=3.0,
         help="IMU calibration duration in seconds (0 to skip)",
     )
+    parser.add_argument(
+        "--warmup-cycles",
+        type=int,
+        default=3,
+        help="CPG cycles before enabling policy (0 to disable warmup)",
+    )
     args = parser.parse_args()
 
     # Create controller
@@ -405,7 +411,7 @@ def main():
             controller.calibrate(duration=args.calibrate)
 
         # Run control loop
-        controller.run(use_cpg=not args.no_cpg)
+        controller.run(use_cpg=not args.no_cpg, warmup_cycles=args.warmup_cycles)
 
     finally:
         controller.disconnect()

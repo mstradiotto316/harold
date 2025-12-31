@@ -1854,3 +1854,38 @@ Mean difference: 0.000000
 ```
 
 The ONNX export is correct; the deployment code was using it wrong.
+
+---
+
+## Session 33 Observations (2025-12-31)
+
+### Observation: Warmup Was Compensating for Bug
+
+**Finding**: After fixing double-normalization, warmup blending is no longer necessary.
+
+**Test Results**:
+- Controller with warmup (default): Works fine
+- Controller with `--warmup-cycles 0`: Also works fine!
+
+**Conclusion**: The 3-cycle warmup was masking the double-normalization bug by:
+1. Giving servos time to reach positions before policy outputs affected them
+2. Blending in "safe" training-mean values during early cycles
+
+With raw observations now going to ONNX correctly, the policy outputs are reasonable from t=0.
+
+### Observation: ONNX Validation Methodology
+
+Created robust validation workflow:
+1. Export sim_episode.json from simulation with raw observations
+2. Run validate_onnx_vs_sim.py on deployment machine
+3. Compare ONNX outputs to known-good PyTorch outputs
+
+This catches preprocessing bugs like double-normalization before hardware testing.
+
+### New Hypotheses (Session 33)
+
+| ID | Hypothesis | Status |
+|----|------------|--------|
+| **H-S33-1** | Warmup was masking double-normalization bug | **CONFIRMED** |
+| **H-S33-2** | With fix, warmup can be disabled | **CONFIRMED** |
+| **H-S33-3** | Session 31 blending may be fully removable | TO TEST |

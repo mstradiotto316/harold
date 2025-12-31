@@ -4,31 +4,6 @@
 
 **Status**: Policy exported, ready for hardware test.
 
-### For the RPi Agent: Immediate Actions
-
-```bash
-# 1. Pull Session 34 changes
-cd /home/matteo/Desktop/code_projects/harold
-git pull
-
-# 2. Run the controller with new large-amplitude gait
-python deployment/inference/harold_controller.py
-
-# 3. Observe and report:
-#    - Do feet actually lift off the ground now?
-#    - How much lift? (estimate in mm or degrees)
-#    - Any stability issues with larger motion?
-#    - Does robot walk forward better than Session 33?
-```
-
-**What changed**: Calf swing increased from 26° to 50° to exceed 30° backlash.
-
-**Expected outcome**: Feet should lift ~20° (50° swing - 30° backlash).
-
-**If feet still don't lift**: Try asymmetric trajectory (see Experiment 2 below).
-
----
-
 ### Session 34 Summary
 
 1. ✅ Designed backlash-tolerant large amplitude trajectory (50° calf swing)

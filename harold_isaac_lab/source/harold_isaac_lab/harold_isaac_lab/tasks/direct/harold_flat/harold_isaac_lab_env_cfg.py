@@ -469,7 +469,9 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     state_space = 0
 
     # Action filtering (EMA low-pass)
-    action_filter_beta: float = 0.18  # smoother actions to reduce jitter
+    # Session 35: Increased from 0.18 to 0.35 for smoother hardware motion
+    # Lower beta = more smoothing (65% carryover from previous action)
+    action_filter_beta: float = 0.35
 
     # Observation clipping (matches deployment clip_obs=5.0)
     # Session 29: Hardware deployment clips normalized obs to ±5.0

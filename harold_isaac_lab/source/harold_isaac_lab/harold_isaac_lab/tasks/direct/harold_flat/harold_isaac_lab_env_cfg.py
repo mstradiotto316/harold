@@ -34,170 +34,85 @@ HAROLD_FLAT_TERRAIN_CFG = TerrainGeneratorCfg(
 
 @configclass
 class RewardsCfg:
-    """Reward structure for Phase-0: prioritize standing, then walking.
+    """Simplified reward structure following Isaac Lab reference pattern.
 
-    EXP-036: Height-based termination to prevent elbow exploit.
-    EXP-034/035 showed height_reward=25.0 alone was insufficient.
-    Now terminating episodes when height < 0.165m (60% of target).
+    Session 36: Pure RL for velocity-commanded walking.
+    ~10 core terms for clean gradient signals, no CPG-specific rewards.
+
+    Reference: isaaclab_tasks/manager_based/locomotion/velocity/velocity_env_cfg.py
     """
 
-    # Forward motion rewards - EXP-054: Test gait phase observation
-    # Session 13 summary:
-    # - EXP-050/051: Higher forward reward → SANITY_FAIL
-    # - EXP-052/053: Slip factor experiments → no improvement
-    # - EXP-054: Add gait phase (sin/cos) to observation space
-    # Hypothesis: Phase signal helps policy coordinate leg movements
-    progress_forward_pos: float = 40.0   # Session 23: 50 was worse (vx=0.032), reverting to 40
-    progress_forward_neg: float = 10.0   # Keep optimal from EXP-032
-    standing_penalty: float = -5.0      # EXP-098: Reverted to -5 (sp=-3 slowed down robot)
+    # === TASK REWARDS (exponential kernels for smooth gradients) ===
+    # Session 36d: Increased weights for stronger velocity incentive
+    # With std=0.5, standing gives ~0.91 reward, walking gives ~1.0
+    # Increasing weight amplifies this difference
+    track_lin_vel_xy_weight: float = 5.0      # Primary: velocity tracking (was 1.5)
+    track_lin_vel_xy_std: float = 0.25        # Steeper gradient (was 0.5)
 
-    # Stability rewards - EXP-032 optimal values
-    # EXP-049 showed reducing these causes instability (SANITY_FAIL)
-    upright_reward: float = 10.0        # Keep upright incentive
-    height_reward: float = 20.0         # Session 23: 15 was MUCH worse (height=0.57, vx=0.012)
+    track_ang_vel_z_weight: float = 2.0       # Yaw rate tracking (was 0.75)
+    track_ang_vel_z_std: float = 0.25         # Steeper gradient
 
-    # Penalties
-    # Session 35: Increased torque penalty for smoother motion (was -0.005)
-    # -0.02 combined with action_rate may be too strong, trying -0.01
-    torque_penalty: float = -0.01       # 2x original for smoother motion
+    # === MOTION QUALITY PENALTIES ===
+    # Session 36 fix: -2.0 caused -43800/ep, -0.05 caused -1149/ep
+    # Harold produces higher body-frame vertical velocities than larger robots
+    # Session 36h: -0.0005 still limits movement, trying -0.0001
+    lin_vel_z_weight: float = -0.0001         # Allow more vertical movement
+    ang_vel_xy_weight: float = -0.0001        # Also reduced for consistency
 
-    # Session 35: Action rate penalty - penalizes rapid action changes
-    # -0.5 was too strong, -0.1 is optimal (vx=0.017 with all smoothing)
-    # Tested: disabling gave vx=0.014, so -0.1 helps
-    action_rate_penalty: float = -0.1   # Optimal for smoothness + walking
-    lat_vel_penalty: float = 12.0       # Penalize sideways skating
-    yaw_rate_penalty: float = 1.0       # Dampen gratuitous spinning
-    rear_support_bonus: float = 0.0     # Disabled - was encouraging standing
+    # === SMOOTHNESS PENALTIES ===
+    dof_torques_weight: float = -0.0001       # Smooth torques
+    dof_acc_weight: float = -2.5e-7           # Smooth joint accelerations
+    action_rate_weight: float = -0.01         # Smooth actions (was -0.05, reduced to allow movement)
 
-    height_tolerance: float = 0.02      # |height_error| tolerated before penalty (m)
-    height_sigma: float = 0.045         # Controls falloff beyond tolerance (m)
+    # === GAIT REWARDS ===
+    # Session 36i: Increased 0.2 → 1.0 to force stepping behavior
+    feet_air_time_weight: float = 1.0         # Strongly encourage stepping
+    feet_air_time_threshold: float = 0.3      # Target air time (seconds)
 
-    # EXP-011: Strong negative penalty for low height (instead of termination)
-    # Punish being below minimum height to create gradient toward standing
-    low_height_penalty: float = -50.0   # Strong negative reward
-    low_height_threshold: float = 0.20  # Penalize if height < 0.20m (elbow pose ~0.15-0.18m)
+    undesired_contacts_weight: float = -1.0   # Penalize body contact
+    undesired_contacts_threshold: float = 1.0 # Force threshold (Newtons)
 
-    # EXP-044: Air time rewards DISABLED - they made vx worse in EXP-038-043
-    # EXP-038: vx=-0.029, EXP-042: vx=-0.025, EXP-043: vx=-0.004 (all worse than baseline 0.029)
-    # Hypothesis: Air time reward interferes with velocity reward gradient
-    feet_air_time_reward: float = 0.0   # DISABLED - counterproductive
-    optimal_air_time: float = 0.25      # Unused when weight=0
+    # === STABILITY REWARD ===
+    upright_weight: float = 2.0               # Stay upright (uses projected gravity)
 
-    # EXP-055/056/058: Contact-based diagonal gait reward with forward gating
-    # Rewards alternating diagonal pair contacts (FL+BR vs FR+BL) when moving forward
-    # EXP-055 (ungated): vx=+0.022 (worse - no direction bias)
-    # EXP-056 (gated, weight=5.0): vx=+0.036 (BEST final, 24% better than baseline)
-    # EXP-058 (gated, weight=10.0): peak vx=0.061 at 43%, regressed to 0.018
-    diagonal_gait_reward: float = 5.0   # Session 23: 10 caused SANITY_FAIL, reverted to 5
-    gait_phase_tolerance: float = 0.3   # Phase window where contact is rewarded (0-1 scale)
-
-    # EXP-088/089: Bidirectional gait reward (Spot-style)
-    # Spot uses both sync AND async components:
-    # - Sync: Diagonal pairs (FL+BR, FR+BL) should have matching contact/air times
-    # - Async: Same-side legs (FL vs FR, BL vs BR) should be out of phase
-    # EXP-088: Multiplicative (sync*async), weight=2.0 → vx=0.0385 (WORSE)
-    # EXP-089: Additive (sync+async), weight=5.0 → vx=0.018 (MUCH WORSE)
-    # CONCLUSION: Bidirectional gait reward is counterproductive for Harold
-    bidirectional_gait: bool = False  # DISABLED - counterproductive
-    bidirectional_gait_weight: float = 5.0
-    bidirectional_gait_sigma: float = 0.1
-    bidirectional_gait_additive: bool = True
-
-    # EXP-069: Explicit backward penalty to break backward drift attractor
-    # Session 16 discovered backward drift is a stable optimum - robot consistently learns
-    # to drift backward (vx < 0) regardless of forward gating mechanism.
-    # This adds a strong explicit penalty for backward motion beyond progress_forward_neg.
-    # The penalty is proportional to backward velocity magnitude.
-    backward_motion_penalty: float = 75.0  # EXP-102: 75 is optimal (70 and 80 both caused drift)
-
-    # EXP-080: Velocity threshold bonus - DISABLED, made things worse
-    # Robot stuck at ~0.056 m/s, bonus didn't help break plateau
-    velocity_threshold_bonus: float = 0.0  # DISABLED - counterproductive
-    velocity_bonus_threshold: float = 0.04  # Speed threshold (unused)
-
-    # EXP-083/084/085: Exponential velocity tracking (from AnyMal/Spot reference)
-    # EXP-083: σ²=0.25 was too large - vx=0.021 (WORSE than baseline)
-    # EXP-084: σ²=0.01 gave vx=0.004 (MUCH WORSE)
-    # Analysis: Symmetric exp kernel doesn't incentivize forward motion well
-    # EXP-085: DISABLED - return to linear rewards, try bidirectional gait instead
-    exp_velocity_tracking: bool = False  # DISABLED - doesn't work for Harold's scale
-    exp_velocity_weight: float = 5.0     # Weight for exp tracking reward
-    exp_velocity_sigma_sq: float = 0.01  # Variance parameter (σ²)
-    exp_velocity_target: float = 0.1     # Target forward velocity (m/s)
-
-    # Command tracking reward - Phase 1 of controllability
-    # Unlike exp_velocity_tracking (fixed target), this tracks COMMANDED velocity
-    # Uses self._commands[:, 0] as the target, allowing variable speed control
-    # Reward: exp(-|vx - cmd_vx|^2 / sigma^2) * weight
-    command_tracking_enabled: bool = False  # Enable via this flag
-    command_tracking_weight: float = 10.0   # Reward weight (20 was worse in EXP-137: vx=0.005)
-    command_tracking_sigma: float = 0.1     # Velocity error tolerance (EXP-138: 0.15 was too permissive, vx=0.003)
-    # Replace forward motion bias: when enabled, disable progress_forward rewards
-    # and use pure command tracking instead
-    command_tracking_replace_forward: bool = True
-
-    # Lateral (vy) command tracking - Session 27: Extend controllability to strafing
-    # Uses same exponential kernel as vx tracking: exp(-|vy - cmd_vy|^2 / sigma^2) * weight
-    command_tracking_weight_vy: float = 10.0   # Same weight as vx tracking
-    command_tracking_sigma_vy: float = 0.1     # Same tolerance as vx tracking
-
-    # Yaw rate command tracking - Session 28: Extend controllability to turning
-    # Uses same exponential kernel: exp(-|yaw_rate - cmd_yaw|^2 / sigma^2) * weight
-    command_tracking_weight_yaw: float = 10.0   # Same weight as vx/vy tracking
-    command_tracking_sigma_yaw: float = 0.2     # Slightly higher tolerance for yaw (rad/s)
+    # === FORWARD MOTION BONUS ===
+    # Session 36e: Direct reward for positive vx to bootstrap walking
+    # Without this, policy converges to standing still (local minimum)
+    # Session 36f-g: Weight sweep: 3.0→+0.01, 5.0→+0.001, 10.0→-0.017
+    # 3.0 is optimal, trying longer training (4000 iter) to see if vx improves
+    forward_motion_weight: float = 3.0        # Optimal weight (verified by sweep)
 
 
 @configclass
 class CommandCfg:
     """Configuration for velocity command sampling.
 
-    Phase 2 of controllability: Variable command ranges for speed control.
+    Session 36: Pure RL with conservative velocity ranges.
     Commands are sampled per-episode at reset, from uniform distributions.
-
-    Enable via: HAROLD_VAR_CMD=1
     """
 
-    # Enable variable command sampling (otherwise uses fixed 0.25-0.35 range)
-    variable_commands: bool = False
+    # Enable variable command sampling (True for pure RL)
+    variable_commands: bool = True
 
     # Forward velocity range (m/s)
-    # EXP-131: 0-0.5 with 10% zero was too hard (FAILING)
-    # EXP-132: 0.15-0.4 with 5% zero worked
-    # EXP-139: 0.15-0.4 with 0% zero achieved WALKING
-    # EXP-140: 0.10-0.45 achieved WALKING (vx=0.015) - OPTIMAL
-    # EXP-141: 0.05-0.50 achieved WALKING (vx=0.012) - slightly worse
-    vx_min: float = 0.10
-    vx_max: float = 0.45
+    # Session 36: Reverted to conservative for stability
+    vx_min: float = 0.0
+    vx_max: float = 0.3
 
-    # Lateral velocity range (m/s) - Session 27: Enabled for strafing
-    # Conservative range to start (smaller than vx range)
-    # Now supported with vy tracking reward and modified lat_vel_penalty
+    # Lateral velocity range (m/s)
     vy_min: float = -0.15
     vy_max: float = 0.15
 
-    # Yaw rate range (rad/s) - Session 28: Enabled for turning
-    # Conservative range to start (about ±17 deg/s)
-    # Now supported with yaw tracking reward and modified yaw_rate_penalty
+    # Yaw rate range (rad/s) - about ±17 deg/s
     yaw_min: float = -0.30
     yaw_max: float = 0.30
 
     # Probability of sampling zero velocity (for stopping behavior)
-    # When triggered, sets vx=vy=yaw=0 regardless of ranges
-    # EXP-131: 10% was too much; EXP-139: try 0% (always forward)
-    zero_velocity_prob: float = 0.0
+    zero_velocity_prob: float = 0.02  # 2% standing training
 
-    # Phase 3: Dynamic command updates during episode
-    # When enabled, commands change periodically instead of only at reset
-    # Enable via: HAROLD_DYN_CMD=1
-    dynamic_commands: bool = False
-
-    # Time between command changes (seconds)
-    # At 20 Hz policy rate, 10 seconds = 200 policy steps
-    # EXP-134: 5s was too short, robot achieved vx=0.007 (STANDING)
-    command_change_interval: float = 10.0
-
-    # Probability of command change at each interval
-    # 1.0 = always change, 0.5 = 50% chance to change
+    # Dynamic command updates during episode
+    dynamic_commands: bool = True
+    command_change_interval: float = 10.0  # seconds
     command_change_prob: float = 1.0
 
 
@@ -472,8 +387,8 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     action_scale = 0.5  # Session 23: 0.7 was worse (vx=0.029, contact failing)
 
     # Space definitions
-    # EXP-054: Added 2D gait phase (sin/cos) to help policy coordinate leg movements
-    observation_space = 50  # Was 48, now includes gait phase
+    # Session 36: Removed gait phase (no CPG), pure RL
+    observation_space = 48
     action_space = 12
     state_space = 0
 

@@ -2017,3 +2017,88 @@ Simulation achieved vx=0.020 with BOTH old and new trajectories. This confirms:
 | **H-S34-2** | Thigh amplitude (40°) may still be marginal | TO OBSERVE |
 | **H-S34-3** | Asymmetric trajectory may work even better | TO TEST if needed |
 | **H-S34-4** | No mid-training regression with larger amplitude | OBSERVED (not yet explained) |
+
+---
+
+## Session 36 Observations (2025-12-31)
+
+### Critical: Reward Weight Scaling for Small Robots
+
+Isaac Lab reference implementations (Go1, ANYmal) use `lin_vel_z_weight = -2.0`. For Harold, this causes:
+- Episode reward: -43,800 (should be ~-10)
+- Reason: Harold's body-frame vertical velocity is much higher than larger robots
+- Fix: Reduce to -0.0005 (4000x smaller)
+
+**Lesson**: Don't blindly copy reward weights from reference implementations. Scale them based on robot dynamics.
+
+### Pure RL Local Minimum: Standing Still
+
+Without explicit forward motion bonus, policy converges to standing:
+- Velocity tracking reward is ~0.55 for standing, ~1.0 for walking
+- Difference too small to overcome exploration barrier
+- Fix: Add `forward_motion = weight * vx * upright` for direct gradient
+
+### Observation Space Simplification
+
+Reduced from 50D to 48D by removing gait phase (no CPG):
+- Root velocities (6D)
+- Projected gravity (3D)
+- Joint positions relative to default (12D)
+- Joint velocities (12D)
+- Velocity commands (3D)
+- Previous actions (12D)
+
+### Training Environment Variables
+
+For pure RL (no CPG):
+```bash
+HAROLD_CMD_TRACK=1 HAROLD_DYN_CMD=1 python scripts/harold.py train
+```
+
+Do NOT set `HAROLD_CPG=1` - that enables the CPG+residual mode.
+
+
+---
+
+## 2026-01-01: Session 36 Pure RL Findings
+
+### Standing Local Minimum is Extremely Stable
+
+After 13 experiments (EXP-186 to EXP-198), confirmed that pure RL from scratch plateaus at vx ≈ 0.01 m/s. The policy converges to a standing equilibrium that:
+- Gives high upright reward (0.97)
+- Gives moderate velocity tracking reward (~0.9 due to exponential kernel)
+- Minimizes all penalty terms
+- Cannot be broken by reward tuning alone
+
+### lin_vel_z Penalty Scaling is Critical
+
+Isaac Lab default `lin_vel_z = -2.0` is catastrophically wrong for Harold:
+- Default: -43,800 per episode (completely dominates)
+- Fix: -0.0005 to -0.0001 (4000x smaller)
+- Reason: Harold's body-frame vertical velocity is much higher than larger robots (Go1, ANYmal)
+
+### Forward Motion Weight Has Optimal Value
+
+Sweep results:
+| Weight | vx (m/s) |
+|--------|----------|
+| 3.0 | **+0.010** (best) |
+| 5.0 | +0.001 |
+| 10.0 | -0.017 |
+
+Higher weights are counterproductive - they destabilize the policy.
+
+### What Doesn't Help
+
+- Extended training (4167 iter = 100 min)
+- Reduced penalties (lin_vel_z, ang_vel_xy)
+- Increased stepping reward (feet_air_time)
+- Higher velocity commands
+
+### What Might Help (Untested)
+
+1. Fine-tune from CPG checkpoint
+2. Curriculum learning
+3. Asymmetric forward reward (penalize backwards heavily)
+4. Much longer training (10,000+ iter)
+5. Reference motion tracking

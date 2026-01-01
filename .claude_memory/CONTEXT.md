@@ -61,7 +61,29 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 | USD model | `part_files/V4/harold_8.usd` |
 | Hardware gait script | `firmware/scripted_gait_test_1/scripted_gait_test_1.ino` |
 
-## Current State (2025-12-31, Session 35 Complete)
+## Current State (2026-01-01, Session 36 Complete)
+
+### Session 36: Pure RL Experiments (Desktop)
+
+**PURE RL PLATEAUS AT vx ≈ 0.01 m/s**
+
+Attempted to replace CPG+residual approach with pure RL for velocity-commanded walking. After 12 experiments (EXP-186 to EXP-197), found that pure RL from scratch cannot learn walking.
+
+**Key Findings**:
+- Isaac Lab default lin_vel_z=-2.0 is catastrophically wrong for Harold (needs 4000x smaller)
+- Forward motion weight 3.0 is optimal (5.0, 10.0 are worse)
+- Policy gets stuck in "standing local minimum"
+- Extended training, reduced penalties, higher commands all failed to break plateau
+
+**Recommendations for Future**:
+1. Fine-tune from CPG checkpoint (observation space mismatch issue)
+2. Curriculum learning
+3. Asymmetric forward reward
+4. Much longer training (10,000+ iter)
+
+**Status**: Pure RL not ready. CPG-based policy from Session 35 remains best for hardware.
+
+---
 
 ### Session 35: Smooth Gait Development & Damping Optimization (Desktop)
 

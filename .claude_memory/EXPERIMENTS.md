@@ -3225,3 +3225,100 @@ actuators={
 #### Next Step
 
 Test damping=150 policy on hardware - should be smoother than previous policies.
+
+---
+
+## Session 36: Pure RL for Velocity-Commanded Walking (2025-12-31)
+
+### EXP-186 to EXP-191: Pure RL Reward Tuning
+
+**Goal**: Replace CPG+residual with pure RL for velocity commands (vx, vy, yaw_rate)
+
+**Key Discovery**: Isaac Lab default `lin_vel_z_weight = -2.0` is catastrophically wrong for Harold. Required 4000x reduction to -0.0005.
+
+| EXP | lin_vel_z | forward_motion | vx_w_mean | Reward | Notes |
+|-----|-----------|----------------|-----------|--------|-------|
+| 186 | -2.0 | 0 | -0.005 | -24M | lin_vel_z dominated |
+| 188 | -0.05 | 0 | -0.003 | -660k | Still too negative |
+| 189 | -0.0005 | 0 | -0.010 | -5k | Balanced rewards |
+| 190 | -0.0005 | 0 | -0.022 | -3.6k | Added velocity weight 5.0 |
+| 191 | -0.0005 | 3.0 | +0.007 | -3.5k | Forward bonus helps! |
+
+**Configuration (Final)**:
+```python
+# Rewards
+track_lin_vel_xy_weight = 5.0  # (was 1.5)
+track_lin_vel_xy_std = 0.25    # (was 0.5)
+track_ang_vel_z_weight = 2.0   # (was 0.75)
+lin_vel_z_weight = -0.0005     # (was -2.0, 4000x reduction!)
+forward_motion_weight = 3.0    # NEW: direct vx bonus
+
+# Observation space: 48D (removed gait phase)
+# Commands: vx [0, 0.3], vy [-0.15, 0.15], yaw [-0.3, 0.3]
+```
+
+**Result**: Robots stable (ep_len=466, upright=0.97) but slow (vx=0.007). Forward bonus showing promise. Training at 69% when session ended.
+
+**Next**: If vx plateaus, increase forward_motion_weight to 10.0
+
+
+---
+
+## Session 36: Pure RL for Velocity-Commanded Walking (2025-12-31 to 2026-01-01)
+
+### Summary
+
+Attempted pure RL (no CPG) for velocity-commanded walking. After 12 experiments, found that pure RL from scratch plateaus at vx ≈ 0.01 m/s. The policy learns to stand stably but cannot learn walking.
+
+### Key Experiments
+
+| Exp | Configuration | vx (m/s) | Result |
+|-----|---------------|----------|--------|
+| 186 | lin_vel_z=-2.0 (default) | -0.005 | FAIL - catastrophic penalty |
+| 187 | (debugging) | - | - |
+| 188 | lin_vel_z=-0.05 | +0.008 | PARTIAL |
+| 189 | lin_vel_z=-0.0005 | -0.001 | PARTIAL |
+| 190 | velocity_tracking=5.0 | -0.007 | FAIL |
+| **191** | **forward_motion=3.0** | **+0.010** | **BEST** |
+| 192 | forward_motion=10.0 | -0.017 | FAIL - too aggressive |
+| 193 | forward_motion=5.0 | +0.001 | FAIL |
+| 194 | 4000 iter (extended) | +0.009 | PLATEAU |
+| 195 | lin_vel_z=-0.0001 | +0.009 | PLATEAU |
+| 196 | feet_air_time=1.0 | +0.009 | PLATEAU |
+| 197 | vx_cmd 0.15-0.5 | +0.009 | PLATEAU |
+
+### Key Findings
+
+1. **lin_vel_z penalty**: Isaac Lab default (-2.0) is catastrophically wrong for Harold. Needed 4000x smaller (-0.0005).
+
+2. **Forward motion weight**: 3.0 is optimal. Higher values (5.0, 10.0) actually hurt.
+
+3. **Standing local minimum**: Policy gets stuck standing because:
+   - High upright reward (0.97)
+   - Moderate velocity tracking (exponential kernel ~0.9 even standing)
+   - Forward motion bonus too weak to break equilibrium
+
+4. **What didn't help**:
+   - Extended training (4000 iter)
+   - Reduced penalties
+   - Higher stepping reward
+   - Higher velocity commands
+
+### Recommendations
+
+- Fine-tune from CPG checkpoint (highest priority)
+- Curriculum learning
+- Asymmetric forward reward (penalize backwards)
+- Much longer training (10,000+ iter)
+
+
+---
+
+### EXP-198: Extended Training (4167 iter)
+- **Date**: 2026-01-01
+- **Config**: forward_motion=3.0, lin_vel_z=-0.0001, vx_cmd=0-0.3
+- **Result**: vx=0.009 (PLATEAU, same as shorter runs)
+- **Duration**: ~100 minutes
+- **Notes**: Confirms that extended training alone doesn't break the standing local minimum.
+
+

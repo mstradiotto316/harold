@@ -84,12 +84,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         # Command tracking mode (for controllability)
         if os.getenv("HAROLD_CMD_TRACK", "0") == "1":
-            cfg.rewards.command_tracking_enabled = True
             print("=" * 60)
             print("COMMAND TRACKING MODE ENABLED")
             print("Policy will learn to follow commanded velocity.")
-            print(f"Tracking weight: {cfg.rewards.command_tracking_weight}")
-            print(f"Tracking sigma: {cfg.rewards.command_tracking_sigma} m/s")
+            print(f"Linear vel weight: {cfg.rewards.track_lin_vel_xy_weight}")
+            print(f"Angular vel weight: {cfg.rewards.track_ang_vel_z_weight}")
             print("=" * 60)
 
         # Variable command mode (for speed control)
@@ -272,49 +271,28 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._arrow_offset_act = torch.tensor((0.0, 0.0, 0.40), device=self.device)
 
         # --- Episode Reward Logging Buffers ---
+        # Session 36: Simplified reward structure (~11 terms)
         self._reward_keys = [
-            "progress_forward",
-            "upright_reward",
-            "height_reward",
-            "torque_penalty",
-            "lat_vel_penalty",
-            "yaw_rate_penalty",
-            "front_slip_penalty",
-            "body_contact_penalty",
-            "rear_support_bonus",
-            "low_height_penalty",
-            "standing_penalty",
-            "feet_air_time_reward",
-            "diagonal_gait_reward",
-            "backward_motion_penalty",
-            "velocity_threshold_bonus",
-            "exp_velocity_reward",
-            "bidirectional_gait_reward",
-            "command_tracking",
-            "command_tracking_vy",  # Session 27: Lateral command tracking
-            "command_tracking_yaw",  # Session 28: Yaw rate command tracking
-            "action_rate_penalty",  # Session 35: Penalize rapid action changes
+            "track_lin_vel_xy",
+            "track_ang_vel_z",
+            "lin_vel_z",
+            "ang_vel_xy",
+            "dof_torques",
+            "dof_acc",
+            "action_rate",
+            "feet_air_time",
+            "undesired_contacts",
+            "upright",
+            "forward_motion",  # Session 36e: bootstrap walking
         ]
 
-        # --- Diagonal Gait Tracking (EXP-055) ---
-        # Track which diagonal pair was last in contact for rewarding alternation
-        # 0 = FL+BR pair, 1 = FR+BL pair, -1 = neither/both (no reward)
-        self._last_diagonal_pair = torch.full((self.num_envs,), -1, dtype=torch.long, device=self.device)
         self._metric_keys = [
             "vx_w_mean",
             "vy_w_mean",
             "upright_mean",
-            "height_err_abs",
-            "front_slip_mean",
-            "rear_contact_frac",
-            "f_slip_mean",
-            "stance_rear_frac_loose",
-            "progress_pos",
-            "progress_neg",
-            "rear_support_bonus_mean",
-            "cmd_vx_error",  # |vx - cmd_vx| for command tracking
-            "cmd_vy_error",  # |vy - cmd_vy| for lateral command tracking (Session 27)
-            "cmd_yaw_error",  # |yaw_rate - cmd_yaw| for yaw rate command tracking (Session 28)
+            "cmd_vx_error",
+            "cmd_vy_error",
+            "cmd_yaw_error",
         ]
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
@@ -882,119 +860,36 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._act_marker.visualize(marker_pos_act, marker_ori_act, marker_indices=marker_idx, scales=self._act_scale_buffer)
 
     def _get_observations(self) -> dict:
-        """Construct the 50-dimensional observation vector for policy input.
-        
-        Assembles robot state, sensor data, and command information into a structured
-        observation that enables the policy to perform locomotion control. Updates
-        terrain difficulty for each environment.
-        
+        """Construct the 48-dimensional observation vector for policy input.
+
+        Session 36: Pure RL observation space (no gait phase).
+
         Returns:
-            Dict with 'policy' key containing 50D observation tensor:
+            Dict with 'policy' key containing 48D observation tensor:
                 - root_lin_vel_b (3): Linear velocity in body frame [m/s]
-                - root_ang_vel_b (3): Angular velocity in body frame [rad/s] 
+                - root_ang_vel_b (3): Angular velocity in body frame [rad/s]
                 - projected_gravity_b (3): Gravity vector in body frame (for orientation)
                 - joint_pos - default (12): Joint angles relative to neutral pose [rad]
                 - joint_vel (12): Joint angular velocities [rad/s]
                 - commands (3): Velocity commands [vx, vy, yaw_rate]
                 - prev_target_delta (12): Previous joint targets relative to neutral pose [rad]
-                - gait_phase (2): Sin/Cos of gait phase for leg coordination [EXP-054]
-
-        State Tracking:
-            - Increments policy step counter for tracking
-            - Updates time buffer for temporal observations
-            - Uses previous joint target deltas for temporal consistency
-            
-        Note:
-            Observation design ensures policy receives sufficient information for
-            stable quadruped locomotion while maintaining manageable dimensionality.
-            Previous target deltas correctly represent what the policy commanded,
-            not raw actions, providing proper temporal feedback.
         """
 
-        
         # Update temporal state for time-based observations
         self._time += self.step_dt
 
-        # ================== OBSERVATION SPACE CONSTRUCTION (48-D) ==================
-        # Carefully designed observation vector providing policy with sufficient
-        # information for stable locomotion while maintaining manageable dimensionality
-        # 
-        # Observation Components (Total: 48 dimensions):
-        # 
-        # 1. Root Linear Velocity (3D) - [vx, vy, vz] in body frame [m/s]
-        #    - Primary feedback for velocity tracking objectives
-        #    - Body frame ensures rotation-invariant representation
-        #    - Critical for track_xy_lin_commands reward component
-        # 
-        # 2. Root Angular Velocity (3D) - [wx, wy, wz] in body frame [rad/s] 
-        #    - Essential for yaw rate tracking and stability control
-        #    - Roll/pitch rates indicate balance state
-        #    - Used in track_yaw_commands reward component
-        #
-        # 3. Projected Gravity (3D) - gravity vector in body frame
-        #    - Provides orientation information without explicit angles
-        #    - More robust than Euler angles (no singularities)
-        #    - z-component used for orientation termination detection
-        #    - Enables upright balance and fall detection
-        #
-        # 4. Joint Positions Relative to Default (12D) - [q_i - q_default] [rad]
-        #    - Joint angles relative to neutral standing pose
-        #    - Normalized representation reduces learning complexity
-        #    - Provides leg configuration information for gait control
-        #    - Order: [shoulders(4), thighs(4), calves(4)]
-        #
-        # 5. Joint Velocities (12D) - [dq_i/dt] [rad/s]
-        #    - Joint angular velocities for dynamic control
-        #    - Essential for smooth motion and momentum management
-        #    - Used in torque penalty calculations
-        #    - Enables predictive control and oscillation damping
-        #
-        # 6. Velocity Commands (3D) - [vx_cmd, vy_cmd, yaw_rate_cmd]
-        #    - Target velocities for tracking objectives
-        #    - Provides policy with explicit task specification
-        #    - Directly used in reward function calculations
-        #
-        # 7. Previous Target Deltas (12D) - [target_prev - q_default] [rad]
-        #    - Memory of previous joint position targets relative to default
-        #    - Correctly represents what the policy commanded (not raw actions)
-        #    - Enables temporal consistency and smooth control
-        #    - Helps prevent action oscillations and instability
-        #    - Provides recurrence without explicit memory networks
-        #
-        # Design Principles:
-        # - All observations in consistent units and coordinate frames
-        # - Relative representations (joint_pos - default) improve learning
-        # - Body frame velocities ensure rotation invariance
-        # - No proprioceptive terrain information (generalizes to unknown terrain)
-        # - Sufficient information for closed-loop control without redundancy
-        
-        # Compute gait phase based on cumulative time
-        # When CPG is enabled, use CPG frequency for consistency with base trajectory
-        if self.cfg.cpg.enabled:
-            gait_freq = self.cfg.cpg.base_frequency  # 0.5 Hz (matches CPG)
-        else:
-            gait_freq = self.cfg.gait.frequency  # 2.0 Hz (default)
-        gait_phase = 2.0 * math.pi * gait_freq * self._time  # radians
-        gait_phase_sin = torch.sin(gait_phase).unsqueeze(-1)  # [num_envs, 1]
-        gait_phase_cos = torch.cos(gait_phase).unsqueeze(-1)  # [num_envs, 1]
-        gait_phase_obs = torch.cat([gait_phase_sin, gait_phase_cos], dim=-1)  # [num_envs, 2]
-
+        # Session 36: Pure RL observation (48D, no gait phase)
         obs = torch.cat(
             [
-                tensor
-                for tensor in (
-                    self._robot.data.root_lin_vel_b,                                      # (3D) Body linear velocity
-                    self._robot.data.root_ang_vel_b,                                      # (3D) Body angular velocity
-                    self._robot.data.projected_gravity_b,                                 # (3D) Gravity in body frame
-                    self._robot.data.joint_pos - self._robot.data.default_joint_pos,     # (12D) Joint angles (relative)
-                    self._robot.data.joint_vel,                                          # (12D) Joint velocities
-                    self._commands,                                                      # (3D) Velocity commands
-                    self._prev_target_delta,                                             # (12D) Previous target deltas
-                    gait_phase_obs,                                                      # (2D) Gait phase (sin/cos) [EXP-054]
-                )
-                if tensor is not None
+                self._robot.data.root_lin_vel_b,                                      # (3D) Body linear velocity
+                self._robot.data.root_ang_vel_b,                                      # (3D) Body angular velocity
+                self._robot.data.projected_gravity_b,                                 # (3D) Gravity in body frame
+                self._robot.data.joint_pos - self._robot.data.default_joint_pos,     # (12D) Joint angles (relative)
+                self._robot.data.joint_vel,                                          # (12D) Joint velocities
+                self._commands,                                                      # (3D) Velocity commands
+                self._prev_target_delta,                                             # (12D) Previous target deltas
             ],
-            dim=-1,  # Concatenate along feature dimension -> [batch_size, 50]
+            dim=-1,  # Concatenate along feature dimension -> [batch_size, 48]
         )
 
         # Apply observation noise if domain randomization is enabled
@@ -1036,386 +931,90 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         return observations
 
     def _get_rewards(self) -> torch.Tensor:
-        """Minimal Phase-0 reward: forward progress, posture, height, and effort."""
+        """Simplified reward structure following Isaac Lab reference pattern.
 
-        rewards_cfg = self.cfg.rewards
+        Session 36: Pure RL with ~10 core terms for clean gradient signals.
+        Reference: isaaclab_tasks/manager_based/locomotion/velocity/velocity_env_cfg.py
+        """
+        cfg = self.cfg.rewards
 
-        vx = self._robot.data.root_lin_vel_w[:, 0]
-        vy_w = self._robot.data.root_lin_vel_w[:, 1]
-        wz_b = self._robot.data.root_ang_vel_b[:, 2]
-        gz_raw = self._robot.data.projected_gravity_b[:, 2]
-        upright = (-gz_raw).clamp(0.0, 1.0)
+        # === Extract quantities ===
+        root_lin_vel_w = self._robot.data.root_lin_vel_w
+        root_lin_vel_b = self._robot.data.root_lin_vel_b
+        root_ang_vel_b = self._robot.data.root_ang_vel_b
+        projected_gravity = self._robot.data.projected_gravity_b
+        joint_acc = self._robot.data.joint_acc
+        applied_torque = self._robot.data.applied_torque
 
-        net_contact_forces = getattr(self._contact_sensor.data, "net_forces_w", None)
-        if net_contact_forces is None:
-            net_contact_forces = self._contact_sensor.data.net_forces_w_history[:, 0]
-        feet_contact_forces = torch.linalg.norm(net_contact_forces[:, self._feet_ids], dim=-1)
-        feet_contact = feet_contact_forces > 2.0
+        vx = root_lin_vel_w[:, 0]
+        vy = root_lin_vel_w[:, 1]
+        vz_b = root_lin_vel_b[:, 2]
+        wz = root_ang_vel_b[:, 2]
 
-        front_contact_bool = torch.any(feet_contact[:, self._front_foot_slots], dim=1)
-        rear_contact_bool = torch.any(feet_contact[:, self._rear_foot_slots], dim=1)
-        rear_contact_loose = torch.any(
-            (feet_contact_forces[:, self._rear_foot_slots] > 0.5), dim=1
+        cmd_vx = self._commands[:, 0]
+        cmd_vy = self._commands[:, 1]
+        cmd_yaw = self._commands[:, 2]
+
+        # === TASK REWARDS (exponential kernel) ===
+        lin_vel_error = torch.sum(
+            torch.square(torch.stack([vx - cmd_vx, vy - cmd_vy], dim=1)), dim=1
+        )
+        track_lin_vel_xy = torch.exp(-lin_vel_error / (cfg.track_lin_vel_xy_std ** 2))
+
+        ang_vel_error = torch.square(wz - cmd_yaw)
+        track_ang_vel_z = torch.exp(-ang_vel_error / (cfg.track_ang_vel_z_std ** 2))
+
+        # === MOTION QUALITY PENALTIES ===
+        lin_vel_z = torch.square(vz_b)
+        ang_vel_xy = torch.sum(torch.square(root_ang_vel_b[:, :2]), dim=1)
+
+        # === SMOOTHNESS PENALTIES ===
+        dof_torques = torch.sum(torch.square(applied_torque), dim=1)
+        dof_acc = torch.sum(torch.square(joint_acc), dim=1)
+        action_rate = torch.sum(
+            torch.square(self._actions - self._previous_actions), dim=1
         )
 
-        v_feet_xy = self._robot.data.body_lin_vel_w[:, self._feet_ids, :2]
-        slip_xy = torch.linalg.norm(v_feet_xy, dim=-1)
-        front_mask = feet_contact[:, self._front_foot_slots].float()
-        front_cnt = front_mask.sum(dim=1).clamp_min(1e-6)
-        front_slip = (slip_xy[:, self._front_foot_slots] * front_mask).sum(dim=1) / front_cnt
-        front_contact = front_contact_bool.float()
-
-        # SLIP_THR controls how much foot sliding reduces forward reward
-        # Session 13 findings:
-        # - EXP-032 baseline (0.03): vx=+0.029 ← BEST
-        # - EXP-052 relaxed (0.10): vx=+0.024 (worse)
-        # - EXP-053 disabled (1.0): vx=-0.023 (much worse, backward)
-        # Conclusion: Slip factor HELPS forward motion, revert to baseline
-        SLIP_THR = 0.03
-        f_slip = 1.0 / (1.0 + torch.square(front_slip / SLIP_THR))
-        upright_sq = torch.square(upright)
-        vx_forward = torch.relu(vx)
-        vx_backward = torch.relu(-vx)
-        progress_pos = rewards_cfg.progress_forward_pos * vx_forward * upright_sq * f_slip
-        progress_neg = rewards_cfg.progress_forward_neg * vx_backward * upright_sq * f_slip
-        progress_forward = progress_pos - progress_neg
-
-        # Standing penalty: penalize near-zero forward velocity to break standing equilibrium
-        # Only apply when upright (so robot doesn't get penalized while fallen)
-        standing_penalty_weight = getattr(rewards_cfg, 'standing_penalty', 0.0)
-        if standing_penalty_weight < 0.0:
-            # Penalty scales with how close to zero velocity (max at vx=0, decays as |vx| increases)
-            velocity_threshold = 0.05  # m/s - below this, apply penalty
-            standing_penalty = standing_penalty_weight * torch.exp(-torch.square(vx / velocity_threshold)) * upright_sq
-        else:
-            standing_penalty = torch.zeros_like(vx)
-
-        undesired_contact_forces = torch.abs(
-            net_contact_forces[:, self._undesired_contact_body_ids, 2]
+        # === GAIT: FEET AIR TIME ===
+        first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._feet_ids]
+        last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
+        air_time_reward = torch.sum(
+            (last_air_time - cfg.feet_air_time_threshold) * first_contact.float(), dim=1
         )
-        nonfoot_F = undesired_contact_forces.sum(dim=1)
-        denom_body = 9.81 * torch.clamp(self._robot_total_mass, min=1e-6)
-        body_contact_penalty = -1.0 * torch.relu(nonfoot_F - 10.0) / denom_body
+        # Only reward air time when commanded to move
+        cmd_magnitude = torch.norm(self._commands[:, :2], dim=1)
+        air_time_reward = air_time_reward * (cmd_magnitude > 0.05).float()
 
-        support_gate = (upright > 0.85).float()
-        rear_support = rear_contact_bool.float()
-        rear_support_bonus = rewards_cfg.rear_support_bonus * rear_support * support_gate
+        # === UNDESIRED CONTACTS ===
+        net_contact_forces = self._contact_sensor.data.net_forces_w_history[:, 0]
+        undesired_forces = torch.norm(
+            net_contact_forces[:, self._undesired_contact_body_ids], dim=-1
+        )
+        undesired_contacts = torch.sum(
+            (undesired_forces > cfg.undesired_contacts_threshold).float(), dim=1
+        )
 
-        # Height above terrain from ray caster, with a body-height fallback.
-        pos_z = self._height_scanner.data.pos_w[:, 2].unsqueeze(1)
-        ray_z = self._height_scanner.data.ray_hits_w[..., 2]
-        valid_mask = torch.isfinite(ray_z)
-        height_samples = torch.where(valid_mask, pos_z - ray_z, torch.zeros_like(ray_z))
-        valid_counts = valid_mask.sum(dim=1)
-        current_height = self._robot.data.root_pos_w[:, 2].clone()
-        valid_envs = valid_counts > 0
-        if torch.any(valid_envs):
-            current_height[valid_envs] = (
-                height_samples[valid_envs].sum(dim=1) / valid_counts[valid_envs].float()
-            )
+        # === STABILITY: UPRIGHT ===
+        upright = -projected_gravity[:, 2]
 
-        target_height = self.cfg.gait.target_height
-        height_error = current_height - target_height
-        tolerance = max(rewards_cfg.height_tolerance, 0.0)
-        sigma = max(rewards_cfg.height_sigma, 1e-6)
-        adjusted_error = torch.relu(torch.abs(height_error) - tolerance)
+        # === FORWARD MOTION BONUS ===
+        # Direct reward for positive vx to bootstrap walking
+        # Gate by upright to avoid rewarding forward falling
+        forward_motion = cfg.forward_motion_weight * vx * upright.clamp(0.5, 1.0)
 
-        # Low height penalty: strong negative reward for being below threshold
-        # Use world Z position for reliability (flat terrain is at z=0)
-        low_height_penalty_val = getattr(rewards_cfg, 'low_height_penalty', 0.0)
-        low_height_threshold = getattr(rewards_cfg, 'low_height_threshold', 0.0)
-        if low_height_penalty_val < 0.0 and low_height_threshold > 0.0:
-            # Use world Z position for flat terrain (more reliable than height scanner)
-            world_z = self._robot.data.root_pos_w[:, 2]
-            # Penalty proportional to how far below threshold, clamped to max 0.1m deficit
-            height_deficit = torch.clamp(torch.relu(low_height_threshold - world_z), max=0.10)
-            low_height_penalty = low_height_penalty_val * height_deficit
-        else:
-            low_height_penalty = torch.zeros_like(current_height)
-
-        # ==================== FEET AIR TIME REWARD (EXP-040) ====================
-        # Reward proper stepping patterns to break the standing equilibrium
-        # UNGATED: Reward any stepping, rely on forward/backward rewards for direction
-        # EXP-038: Total speed gate led to backward stepping
-        # EXP-039: Forward gate never activated (chicken-and-egg)
-        # EXP-040: No gate, let velocity rewards handle direction
-        feet_air_time_weight = getattr(rewards_cfg, 'feet_air_time_reward', 0.0)
-        if feet_air_time_weight > 0.0:
-            first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._feet_ids]
-            last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
-
-            # Reward feet that achieve optimal air time when they land
-            optimal_air_time = getattr(rewards_cfg, 'optimal_air_time', 0.25)
-            air_time_error = torch.abs(last_air_time - optimal_air_time)
-
-            # Exponential reward: peaks at optimal_air_time, decays for deviations
-            # NO GATE - reward stepping in any direction, velocity rewards bias forward
-            feet_air_time_reward = torch.sum(
-                torch.exp(-air_time_error * 10.0) * first_contact.float(), dim=1
-            ) * feet_air_time_weight
-        else:
-            feet_air_time_reward = torch.zeros_like(vx)
-
-        # ==================== DIAGONAL GAIT REWARD (EXP-056) ====================
-        # Reward alternating diagonal pair contacts (FL+BR vs FR+BL)
-        # EXP-055: Ungated reward led to backward stepping (vx=+0.022 vs baseline +0.029)
-        # EXP-056: Gate by forward velocity - only reward stepping when moving forward
-        # This biases the stepping direction toward forward motion
-        # Foot order: [FL, FR, BL, BR] = indices [0, 1, 2, 3]
-        diagonal_gait_weight = getattr(rewards_cfg, 'diagonal_gait_reward', 0.0)
-        if diagonal_gait_weight > 0.0:
-            # Diagonal pairs for trotting gait:
-            # Pair 0: FL (index 0) + BR (index 3)
-            # Pair 1: FR (index 1) + BL (index 2)
-            fl_contact = feet_contact[:, 0]  # FL
-            fr_contact = feet_contact[:, 1]  # FR
-            bl_contact = feet_contact[:, 2]  # BL
-            br_contact = feet_contact[:, 3]  # BR
-
-            # Check if each diagonal pair is in stance (both feet touching)
-            pair0_stance = fl_contact & br_contact  # FL + BR
-            pair1_stance = fr_contact & bl_contact  # FR + BL
-
-            # Determine current dominant diagonal pair
-            # -1 = neither/both (ambiguous), 0 = pair0, 1 = pair1
-            current_pair = torch.where(
-                pair0_stance & ~pair1_stance,
-                torch.zeros_like(self._last_diagonal_pair),  # Pair 0 dominant
-                torch.where(
-                    pair1_stance & ~pair0_stance,
-                    torch.ones_like(self._last_diagonal_pair),  # Pair 1 dominant
-                    torch.full_like(self._last_diagonal_pair, -1)  # Ambiguous
-                )
-            )
-
-            # Reward switches between diagonal pairs (the essence of trotting)
-            # Only reward if switching from one valid pair to another valid pair
-            valid_switch = (
-                (self._last_diagonal_pair >= 0) &  # Previous was valid
-                (current_pair >= 0) &               # Current is valid
-                (self._last_diagonal_pair != current_pair)  # Actually switched
-            )
-
-            # EXP-056: Gate gait reward by forward velocity
-            # Only reward stepping when moving forward (vx > 0)
-            # Use soft gating with sigmoid for smooth gradient
-            # Forward gate: sigmoid to smoothly bias gait reward toward forward motion
-            # EXP-056 (best stable): sigmoid(vx * 20.0) - ~0 when vx<0, ~1 when vx>0.1
-            # Note: Hard gate (EXP-068) and scale=50 (EXP-067) both failed - caused backward drift
-            forward_gate = torch.sigmoid(vx * 20.0)
-
-            # EXP-061/062: Velocity-based gait decay curriculum - DISABLED
-            # Both decay=30 (EXP-061) and decay=10 (EXP-062) failed:
-            # - Decay prevents forward motion learning entirely
-            # - Robot converges to standing still (vx≈0) as optimal
-            # Reverted to original forward-gated gait from EXP-056
-
-            # Reward only switches (removed stance bonus that encouraged staying in one pair)
-            # Gated by forward velocity to bias stepping toward forward motion
-            diagonal_gait_reward = diagonal_gait_weight * valid_switch.float() * forward_gate * upright_sq
-
-            # Update tracking: only update if current is valid
-            self._last_diagonal_pair = torch.where(
-                current_pair >= 0,
-                current_pair,
-                self._last_diagonal_pair
-            )
-        else:
-            diagonal_gait_reward = torch.zeros_like(vx)
-
-        # ==================== BIDIRECTIONAL GAIT REWARD (EXP-088) ====================
-        # Spot-style gait enforcement with both sync AND async components
-        # - Sync: Diagonal pairs (FL+BR, FR+BL) should have matching air/contact times
-        # - Async: Same-side legs (FL vs FR, BL vs BR) should be out of phase
-        # This provides stronger gait enforcement than unidirectional reward alone
-        bidirectional_gait_enabled = getattr(rewards_cfg, 'bidirectional_gait', False)
-        if bidirectional_gait_enabled:
-            gait_weight = getattr(rewards_cfg, 'bidirectional_gait_weight', 2.0)
-            gait_sigma = getattr(rewards_cfg, 'bidirectional_gait_sigma', 0.1)
-
-            # Get air time and contact time for each foot
-            # Foot order: [FL, FR, BL, BR] = indices [0, 1, 2, 3]
-            last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
-            last_contact_time = self._contact_sensor.data.last_contact_time[:, self._feet_ids]
-
-            # SYNC REWARD: Diagonal pairs should have matching times
-            # Pair 0: FL (0) + BR (3), Pair 1: FR (1) + BL (2)
-            # Sync means both feet in a diagonal pair lift and land together
-            air_diff_pair0 = torch.abs(last_air_time[:, 0] - last_air_time[:, 3])  # FL vs BR
-            air_diff_pair1 = torch.abs(last_air_time[:, 1] - last_air_time[:, 2])  # FR vs BL
-            contact_diff_pair0 = torch.abs(last_contact_time[:, 0] - last_contact_time[:, 3])
-            contact_diff_pair1 = torch.abs(last_contact_time[:, 1] - last_contact_time[:, 2])
-
-            # Exponential reward for small differences (Spot-style)
-            sync_reward_pair0 = torch.exp(-(air_diff_pair0 ** 2 + contact_diff_pair0 ** 2) / (gait_sigma ** 2))
-            sync_reward_pair1 = torch.exp(-(air_diff_pair1 ** 2 + contact_diff_pair1 ** 2) / (gait_sigma ** 2))
-            sync_reward = (sync_reward_pair0 + sync_reward_pair1) / 2.0
-
-            # ASYNC REWARD: Same-side legs should be out of phase
-            # FL vs FR should have opposite contact states, BL vs BR should have opposite
-            # Measure by contact state difference (one up, one down = good)
-            fl_contact = feet_contact[:, 0].float()
-            fr_contact = feet_contact[:, 1].float()
-            bl_contact = feet_contact[:, 2].float()
-            br_contact = feet_contact[:, 3].float()
-
-            # Async reward: difference between same-side legs should be high
-            # |FL - FR| + |BL - BR| should be close to 2 (both pairs opposite)
-            front_async = torch.abs(fl_contact - fr_contact)  # 0 = same, 1 = opposite
-            rear_async = torch.abs(bl_contact - br_contact)
-            async_reward = (front_async + rear_async) / 2.0  # 0-1 range
-
-            # Combined bidirectional gait reward
-            # Gate by forward velocity to only reward when moving forward
-            forward_gate = torch.sigmoid(vx * 20.0)
-
-            # EXP-089: Support additive mode (sync + async) vs multiplicative (sync * async)
-            use_additive = getattr(rewards_cfg, 'bidirectional_gait_additive', False)
-            if use_additive:
-                # Additive: rewards sync and async independently
-                combined_gait = (sync_reward + async_reward) / 2.0
-            else:
-                # Multiplicative: both sync and async must be high for reward
-                combined_gait = sync_reward * async_reward
-
-            bidirectional_gait_reward = gait_weight * combined_gait * forward_gate * upright_sq
-        else:
-            bidirectional_gait_reward = torch.zeros_like(vx)
-
-        # ==================== BACKWARD MOTION PENALTY (EXP-069) ====================
-        # Explicit penalty for backward motion to break the backward drift attractor
-        # Session 16 showed that backward drift is a stable optimum - robot consistently
-        # converges to backward motion (vx < 0) regardless of forward gating mechanism.
-        # This adds a strong penalty proportional to backward velocity to break that attractor.
-        backward_penalty_weight = getattr(rewards_cfg, 'backward_motion_penalty', 0.0)
-        if backward_penalty_weight > 0.0:
-            # Penalize backward velocity (vx < 0) strongly
-            # Scale by upright^2 so we only penalize backward motion when robot is standing
-            backward_motion_penalty = -backward_penalty_weight * torch.relu(-vx) * upright_sq
-        else:
-            backward_motion_penalty = torch.zeros_like(vx)
-
-        # ==================== VELOCITY THRESHOLD BONUS (EXP-080) ====================
-        # Add bonus for exceeding velocity thresholds to break the ~0.056 m/s plateau
-        # This provides extra reward when robot achieves higher forward velocity
-        velocity_bonus_weight = getattr(rewards_cfg, 'velocity_threshold_bonus', 0.0)
-        velocity_threshold = getattr(rewards_cfg, 'velocity_bonus_threshold', 0.04)
-        if velocity_bonus_weight > 0.0:
-            # Bonus for exceeding threshold - scaled by how much we exceed it
-            velocity_excess = torch.relu(vx - velocity_threshold)
-            velocity_threshold_bonus = velocity_bonus_weight * velocity_excess * upright_sq
-        else:
-            velocity_threshold_bonus = torch.zeros_like(vx)
-
-        # ==================== EXPONENTIAL VELOCITY TRACKING (EXP-083) ====================
-        # Reference implementations (AnyMal, Spot) use exponential kernels for velocity tracking
-        # exp(-error²/σ²) provides smooth gradients near zero, unlike linear penalties
-        # This should help break the velocity plateau by providing better gradient signal
-        exp_velocity_tracking = getattr(rewards_cfg, 'exp_velocity_tracking', False)
-        if exp_velocity_tracking:
-            exp_weight = getattr(rewards_cfg, 'exp_velocity_weight', 5.0)
-            sigma_sq = getattr(rewards_cfg, 'exp_velocity_sigma_sq', 0.25)
-            target_vx = getattr(rewards_cfg, 'exp_velocity_target', 0.1)
-
-            # Compute velocity error squared
-            vel_error_sq = torch.square(vx - target_vx)
-
-            # Exponential tracking reward: peaks at target, decays for deviations
-            # Gate by upright^2 to only reward when standing properly
-            exp_velocity_reward = exp_weight * torch.exp(-vel_error_sq / sigma_sq) * upright_sq
-        else:
-            exp_velocity_reward = torch.zeros_like(vx)
-
-        # Command tracking reward - rewards matching commanded velocity
-        # Uses actual commanded velocity from self._commands instead of fixed target
-        if getattr(rewards_cfg, 'command_tracking_enabled', False):
-            cmd_weight = getattr(rewards_cfg, 'command_tracking_weight', 10.0)
-            cmd_sigma = getattr(rewards_cfg, 'command_tracking_sigma', 0.1)
-
-            # Get commanded vx (currently only tracking forward velocity)
-            cmd_vx = self._commands[:, 0]
-
-            # Compute velocity tracking error
-            vx_error = vx - cmd_vx
-
-            # Exponential reward: peak when actual matches command
-            # Gate by upright^2 to only reward when standing properly
-            command_tracking = cmd_weight * torch.exp(-torch.square(vx_error / cmd_sigma)) * upright_sq
-
-            # Optionally replace forward motion bias with command tracking
-            if getattr(rewards_cfg, 'command_tracking_replace_forward', True):
-                progress_forward = torch.zeros_like(vx)
-        else:
-            command_tracking = torch.zeros_like(vx)
-
-        # Lateral (vy) command tracking - Session 27: Enable strafing
-        # Same exponential kernel as vx tracking, using commanded vy
-        if getattr(rewards_cfg, 'command_tracking_enabled', False):
-            cmd_weight_vy = getattr(rewards_cfg, 'command_tracking_weight_vy', 10.0)
-            cmd_sigma_vy = getattr(rewards_cfg, 'command_tracking_sigma_vy', 0.1)
-
-            # Get commanded vy (lateral velocity)
-            cmd_vy = self._commands[:, 1]
-
-            # Compute lateral velocity tracking error
-            vy_error = vy_w - cmd_vy
-
-            # Exponential reward: peak when actual matches command
-            # Gate by upright^2 to only reward when standing properly
-            command_tracking_vy = cmd_weight_vy * torch.exp(-torch.square(vy_error / cmd_sigma_vy)) * upright_sq
-        else:
-            command_tracking_vy = torch.zeros_like(vy_w)
-            cmd_vy = torch.zeros_like(vy_w)  # No commanded vy when tracking disabled
-
-        # Yaw rate command tracking - Session 28: Enable turning
-        # Same exponential kernel as vx/vy tracking, using commanded yaw rate
-        if getattr(rewards_cfg, 'command_tracking_enabled', False):
-            cmd_weight_yaw = getattr(rewards_cfg, 'command_tracking_weight_yaw', 10.0)
-            cmd_sigma_yaw = getattr(rewards_cfg, 'command_tracking_sigma_yaw', 0.2)
-
-            # Get commanded yaw rate
-            cmd_yaw = self._commands[:, 2]
-
-            # Compute yaw rate tracking error
-            yaw_error = wz_b - cmd_yaw
-
-            # Exponential reward: peak when actual matches command
-            # Gate by upright^2 to only reward when standing properly
-            command_tracking_yaw = cmd_weight_yaw * torch.exp(-torch.square(yaw_error / cmd_sigma_yaw)) * upright_sq
-        else:
-            command_tracking_yaw = torch.zeros_like(wz_b)
-            cmd_yaw = torch.zeros_like(wz_b)  # No commanded yaw when tracking disabled
-
+        # === COMPUTE TOTAL ===
         rewards = {
-            "progress_forward": progress_forward,
-            "upright_reward": upright * rewards_cfg.upright_reward,
-            "height_reward": torch.exp(-torch.square(adjusted_error / sigma)) * rewards_cfg.height_reward,
-            "torque_penalty": torch.sum(torch.square(self._robot.data.applied_torque), dim=1)
-            * rewards_cfg.torque_penalty,
-            # Session 27: Penalize deviation from commanded vy, not absolute vy
-            # This allows commanded lateral motion while penalizing unintended drift
-            "lat_vel_penalty": -rewards_cfg.lat_vel_penalty * torch.square(vy_w - cmd_vy),
-            # Session 28: Penalize deviation from commanded yaw, not absolute yaw
-            # This allows commanded turning while penalizing unintended rotation
-            "yaw_rate_penalty": -rewards_cfg.yaw_rate_penalty * torch.square(wz_b - cmd_yaw),
-            "front_slip_penalty": -4.0 * torch.square(front_slip) * front_contact,
-            "body_contact_penalty": body_contact_penalty,
-            "rear_support_bonus": rear_support_bonus,
-            "low_height_penalty": low_height_penalty,
-            "standing_penalty": standing_penalty,
-            "feet_air_time_reward": feet_air_time_reward,
-            "diagonal_gait_reward": diagonal_gait_reward,
-            "backward_motion_penalty": backward_motion_penalty,
-            "velocity_threshold_bonus": velocity_threshold_bonus,
-            "exp_velocity_reward": exp_velocity_reward,
-            "bidirectional_gait_reward": bidirectional_gait_reward,
-            "command_tracking": command_tracking,
-            "command_tracking_vy": command_tracking_vy,  # Session 27: Lateral command tracking
-            "command_tracking_yaw": command_tracking_yaw,  # Session 28: Yaw rate command tracking
-            # Session 35: Penalize rapid action changes for smoother motion
-            "action_rate_penalty": rewards_cfg.action_rate_penalty * torch.sum(
-                torch.square(self._actions - self._previous_actions), dim=1
-            ),
+            "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
+            "track_ang_vel_z": cfg.track_ang_vel_z_weight * track_ang_vel_z,
+            "lin_vel_z": cfg.lin_vel_z_weight * lin_vel_z,
+            "ang_vel_xy": cfg.ang_vel_xy_weight * ang_vel_xy,
+            "dof_torques": cfg.dof_torques_weight * dof_torques,
+            "dof_acc": cfg.dof_acc_weight * dof_acc,
+            "action_rate": cfg.action_rate_weight * action_rate,
+            "feet_air_time": cfg.feet_air_time_weight * air_time_reward,
+            "undesired_contacts": cfg.undesired_contacts_weight * undesired_contacts,
+            "upright": cfg.upright_weight * upright,
+            "forward_motion": forward_motion,
         }
 
         total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
@@ -1423,21 +1022,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         for key, value in rewards.items():
             self._episode_sums[key] += value
 
-        # Telemetry accumulators for episode logging.
+        # Telemetry
         self._episode_sums["vx_w_mean"] += vx
-        self._episode_sums["vy_w_mean"] += torch.abs(vy_w)
-        self._episode_sums["upright_mean"] += upright
-        self._episode_sums["height_err_abs"] += torch.abs(height_error)
-        self._episode_sums["front_slip_mean"] += front_slip
-        self._episode_sums["rear_contact_frac"] += rear_contact_bool.float()
-        self._episode_sums["f_slip_mean"] += f_slip
-        self._episode_sums["stance_rear_frac_loose"] += rear_contact_loose.float()
-        self._episode_sums["progress_pos"] += progress_pos
-        self._episode_sums["progress_neg"] += progress_neg
-        self._episode_sums["rear_support_bonus_mean"] += rear_support_bonus
-        self._episode_sums["cmd_vx_error"] += torch.abs(vx - self._commands[:, 0])
-        self._episode_sums["cmd_vy_error"] += torch.abs(vy_w - self._commands[:, 1])  # Session 27
-        self._episode_sums["cmd_yaw_error"] += torch.abs(wz_b - self._commands[:, 2])  # Session 28
+        self._episode_sums["vy_w_mean"] += torch.abs(vy)
+        self._episode_sums["upright_mean"] += upright.clamp(0.0, 1.0)
+        self._episode_sums["cmd_vx_error"] += torch.abs(vx - cmd_vx)
+        self._episode_sums["cmd_vy_error"] += torch.abs(vy - cmd_vy)
+        self._episode_sums["cmd_yaw_error"] += torch.abs(wz - cmd_yaw)
 
         return total_reward
 
@@ -1645,9 +1236,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             ) * bias_std
 
         self._time[env_ids] = 0
-
-        # Reset diagonal gait tracking (EXP-055)
-        self._last_diagonal_pair[env_ids] = -1
 
         log = {}
         if len(env_ids) > 0:

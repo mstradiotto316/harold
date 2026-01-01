@@ -2020,7 +2020,7 @@ Simulation achieved vx=0.020 with BOTH old and new trajectories. This confirms:
 
 ---
 
-## Session 36 Observations (2025-12-31)
+## Session 36 Desktop Observations (2025-12-31)
 
 ### Critical: Reward Weight Scaling for Small Robots
 
@@ -2057,10 +2057,9 @@ HAROLD_CMD_TRACK=1 HAROLD_DYN_CMD=1 python scripts/harold.py train
 
 Do NOT set `HAROLD_CPG=1` - that enables the CPG+residual mode.
 
-
 ---
 
-## 2026-01-01: Session 36 Pure RL Findings
+## 2026-01-01: Session 36 Desktop - Pure RL Findings
 
 ### Standing Local Minimum is Extremely Stable
 
@@ -2102,3 +2101,55 @@ Higher weights are counterproductive - they destabilize the policy.
 3. Asymmetric forward reward (penalize backwards heavily)
 4. Much longer training (10,000+ iter)
 5. Reference motion tracking
+
+---
+
+## Session 36 RPi Observations (2026-01-01)
+
+### CRITICAL DISCOVERY: Servo Acceleration Was Set to MINIMUM
+
+**Finding**: The firmware had `GAIT_ACC = 0`, which sets the servo acceleration to its **slowest** (softest) setting, NOT fastest.
+
+**ST3215 Acceleration Register**:
+- `ACC = 0` = **Slowest** acceleration (soft, gradual ramp)
+- `ACC = 150` = **Fastest** acceleration (instant, bang-bang)
+
+**Impact**: The "built-in acceleration start-stop function" mentioned in the servo datasheet was actively working against us for backlash mitigation. Soft acceleration means the servo slowly winds up through the backlash zone instead of crossing it quickly.
+
+**Fix Applied**:
+```cpp
+// OLD (wrong!)
+const int GAIT_ACC = 0;  // "Fast for gait" - INCORRECT
+
+// NEW (correct)
+const int GAIT_ACC = 150;  // Max acceleration for instant backlash crossing
+```
+
+### Observation: Torque Enable Added
+
+Added explicit `st.EnableTorque(id, 1)` for all 12 servos during setup. While `WritePosEx` implicitly enables torque, explicit enable ensures servo mode is active.
+
+### Observation: Bang-Bang Control for Backlash
+
+For systems with mechanical backlash, the optimal control strategy is "bang-bang" control:
+1. **Fastest possible acceleration** to cross the dead zone
+2. **No gradual ramping** - that just wastes time in the backlash zone
+3. **Instant response** to direction changes
+
+This is why the acceleration smoothing "feature" was actually hurting us.
+
+### Updated Hypotheses (Session 36 RPi)
+
+| ID | Hypothesis | Status |
+|----|------------|--------|
+| **H-S36-1** | ACC=0 was causing soft acceleration (fighting backlash) | **CONFIRMED** |
+| **H-S36-2** | ACC=150 enables instant servo response | **TO TEST** on hardware |
+| **H-S36-3** | Bang-bang control + large amplitude is optimal for backlash | **TO TEST** |
+
+### Registry Reference (ST3215)
+
+| Register | Address | Purpose | Values |
+|----------|---------|---------|--------|
+| SMS_STS_ACC | 41 | Acceleration | 0=slowest, 150=fastest |
+| SMS_STS_TORQUE_ENABLE | 40 | Torque lock | 0=off, 1=on |
+| SMS_STS_MODE | 33 | Servo/Motor mode | 0=servo, 1=motor |

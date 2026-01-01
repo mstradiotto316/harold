@@ -25,16 +25,23 @@ SMS_STS st;
 const uint32_t BUS_BAUD = 1000000;
 
 // ============================================================================
-// GAIT PARAMETERS - ALIGNED WITH SIMULATION (ScriptedGaitCfg)
+// GAIT PARAMETERS - SESSION 34: BACKLASH-TOLERANT LARGE AMPLITUDE
 // ============================================================================
+// Hardware has ~30° servo backlash on direction reversals.
+// Session 34 increased amplitudes to exceed backlash zone:
+//   Old calf: 26° swing → absorbed by backlash (feet never lifted)
+//   New calf: 50° swing → 20° actual motion after backlash
+//   Old thigh: 29° swing → absorbed by backlash
+//   New thigh: 40° swing → 10° actual motion after backlash
+//
 // Simulation values (radians) converted to hardware (degrees) with sign inversion:
 //   hardware_deg = -sim_rad * (180/π)
-// Thighs: sim +0.90/+0.40 rad → hw -51.6/-22.9 deg
-// Calves: sim -0.90/-1.40 rad → hw +51.6/+80.0 deg
-const float BASE_STANCE_THIGH = -51.6f;  // sim: +0.90 rad
-const float BASE_SWING_THIGH  = -22.9f;  // sim: +0.40 rad
-const float BASE_STANCE_CALF  = 51.6f;   // sim: -0.90 rad (extended during stance)
-const float BASE_SWING_CALF   = 80.0f;   // sim: -1.40 rad (bent during swing, at CALF_MAX)
+// Thighs: sim +0.95/+0.25 rad → hw -54.4/-14.3 deg (40° range)
+// Calves: sim -0.50/-1.38 rad → hw +28.6/+79.1 deg (50° range)
+const float BASE_STANCE_THIGH = -54.4f;  // sim: +0.95 rad (more forward)
+const float BASE_SWING_THIGH  = -14.3f;  // sim: +0.25 rad (more back)
+const float BASE_STANCE_CALF  = 28.6f;   // sim: -0.50 rad (more extended during stance)
+const float BASE_SWING_CALF   = 79.1f;   // sim: -1.38 rad (bent during swing)
 const float BASE_SHOULDER_AMP = 2.9f;    // sim: 0.05 rad
 
 // Active parameters (scaled by amplitude)
@@ -44,7 +51,7 @@ float STANCE_THIGH, SWING_THIGH, STANCE_CALF, SWING_CALF, SHOULDER_AMPLITUDE;
 float gaitAmplitude = 1.0f;  // Full amplitude to match simulation
 
 // Timing - MUST match simulation frequency for comparison
-float GAIT_FREQUENCY = 0.5f;   // Hz - slower to match real servo response (2 second cycle)
+float GAIT_FREQUENCY = 0.7f;   // Hz - Session 30 optimal (1.43 second cycle)
 const int UPDATE_RATE_HZ = 20;
 const int STEP_MS = 1000 / UPDATE_RATE_HZ;
 
@@ -92,9 +99,10 @@ const int LEG_FR = 1;
 const int LEG_BL = 2;
 const int LEG_BR = 3;
 
-// Speed settings: 0 = max speed, higher value = faster (steps/second)
-// Feetech units: roughly steps/second (4096 steps = 360°)
-const int GAIT_SPEED = 0, GAIT_ACC = 0;         // Fast for gait (servo tracks trajectory)
+// Speed settings: 0 = max speed (no limit)
+// Acceleration: 0 = slowest (soft), 150 = fastest (instant/bang-bang)
+// For backlash mitigation, use MAX acceleration to cross dead zone quickly
+const int GAIT_SPEED = 0, GAIT_ACC = 150;       // Max speed + instant acceleration for backlash
 const int TRANSITION_SPEED_THIGH = 400, TRANSITION_ACC = 50;  // Slow for stance changes
 const int TRANSITION_SPEED_CALF = 800;  // Calf moves 2x faster to compensate for thigh rotation
 
@@ -239,6 +247,14 @@ void setup() {
 
   Serial1.begin(BUS_BAUD, SERIAL_8N1, S_RXD, S_TXD);
   st.pSerial = &Serial1;
+  delay(100);  // Allow bus to stabilize
+
+  // Ensure all servos have torque enabled (servo mode, not limp)
+  Serial.println(F("Enabling torque on all servos..."));
+  for (uint8_t id = 1; id <= 12; ++id) {
+    st.EnableTorque(id, 1);  // 1 = torque ON
+  }
+  delay(50);
 
   Serial.println(F("\n============================================="));
   Serial.println(F("  Harold Scripted Diagonal Trot - SAFE MODE"));
@@ -246,7 +262,10 @@ void setup() {
   Serial.println(F("Safety features enabled:"));
   Serial.println(F("  - Collision-safe joint limits"));
   Serial.println(F("  - Load monitoring with auto-stop"));
-  Serial.println(F("  - Conservative starting amplitude\n"));
+  Serial.println(F("  - Explicit torque enable"));
+  Serial.println(F("Backlash mitigation:"));
+  Serial.printf("  - Acceleration: %d (max=150 for instant response)\n", GAIT_ACC);
+  Serial.println(F("  - Large amplitude gait (50° calf, 40° thigh)\n"));
 
   // Initialize gait parameters
   updateGaitParameters();

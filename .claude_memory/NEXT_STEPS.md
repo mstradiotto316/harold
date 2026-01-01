@@ -1,46 +1,128 @@
 # Harold Next Steps
 
-## PRIORITY 0: Break the Pure RL Plateau
+## PRIORITY 0: Test Acceleration Fix + Smooth Gait on Hardware
 
-**Status**: Session 36 complete. Pure RL plateaus at vx ≈ 0.01 m/s after 13 experiments.
-
-### What Was Tried (All Failed to Break Plateau)
-| Approach | Result |
-|----------|--------|
-| forward_motion weight 3.0, 5.0, 10.0 | 3.0 best (vx=+0.010), others worse |
-| Extended training (4167 iter) | Same plateau |
-| Reduced lin_vel_z (-0.0001) | Same plateau |
-| Increased feet_air_time (1.0) | Same plateau |
-| Higher velocity commands (0.15-0.5) | Same plateau |
-
-### Next Experiments to Try (Priority Order)
-
-1. **Fine-tune from CPG checkpoint**
-   - CPG policy already walks (vx=0.034 in Session 35)
-   - Challenge: Observation space mismatch (50D CPG vs 48D pure RL)
-   - Solution: Either use CPG mode or add gait phase back to pure RL
-
-2. **Curriculum learning**
-   ```python
-   # In harold_isaac_lab_env.py
-   vx_cmd = 0.05 * min(iteration / 1000, 1.0)  # Ramp up over 1000 iter
-   ```
-
-3. **Asymmetric forward reward**
-   ```python
-   # Penalize backwards much more than reward forwards
-   forward_motion = 3.0 * max(vx, 0) - 10.0 * min(vx, 0)
-   ```
-
-4. **Much longer training** (10,000+ iter = 4+ hours)
-
-5. **Reference motion tracking** (use CPG trajectory as reference)
+**Status**: CRITICAL firmware fix applied. Ready for hardware test.
 
 ---
 
-## Current Pure RL Configuration
+## What Changed (Session 36 RPi - CRITICAL)
 
-File: `harold_isaac_lab_env_cfg.py`
+### Servo Acceleration Bug FIXED
+
+**The Problem**: Firmware had `GAIT_ACC = 0` which meant **slowest** servo acceleration (soft ramp-up), NOT fastest. This was fighting against backlash mitigation.
+
+**The Fix**: Changed `GAIT_ACC` from `0` to `150` (maximum/instant acceleration).
+
+**Expected Impact**:
+- Servos will now cross the backlash dead zone as fast as possible
+- Combined with large amplitude (50° calf, 40° thigh), feet should actually lift
+- This is "bang-bang" control - optimal for systems with mechanical play
+
+### Also Added
+- Explicit `st.EnableTorque(id, 1)` for all 12 servos during setup
+
+---
+
+## Hardware Test Instructions
+
+### Option A: Test Scripted Gait (Firmware Only - Recommended First)
+
+This tests the acceleration fix directly without the policy involved.
+
+1. **Upload firmware to ESP32**:
+   - Open `firmware/scripted_gait_test_1/scripted_gait_test_1.ino` in Arduino IDE
+   - Select your ESP32 board and port
+   - Upload
+
+2. **Run test**:
+   - Open Serial Monitor at 115200 baud
+   - Robot will auto-start walking after warmup
+   - Watch for "Acceleration: 150 (max=150 for instant response)" in startup output
+
+3. **Observe**:
+   - Do feet actually LIFT off the ground now?
+   - Is motion snappier/more responsive than before?
+   - Any issues with the instant acceleration?
+
+### Option B: Test Policy Controller (RPi)
+
+### Step 1: Pull Latest Changes
+```bash
+cd /home/pi/Desktop/harold
+git pull
+```
+
+### Step 2: Run the Controller
+```bash
+source ~/harold_env/bin/activate  # or your venv path
+python deployment/inference/harold_controller.py
+```
+
+### Step 3: Observe and Report
+
+**Key questions to answer:**
+1. Is the gait smoother than before? (Less jerky foot impacts?)
+2. Does the robot still walk forward?
+3. Any new issues introduced?
+
+**Success criteria:**
+- Noticeably reduced shock/jerk on foot contact
+- Robot still walks forward (even if slower)
+- No instability or falling
+
+---
+
+## What Changed (Session 35)
+
+Session 34's large amplitude policy walked but was **extremely jerky with harsh shock absorption**. Session 35 added smoothing:
+
+| Parameter | Before | After | Effect |
+|-----------|--------|-------|--------|
+| damping | 30 | **60** | Reduces oscillations at foot contact |
+| action_filter_beta | 0.18 | **0.35** | Stronger EMA smoothing on actions |
+
+Training result: vx=0.016 m/s (slightly lower than 0.020, expected with damping).
+
+### Files Changed
+
+1. `harold.py` - damping 30→60
+2. `harold_isaac_lab_env_cfg.py` - action_filter_beta 0.18→0.35
+3. `deployment/config/cpg.yaml` - action_filter_beta 0.18→0.35
+4. `deployment/policy/harold_policy.onnx` - New smoothed policy
+
+---
+
+## If Still Too Jerky: Phase 2 Changes
+
+Report back to desktop agent and we'll add:
+
+1. **Stronger torque penalty**: -0.005 → -0.02
+2. **Foot impact force penalty**: New reward penalizing harsh foot strikes
+3. **Action rate penalty**: New reward penalizing rapid action changes
+
+---
+
+## If Hardware Test Succeeds
+
+Next priorities:
+1. Document successful smooth gait parameters
+2. Consider further tuning (damping, filter strength)
+3. Work toward controllable walking (vx, vy, yaw commands)
+
+---
+
+## Fallback Options (If Phase 2 Also Fails)
+
+1. **Even higher damping** - Try damping=75
+2. **Slower frequency** - Try 0.5 Hz instead of 0.7 Hz
+3. **Asymmetric trajectory** - Fast swing, slow stance (see below)
+
+---
+
+## Reference: Asymmetric Trajectory Option
+
+If sinusoidal trajectory still causes issues, modify `_compute_leg_trajectory()`:
 
 ```python
 # Rewards (Session 36 final)

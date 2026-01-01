@@ -153,6 +153,30 @@ Where `direction` is +1 or -1 per the sign convention table.
 
 ---
 
+## Servo Control Registers (ST3215)
+
+### Critical for Backlash Mitigation
+
+| Register | Address | Purpose | Optimal Value | Notes |
+|----------|---------|---------|---------------|-------|
+| **ACC** | 41 | Acceleration profile | **150** | 0=slowest (soft), 150=fastest (instant) |
+| TORQUE_ENABLE | 40 | Enable torque | 1 | 0=limp, 1=active |
+| MODE | 33 | Operating mode | 0 | 0=servo (position), 1=motor (velocity) |
+| CW_DEAD | 26 | Clockwise dead zone | 1 | Minimum possible |
+| CCW_DEAD | 27 | Counter-clockwise dead zone | 1 | Minimum possible |
+
+**CRITICAL**: The ST3215's "built-in acceleration start-stop function makes the action softer" (from datasheet). For backlash systems, this is WRONG - we want **maximum acceleration** (ACC=150) for instant "bang-bang" control to cross the dead zone as fast as possible.
+
+### WritePosEx Parameters
+
+```cpp
+st.WritePosEx(ID, Position, Speed, ACC);
+// Speed: 0 = max speed (no limit), higher = specific speed in steps/sec
+// ACC: 0 = slowest (soft ramp), 150 = fastest (instant)
+```
+
+---
+
 ## References
 
 - Servo datasheet: `firmware/ST3215 Servo.pdf`

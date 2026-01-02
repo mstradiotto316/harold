@@ -143,15 +143,16 @@ class ScriptedGaitCfg:
     # Master switch - enable via env var HAROLD_SCRIPTED_GAIT=1
     enabled: bool = False
 
-    # Gait parameters - REVERTED to Session 34/35 (working in sim)
-    # Session 38 finding: Hardware-validated params (7.5°/30° @0.5Hz) are too conservative
-    # for simulation (vx=0.003). Intermediate values (15°/40°) also fail (vx=0.004).
-    # Sim-to-real transfer will need amplitude scaling, not sim parameter reduction.
-    frequency: float = 0.7  # Hz - Optimal in sim (0.5 Hz causes regression)
-    swing_thigh: float = 0.25    # Session 34: Backlash-tolerant (40° range)
-    stance_thigh: float = 0.95   # Session 34: Backlash-tolerant
-    stance_calf: float = -0.50   # Session 34: 50° calf range (exceeds backlash)
-    swing_calf: float = -1.38    # Session 34: Close to limit
+    # Gait parameters - HARDWARE-VALIDATED from Session 36 RPi
+    # These exact values produce smooth walking on real robot with feet lifting.
+    # Source: firmware/scripted_gait_test_1/scripted_gait_test_1.ino
+    #   BASE_STANCE_THIGH = -38.15°, BASE_SWING_THIGH = -30.65° (7.5° range)
+    #   BASE_STANCE_CALF = 50°, BASE_SWING_CALF = 80° (30° range)
+    frequency: float = 0.5   # Hz - Hardware-validated (slower = more stable)
+    swing_thigh: float = 0.54    # -30.65° → +30.65° in sim coords
+    stance_thigh: float = 0.67   # -38.15° → +38.15° in sim coords
+    stance_calf: float = -0.87   # 50° → -50° in sim coords (extended)
+    swing_calf: float = -1.40    # 80° → -80° in sim coords (flexed)
     shoulder_amplitude: float = 0.05  # Unchanged
     duty_cycle: float = 0.6
 
@@ -160,19 +161,19 @@ class ScriptedGaitCfg:
 class CPGCfg:
     """Central Pattern Generator configuration for residual learning.
 
-    REVERTED to Session 34/35 parameters (working in sim, vx=0.036).
+    HARDWARE-VALIDATED from Session 36 RPi - these values produce actual
+    walking on the real robot with feet lifting off the ground.
 
-    Session 38 FINDINGS:
-    - Hardware-validated (7.5°/30° @0.5Hz) → vx=0.003 (too conservative for sim)
-    - Intermediate (15°/40° @0.5Hz) → vx=0.004 (still too conservative)
-    - Original Session 34/35 (40°/50° @0.7Hz) → vx=0.036 (WORKS in sim)
-
-    CONCLUSION: Sim-to-real transfer needs amplitude SCALING at deployment,
-    not reduced sim parameters. Hardware can use smaller amplitudes while
-    sim needs larger ones for learning.
+    CURRICULUM APPROACH (Session 38+):
+    - CPG provides hardware-validated "training wheels"
+    - High residual_scale lets RL learn to dominate
+    - RL learns motions that are hardware-appropriate from the start
 
     Architecture:
-        target_joints = CPG_base_trajectory + policy_output * residual_scale
+        target_joints = CPG_trajectory + policy_output * residual_scale
+
+    With residual_scale=0.5, RL can contribute ±0.5 rad (~30°) on top of CPG.
+    This lets RL dominate while CPG provides timing/coordination hints.
 
     Enable via: HAROLD_CPG=1
     """
@@ -180,20 +181,23 @@ class CPGCfg:
     # Enable CPG-based action space
     enabled: bool = False  # Set True via env var HAROLD_CPG=1
 
-    # Base gait parameters - Session 35 OPTIMAL
-    base_frequency: float = 0.7  # Hz - Optimal in sim (0.5 Hz regresses)
+    # Base gait parameters - HARDWARE-VALIDATED
+    base_frequency: float = 0.5  # Hz - Hardware-validated (2 second cycle)
     duty_cycle: float = 0.6      # 60% stance, 40% swing
 
-    # Trajectory parameters - SESSION 34 BACKLASH-TOLERANT (works in sim)
-    # Large amplitudes needed to overcome sim physics and learn walking
-    swing_thigh: float = 0.25     # Session 34: Backlash-tolerant
-    stance_thigh: float = 0.95    # Session 34: Near limit
-    stance_calf: float = -0.50    # Session 34: 50° calf range
-    swing_calf: float = -1.38     # Session 34: Close to limit
+    # Trajectory parameters - HARDWARE-VALIDATED from Session 36 RPi
+    # Source: firmware/scripted_gait_test_1/scripted_gait_test_1.ino
+    # These produce real walking with feet actually lifting!
+    swing_thigh: float = 0.54     # -30.65° in hardware → +30.65° in sim
+    stance_thigh: float = 0.67    # -38.15° in hardware → +38.15° in sim
+    stance_calf: float = -0.87    # 50° in hardware → -50° in sim (extended)
+    swing_calf: float = -1.40     # 80° in hardware → -80° in sim (flexed)
     shoulder_amplitude: float = 0.05  # Unchanged
 
-    # Residual scaling
-    residual_scale: float = 0.05  # EXP-166: 0.08 regressed, 0.05 is optimal
+    # Residual scaling - HIGH for RL dominance
+    # With 0.5, RL contributes ±0.5 rad (~30°), dominating the motion
+    # CPG provides timing/coordination, RL provides the actual motion
+    residual_scale: float = 0.5   # Was 0.05, now RL dominates
 
 
 @configclass

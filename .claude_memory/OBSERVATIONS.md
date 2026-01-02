@@ -2153,3 +2153,93 @@ This is why the acceleration smoothing "feature" was actually hurting us.
 | SMS_STS_ACC | 41 | Acceleration | 0=slowest, 150=fastest |
 | SMS_STS_TORQUE_ENABLE | 40 | Torque lock | 0=off, 1=on |
 | SMS_STS_MODE | 33 | Servo/Motor mode | 0=servo, 1=motor |
+
+---
+
+## Session 36 RPi - Part 2: Successful Gait Parameter Tuning (2026-01-02)
+
+### MAJOR BREAKTHROUGH: Smooth Controlled Walking Achieved
+
+Through iterative hardware testing, found gait parameters that produce smooth, controlled walking on both carpet and hardwood surfaces.
+
+### Final Working Gait Parameters
+
+```cpp
+// PROVEN WORKING - Session 36 RPi
+const float GAIT_FREQUENCY = 0.5f;        // Hz (2 second cycle)
+const float BASE_STANCE_THIGH = -38.15f;  // 7.5° range
+const float BASE_SWING_THIGH  = -30.65f;  // centered at -34.4°
+const float BASE_STANCE_CALF  = 50.0f;    // 30° range
+const float BASE_SWING_CALF   = 80.0f;    // max bend for foot lift
+const int GAIT_ACC = 150;                 // CRITICAL: max acceleration
+```
+
+**Summary Table:**
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| Frequency | 0.5 Hz | Slower = more stable |
+| Thigh range | 7.5° | Small forward/back swing |
+| Calf range | 30° (50° to 80°) | Maintains foot lift |
+| Servo ACC | 150 | Max acceleration for backlash |
+
+### Key Insights from Iterative Tuning
+
+1. **Original parameters were WAY too aggressive**
+   - Started with 40° thigh range, 50° calf range
+   - Robot lunged forward uncontrollably
+   - Iteratively halved stride until controlled
+
+2. **Stride reduction progression that worked:**
+   - 40° → 10° → 5° → 2.5° → final 7.5° (with rebalancing)
+   - Each halving improved control
+
+3. **Calf range has a minimum threshold (~30°)**
+   - Tried reducing to 25° → feet stopped lifting (regression)
+   - Need at least 30° calf range to overcome backlash
+   - Keep swing calf at 80° (max bend) for foot clearance
+
+4. **Balance between thigh and calf motion matters**
+   - Initially reduced only thigh → thighs stopped moving entirely
+   - Need coordinated reduction of both joints
+   - Final ratio: 7.5° thigh : 30° calf (1:4)
+
+5. **Frequency matters for stability**
+   - 0.7 Hz was too fast
+   - 0.5 Hz (2 second cycle) is more stable
+
+### What Didn't Work
+
+| Attempt | Result | Lesson |
+|---------|--------|--------|
+| Calf range 25° | Feet never lifted | Below backlash threshold |
+| Thigh-only reduction to <1° | Thighs frozen | Below servo resolution |
+| 0.7 Hz frequency | Less stable | Slower is better |
+| Original 40° thigh | Uncontrolled lunge | Way too aggressive |
+
+### Confirmed Hypotheses
+
+| ID | Hypothesis | Status |
+|----|------------|--------|
+| **H-S36-2** | ACC=150 enables instant servo response | **CONFIRMED** |
+| **H-S36-3** | Bang-bang control + large amplitude optimal for backlash | **CONFIRMED** |
+| **H-S36-4** | Smaller stride (7.5° thigh) is more controlled | **CONFIRMED** |
+| **H-S36-5** | 0.5 Hz frequency more stable than 0.7 Hz | **CONFIRMED** |
+| **H-S36-6** | Need minimum 30° calf range for foot lift | **CONFIRMED** |
+| **H-S36-7** | Thigh:Calf ratio ~1:4 works well | **CONFIRMED** |
+
+### Hardware Test Results
+
+- **Carpet (shaggy)**: Walking works, good traction
+- **Hardwood floor**: Walking works, no slipping issues
+- **Robot weight supported**: Yes, stable under own weight
+- **Foot clearance**: Good, feet lift cleanly
+
+### Implications for RL Training
+
+The RL simulation should produce policies with similar characteristics:
+1. **Small joint angle ranges** - not large sweeping motions
+2. **Slow frequency** - 0.5 Hz or similar
+3. **Balanced joint motion** - both thigh and calf contribute
+4. **High foot lift** - calf must bend significantly during swing
+
+If RL policies produce large motions (like original 40° thigh), they will fail on hardware.

@@ -36,13 +36,17 @@ const uint32_t BUS_BAUD = 1000000;
 //
 // Simulation values (radians) converted to hardware (degrees) with sign inversion:
 //   hardware_deg = -sim_rad * (180/π)
-// Thighs: sim +0.95/+0.25 rad → hw -54.4/-14.3 deg (40° range)
-// Calves: sim -0.50/-1.38 rad → hw +28.6/+79.1 deg (50° range)
-const float BASE_STANCE_THIGH = -54.4f;  // sim: +0.95 rad (more forward)
-const float BASE_SWING_THIGH  = -14.3f;  // sim: +0.25 rad (more back)
-const float BASE_STANCE_CALF  = 28.6f;   // sim: -0.50 rad (more extended during stance)
-const float BASE_SWING_CALF   = 79.1f;   // sim: -1.38 rad (bent during swing)
-const float BASE_SHOULDER_AMP = 2.9f;    // sim: 0.05 rad
+//
+// SESSION 36 RPi: Halved stride, distributed between thigh and calf
+// Strategy: Reduce both joints proportionally, keep max calf bend for lift
+//
+// Thigh range: 7.5° (halved from 15°)
+// Calf range: 30° (50° to 80°) - reduced but keeps max bend for lift
+const float BASE_STANCE_THIGH = -38.15f;  // 7.5° range, centered at -34.4°
+const float BASE_SWING_THIGH  = -30.65f;  // 7.5° range
+const float BASE_STANCE_CALF  = 50.0f;    // shifted up (less extension)
+const float BASE_SWING_CALF   = 80.0f;    // max bend for foot lift
+const float BASE_SHOULDER_AMP = 0.55f;    // proportional to thigh
 
 // Active parameters (scaled by amplitude)
 float STANCE_THIGH, SWING_THIGH, STANCE_CALF, SWING_CALF, SHOULDER_AMPLITUDE;
@@ -50,8 +54,8 @@ float STANCE_THIGH, SWING_THIGH, STANCE_CALF, SWING_CALF, SHOULDER_AMPLITUDE;
 // Amplitude scaling (0.0 to 1.0) - use full amplitude for sim comparison
 float gaitAmplitude = 1.0f;  // Full amplitude to match simulation
 
-// Timing - MUST match simulation frequency for comparison
-float GAIT_FREQUENCY = 0.7f;   // Hz - Session 30 optimal (1.43 second cycle)
+// Timing
+float GAIT_FREQUENCY = 0.5f;   // Hz - slower for stability (2 second cycle)
 const int UPDATE_RATE_HZ = 20;
 const int STEP_MS = 1000 / UPDATE_RATE_HZ;
 

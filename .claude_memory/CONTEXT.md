@@ -61,27 +61,49 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 | USD model | `part_files/V4/harold_8.usd` |
 | Hardware gait script | `firmware/scripted_gait_test_1/scripted_gait_test_1.ino` |
 
-## Current State (2026-01-01, Session 36 Complete)
+## Current State (2026-01-01, Session 38 Complete)
 
-### Session 36: Pure RL Experiments (Desktop)
+### Session 38: Hardware-Validated CPG (Desktop)
+
+**FINDING: Sim ≠ Hardware Parameters**
+
+Tested hardware-validated parameters in simulation - they are too conservative:
+
+| Configuration | vx (m/s) | Result |
+|---------------|----------|--------|
+| Hardware (7.5°/30° @0.5Hz) | 0.003 | STANDING |
+| Intermediate (15°/40° @0.5Hz) | 0.004 | STANDING |
+| Session 35 (40°/50° @0.7Hz) | 0.036 | **WALKING** |
+
+**Conclusion**: Sim-to-real transfer needs amplitude SCALING at deployment, not reduced sim parameters.
+
+**Status**: Reverted to Session 34/35 config. Use amplitude scaling when deploying to hardware.
+
+### Session 37: Explicit Backlash Hysteresis (Desktop)
+
+**BACKLASH HYSTERESIS MODEL FAILED**
+
+Implemented explicit backlash hysteresis model. Policy cannot learn to compensate from scratch.
+
+**Status**: Hysteresis DISABLED. Gaussian noise (1°) works better as regularization.
+
+### Session 36 RPi: Hardware Gait Tuning (RPi)
+
+**SMOOTH WALKING ACHIEVED**
+
+Major breakthrough: iteratively tuned gait to smooth walking on carpet and hardwood.
+
+Key changes:
+- Fixed servo ACC=0→150 (max acceleration)
+- Reduced thigh range from 40° to 7.5°
+- Reduced calf range from 50° to 30°
+- Slowed frequency from 0.7 Hz to 0.5 Hz
+
+### Session 36 Desktop: Pure RL Experiments
 
 **PURE RL PLATEAUS AT vx ≈ 0.01 m/s**
 
-Attempted to replace CPG+residual approach with pure RL for velocity-commanded walking. After 12 experiments (EXP-186 to EXP-197), found that pure RL from scratch cannot learn walking.
-
-**Key Findings**:
-- Isaac Lab default lin_vel_z=-2.0 is catastrophically wrong for Harold (needs 4000x smaller)
-- Forward motion weight 3.0 is optimal (5.0, 10.0 are worse)
-- Policy gets stuck in "standing local minimum"
-- Extended training, reduced penalties, higher commands all failed to break plateau
-
-**Recommendations for Future**:
-1. Fine-tune from CPG checkpoint (observation space mismatch issue)
-2. Curriculum learning
-3. Asymmetric forward reward
-4. Much longer training (10,000+ iter)
-
-**Status**: Pure RL not ready. CPG-based policy from Session 35 remains best for hardware.
+Pure RL from scratch cannot learn walking. Policy gets stuck in "standing local minimum".
 
 ---
 

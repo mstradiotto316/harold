@@ -61,7 +61,17 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 | USD model | `part_files/V4/harold_8.usd` |
 | Hardware gait script | `firmware/scripted_gait_test_1/scripted_gait_test_1.ino` |
 
-## Current State (2026-01-01, Session 38 Complete)
+## Current State (2026-01-02, Session 39 Complete)
+
+### Session 39: Hardware Telemetry Logging (RPi)
+
+**NEW CAPABILITY**: Robot now logs detailed telemetry at 5 Hz during hardware runs.
+
+- **Location**: `deployment/sessions/session_YYYY-MM-DD_HH-MM-SS.csv`
+- **Data**: 60 columns - joint positions/loads/currents/temps, bus voltage, RPi metrics
+- **Documentation**: See "Hardware Session Logs" section in CLAUDE.md
+
+Tested end-to-end: 12.7s run logged 63 rows at 20 Hz control / 5 Hz logging.
 
 ### Session 38: Hardware-Validated CPG (Desktop)
 

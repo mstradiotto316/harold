@@ -1,5 +1,16 @@
 # Harold Next Steps
 
+## Session 39 Complete: Hardware Telemetry Logging
+
+**NEW**: The robot now logs detailed telemetry at 5 Hz during hardware runs:
+- **Location**: `deployment/sessions/session_YYYY-MM-DD_HH-MM-SS.csv`
+- **Data**: 12 joint positions/loads/currents/temps, bus voltage, RPi metrics
+- **Documentation**: See "Hardware Session Logs" section in CLAUDE.md
+
+Use these logs to diagnose hardware issues (backlash, thermal, power problems).
+
+---
+
 ## PRIORITY 0: Deploy Session 35 Policy with Amplitude Scaling
 
 **Status**: Session 38 found that hardware-validated params don't work in simulation. Use Session 35 policy (vx=0.036) with amplitude scaling at deployment.

@@ -2243,3 +2243,40 @@ The RL simulation should produce policies with similar characteristics:
 4. **High foot lift** - calf must bend significantly during swing
 
 If RL policies produce large motions (like original 40° thigh), they will fail on hardware.
+
+---
+
+## Session 39: Hardware Telemetry Logging (2026-01-02)
+
+### Deep Module Design Works Well for Real-Time Systems
+
+Implemented session logging following Ousterhout's principles:
+
+1. **Simple interface, complex internals**: `SessionLogger` exposes only `log()` and `close()`, hides buffering, file I/O, system metrics collection
+2. **Define errors out of existence**: Never throws to control loop; logs NaN for invalid data
+3. **Buffer writes**: 50-row buffer (10s at 5 Hz) prevents I/O from blocking control loop
+
+### Telemetry Insights from First Hardware Test
+
+| Metric | Observed | Notes |
+|--------|----------|-------|
+| Bus voltage | 12.1V stable | Power supply healthy |
+| Servo temps | 28-70°C | Some servos running warm under load |
+| RPi CPU | 56.8°C, 22.1% | Plenty of headroom |
+| Control rate | 20.0 Hz | Zero overruns |
+
+### Package Naming Lesson
+
+Initially named package `logging` which conflicts with Python's built-in `logging` module. Renamed to `telemetry` to avoid import issues. Always check for stdlib name collisions.
+
+### ESP32 Firmware Notes
+
+The ESP32 was non-responsive despite being powered. Solution was to re-flash `HaroldStreamingControl.ino` via arduino-cli:
+
+```bash
+cd firmware/StreamingControl/HaroldStreamingControl
+arduino-cli compile --fqbn esp32:esp32:esp32 .
+arduino-cli upload --fqbn esp32:esp32:esp32 --port /dev/ttyUSB0 .
+```
+
+The FQBN `esp32:esp32:esp32` (not `esp32dev`) is correct for the generic ESP32 Dev Module.

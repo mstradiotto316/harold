@@ -307,6 +307,92 @@ Key hardware specs (FeeTech ST3215 servo):
 
 ---
 
+## Hardware Session Logs (RPi Telemetry)
+
+The robot controller automatically logs detailed telemetry at 5 Hz to CSV files during every hardware run.
+
+### Location
+```
+deployment/sessions/session_YYYY-MM-DD_HH-MM-SS.csv
+```
+
+### Data Captured (60 columns)
+| Category | Columns | Description |
+|----------|---------|-------------|
+| Timestamp | `timestamp`, `timestamp_ms` | ISO format + ESP32 timestamp |
+| Positions | `pos_{fl,fr,bl,br}_{sh,th,ca}` | 12 joint angles (radians) |
+| Loads | `load_{fl,fr,bl,br}_{sh,th,ca}` | 12 servo load % (0-100) |
+| Currents | `curr_{fl,fr,bl,br}_{sh,th,ca}` | 12 motor currents (mA) |
+| Temperatures | `temp_{fl,fr,bl,br}_{sh,th,ca}` | 12 servo temps (°C) |
+| Power | `bus_voltage_v` | Battery/supply voltage |
+| RPi System | `rpi_cpu_temp_c`, `rpi_cpu_percent`, `rpi_memory_percent`, `rpi_disk_percent` | System health |
+| Controller | `mode`, `cpg_phase`, `cmd_vx`, `cmd_vy`, `cmd_yaw` | Control state |
+
+### Debugging Workflow
+
+**1. Find the latest session:**
+```bash
+ls -lt deployment/sessions/ | head -5
+```
+
+**2. Quick health check (voltage, temps):**
+```bash
+# Check for voltage drops or overheating
+python3 -c "
+import csv
+with open('deployment/sessions/session_YYYY-MM-DD_HH-MM-SS.csv') as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+        v = float(row['bus_voltage_v'])
+        t = max(int(row[f'temp_{leg}_{jt}']) for leg in ['fl','fr','bl','br'] for jt in ['sh','th','ca'])
+        if v < 11.0 or t > 45:
+            print(f\"{row['timestamp']}: voltage={v}V, max_temp={t}C\")
+"
+```
+
+**3. Analyze servo loads (detect stalls/backlash):**
+```bash
+# Find high-load events (potential stalls)
+python3 -c "
+import csv
+with open('deployment/sessions/session_YYYY-MM-DD_HH-MM-SS.csv') as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+        loads = [int(row[f'load_{leg}_{jt}']) for leg in ['fl','fr','bl','br'] for jt in ['sh','th','ca']]
+        if max(loads) > 70:
+            print(f\"{row['timestamp']}: max_load={max(loads)}% joints={[i for i,l in enumerate(loads) if l>70]}\")
+"
+```
+
+**4. Plot with pandas (if available):**
+```python
+import pandas as pd
+import matplotlib.pyplot as plt
+
+df = pd.read_csv('deployment/sessions/session_YYYY-MM-DD_HH-MM-SS.csv')
+df['time_s'] = (df['timestamp_ms'] - df['timestamp_ms'].iloc[0]) / 1000
+
+# Plot voltage over time
+df.plot(x='time_s', y='bus_voltage_v', title='Battery Voltage')
+
+# Plot all joint positions
+pos_cols = [c for c in df.columns if c.startswith('pos_')]
+df.plot(x='time_s', y=pos_cols, title='Joint Positions')
+plt.show()
+```
+
+### Common Issues Diagnosed via Logs
+
+| Symptom | Log Pattern | Cause |
+|---------|-------------|-------|
+| Jerky motion | High load spikes, position oscillation | Backlash, PD tuning |
+| Robot stops moving | Voltage < 10V | Battery depleted |
+| Single leg weak | One leg's loads consistently higher | Mechanical binding |
+| Overheating | `temp_*` > 50°C | Sustained high load |
+| RPi throttling | `rpi_cpu_temp_c` > 80°C | Inadequate cooling |
+
+---
+
 ## Technical Reference
 
 Full technical documentation (joint limits, reward formulas, domain randomization) is in `AGENTS.md`.

@@ -152,8 +152,8 @@ class ScriptedGaitCfg:
     swing_thigh: float = 0.54    # -30.65° → +30.65° in sim coords
     stance_thigh: float = 0.67   # -38.15° → +38.15° in sim coords
     stance_calf: float = -0.87   # 50° → -50° in sim coords (extended)
-    swing_calf: float = -1.40    # 80° → -80° in sim coords (flexed)
-    shoulder_amplitude: float = 0.05  # Unchanged
+    swing_calf: float = -1.3963  # 80° → -80° in sim coords (flexed)
+    shoulder_amplitude: float = 0.0096  # 0.55 deg in hardware
     duty_cycle: float = 0.6
 
 
@@ -164,16 +164,15 @@ class CPGCfg:
     HARDWARE-VALIDATED from Session 36 RPi - these values produce actual
     walking on the real robot with feet lifting off the ground.
 
-    CURRICULUM APPROACH (Session 38+):
-    - CPG provides hardware-validated "training wheels"
-    - High residual_scale lets RL learn to dominate
-    - RL learns motions that are hardware-appropriate from the start
+    ALIGNMENT APPROACH (Session 36):
+    - CPG base trajectory matches hardware scripted gait
+    - Low residual_scale keeps policy corrections small
 
     Architecture:
         target_joints = CPG_trajectory + policy_output * residual_scale
 
-    With residual_scale=0.5, RL can contribute ±0.5 rad (~30°) on top of CPG.
-    This lets RL dominate while CPG provides timing/coordination hints.
+    With residual_scale=0.05, RL contributes small balance corrections
+    while preserving the hardware-validated gait structure.
 
     Enable via: HAROLD_CPG=1
     """
@@ -191,13 +190,12 @@ class CPGCfg:
     swing_thigh: float = 0.54     # -30.65° in hardware → +30.65° in sim
     stance_thigh: float = 0.67    # -38.15° in hardware → +38.15° in sim
     stance_calf: float = -0.87    # 50° in hardware → -50° in sim (extended)
-    swing_calf: float = -1.40     # 80° in hardware → -80° in sim (flexed)
-    shoulder_amplitude: float = 0.05  # Unchanged
+    swing_calf: float = -1.3963   # 80° in hardware → -80° in sim (flexed)
+    shoulder_amplitude: float = 0.0096  # 0.55 deg in hardware
 
-    # Residual scaling - HIGH for RL dominance
-    # With 0.5, RL contributes ±0.5 rad (~30°), dominating the motion
-    # CPG provides timing/coordination, RL provides the actual motion
-    residual_scale: float = 0.5   # Was 0.05, now RL dominates
+    # Residual scaling - LOW to preserve hardware gait
+    # CPG provides timing/coordination, RL adds small balance corrections
+    residual_scale: float = 0.05
 
 
 @configclass
@@ -429,7 +427,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # Session 36: Removed gait phase (no CPG), pure RL = 48D
     # Session 37: Restored for CPG mode = 50D (adds 2D gait phase)
     # Toggle based on HAROLD_CPG env var
-    observation_space = 50  # CPG mode: 48 + 2 gait phase
+    observation_space = 48  # Pure RL mode (no gait phase); use 50 for CPG
     action_space = 12
     state_space = 0
 

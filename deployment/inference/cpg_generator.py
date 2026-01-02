@@ -6,7 +6,8 @@ Ported from simulation (harold_isaac_lab_env.py) for exact sim-to-real match.
 Gait Pattern:
     - Diagonal trot: FL+BR alternate with FR+BL
     - 0.5 Hz frequency (2 second cycle)
-    - 60% stance, 40% swing (duty cycle)
+    - Sinusoidal thigh/calf (sin/cos) matched to Session 36 hardware
+    - duty_cycle kept for config compatibility (unused in sin/cos gait)
 """
 import math
 import numpy as np
@@ -20,11 +21,11 @@ class CPGConfig:
     """CPG parameters - must match simulation exactly."""
     frequency_hz: float = 0.5
     duty_cycle: float = 0.6
-    swing_thigh: float = 0.40
-    stance_thigh: float = 0.90
-    stance_calf: float = -0.90
-    swing_calf: float = -1.40
-    shoulder_amplitude: float = 0.05
+    swing_thigh: float = 0.54
+    stance_thigh: float = 0.67
+    stance_calf: float = -0.87
+    swing_calf: float = -1.3963
+    shoulder_amplitude: float = 0.0096
     residual_scale: float = 0.05
 
     @classmethod
@@ -36,11 +37,11 @@ class CPGConfig:
         return cls(
             frequency_hz=data.get("frequency_hz", 0.5),
             duty_cycle=data.get("duty_cycle", 0.6),
-            swing_thigh=traj.get("swing_thigh", 0.40),
-            stance_thigh=traj.get("stance_thigh", 0.90),
-            stance_calf=traj.get("stance_calf", -0.90),
-            swing_calf=traj.get("swing_calf", -1.40),
-            shoulder_amplitude=traj.get("shoulder_amplitude", 0.05),
+            swing_thigh=traj.get("swing_thigh", 0.54),
+            stance_thigh=traj.get("stance_thigh", 0.67),
+            stance_calf=traj.get("stance_calf", -0.87),
+            swing_calf=traj.get("swing_calf", -1.3963),
+            shoulder_amplitude=traj.get("shoulder_amplitude", 0.0096),
             residual_scale=data.get("residual_scale", 0.05),
         )
 
@@ -87,11 +88,11 @@ class CPGGenerator:
         thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl)
         thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl)
 
-        # Shoulder oscillation for balance
+        # Shoulder oscillation for balance (hardware-aligned sin)
         amp = self.cfg.shoulder_amplitude
         shoulder_fl = amp * math.sin(2 * math.pi * phase_fl_br)
-        shoulder_br = -amp * math.sin(2 * math.pi * phase_fl_br)
-        shoulder_fr = -amp * math.sin(2 * math.pi * phase_fr_bl)
+        shoulder_br = amp * math.sin(2 * math.pi * phase_fl_br)
+        shoulder_fr = amp * math.sin(2 * math.pi * phase_fr_bl)
         shoulder_bl = amp * math.sin(2 * math.pi * phase_fr_bl)
 
         # Assemble joint targets [shoulders(4), thighs(4), calves(4)]
@@ -126,37 +127,20 @@ class CPGGenerator:
         Returns:
             Tuple of (thigh_angle, calf_angle) in radians
 
-        Trajectory Design:
-            - Stance (0 to duty_cycle): Leg on ground, gradually extends backward
-            - Swing (duty_cycle to 1): Leg in air, flexes forward then extends down
-            - Cosine interpolation for smooth transitions
+        Trajectory Design (hardware-aligned):
+            - Thigh uses -sin phase (forward walking)
+            - Calf uses -cos phase (foot down at phase 0, up at phase 0.5)
         """
-        duty = self.cfg.duty_cycle
-        in_stance = phase < duty
+        sin_phase = math.sin(2 * math.pi * phase)
+        cos_phase = math.cos(2 * math.pi * phase)
 
-        if in_stance:
-            # Stance phase progress (0 to 1 within stance)
-            stance_progress = phase / duty
+        thigh_mid = (self.cfg.stance_thigh + self.cfg.swing_thigh) / 2.0
+        thigh_amp = (self.cfg.swing_thigh - self.cfg.stance_thigh) / 2.0
+        thigh = thigh_mid - thigh_amp * sin_phase
 
-            # Thigh: starts at swing_thigh (just landed), extends to stance_thigh (pushes back)
-            thigh = self.cfg.swing_thigh + (self.cfg.stance_thigh - self.cfg.swing_thigh) * (
-                (1 - math.cos(stance_progress * math.pi)) / 2
-            )
-
-            # Calf: constant during stance (ground contact)
-            calf = self.cfg.stance_calf
-        else:
-            # Swing phase progress (0 to 1 within swing)
-            swing_progress = (phase - duty) / (1.0 - duty)
-
-            # Thigh: starts at stance_thigh (just lifted), flexes to swing_thigh (recovery)
-            thigh = self.cfg.stance_thigh + (self.cfg.swing_thigh - self.cfg.stance_thigh) * (
-                (1 - math.cos(swing_progress * math.pi)) / 2
-            )
-
-            # Calf: parabolic lift profile (up then down)
-            swing_lift = math.sin(swing_progress * math.pi)  # 0 -> 1 -> 0
-            calf = self.cfg.stance_calf + (self.cfg.swing_calf - self.cfg.stance_calf) * swing_lift
+        calf_mid = (self.cfg.stance_calf + self.cfg.swing_calf) / 2.0
+        calf_amp = (self.cfg.swing_calf - self.cfg.stance_calf) / 2.0
+        calf = calf_mid - calf_amp * cos_phase
 
         return thigh, calf
 

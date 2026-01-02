@@ -3322,3 +3322,48 @@ Attempted pure RL (no CPG) for velocity-commanded walking. After 12 experiments,
 - **Notes**: Confirms that extended training alone doesn't break the standing local minimum.
 
 
+
+---
+
+## Session 37: Explicit Backlash Hysteresis (2026-01-01)
+
+Implemented explicit backlash hysteresis model to replace Gaussian noise approximation.
+Key finding: Explicit hysteresis makes training HARDER, not easier.
+
+### EXP-199: Pure RL + 30° Backlash Hysteresis
+- **Date**: 2026-01-01
+- **Config**: Pure RL, backlash_rad=0.52 (30°), no CPG
+- **Result**: vx=-0.016 (MOVING BACKWARD)
+- **Notes**: Policy cannot learn to compensate for 30° dead zone from scratch.
+
+### EXP-200: Pure RL + 15° Backlash Hysteresis
+- **Date**: 2026-01-01
+- **Config**: Pure RL, backlash_rad=0.26 (15°), no CPG
+- **Result**: vx=-0.005 (oscillating around 0)
+- **Notes**: Smaller dead zone still prevents walking.
+
+### EXP-202: CPG + 15° Backlash Hysteresis
+- **Date**: 2026-01-01
+- **Config**: CPG mode, backlash_rad=0.26 (15°), obs_space=50
+- **Result**: vx=+0.002 (slightly positive)
+- **Notes**: CPG base trajectory helps but still struggles.
+
+### EXP-203: CPG Baseline (No Backlash, No Noise)
+- **Date**: 2026-01-01
+- **Config**: CPG mode, no backlash, no joint noise, obs_space=50
+- **Result**: vx=+0.006 (below 0.01 target)
+- **Notes**: Underperforms compared to Session 35 (vx=0.036).
+
+### EXP-204: CPG + Joint Noise (1°)
+- **Date**: 2026-01-01
+- **Config**: CPG mode, joint_noise=0.0175, no backlash, obs_space=50
+- **Result**: vx=+0.005 (similar to baseline)
+- **Notes**: Joint noise doesn't significantly improve performance.
+
+### Session 37 Conclusions
+
+1. **Explicit hysteresis fails** - Policy can't learn to compensate from scratch
+2. **Gaussian noise != hysteresis** - But noise works as regularization
+3. **50D observation underperforms** - Session 35 with 50D got vx=0.036, need investigation
+4. **Curriculum needed** - Train without backlash first, then add
+

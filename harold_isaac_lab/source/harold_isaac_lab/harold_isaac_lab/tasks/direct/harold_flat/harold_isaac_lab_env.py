@@ -322,6 +322,30 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             )
             self._action_delays = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
 
+        # --- Backlash Hysteresis State (Session 37) ---
+        # Track "engaged position" where gears are meshed. Commands within the
+        # dead zone don't move output; only when exceeding half_backlash does
+        # output follow (with offset). This models real servo backlash.
+        if getattr(cfg, 'backlash', None) is not None and cfg.backlash.enable_backlash:
+            self._backlash_enabled = True
+            self._engaged_position = None  # Initialized on first _apply_action
+            # Per-joint backlash values
+            if cfg.backlash.per_joint_backlash is not None:
+                self._backlash_rad = torch.tensor(
+                    cfg.backlash.per_joint_backlash, device=self.device
+                )
+            else:
+                self._backlash_rad = torch.full(
+                    (12,), cfg.backlash.backlash_rad, device=self.device
+                )
+            print("=" * 60)
+            print("BACKLASH HYSTERESIS ENABLED (Session 37)")
+            print(f"Dead zone: {cfg.backlash.backlash_rad:.2f} rad ({math.degrees(cfg.backlash.backlash_rad):.1f}°)")
+            print("Policy must learn to overdrive joints to compensate.")
+            print("=" * 60)
+        else:
+            self._backlash_enabled = False
+
     def _setup_scene(self) -> None:
         """Initialize and configure the complete simulation scene.
         
@@ -773,23 +797,28 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
     def _apply_action(self) -> None:
         """Apply processed joint targets to robot and update visualization.
-        
+
         Sends the processed joint position targets to the robot's actuators and
         handles optional data logging and visualization marker updates.
-        
+
         Operations:
-            1. Send joint position targets to robot actuators
-            2. Increment decimation counter for timing control
-            3. Update visualization markers (every 18 physics steps)
-            4. Optional action logging for replay/analysis (commented)
-            
+            1. Apply backlash hysteresis (Session 37) if enabled
+            2. Send joint position targets to robot actuators
+            3. Increment decimation counter for timing control
+            4. Update visualization markers (every 18 physics steps)
+            5. Optional action logging for replay/analysis (commented)
+
         Performance Optimizations:
             - Markers only update at policy frequency (18x less often)
             - Headless training skips all visualization computations
             - Pre-allocated buffers prevent memory allocations in hot loop
         """
+        # --- Apply backlash hysteresis (Session 37) ---
+        # Modifies the target to simulate gear backlash dead zone
+        effective_target = self._apply_backlash_hysteresis(self._processed_actions)
+
         # --- Send joint targets to robot ---
-        self._robot.set_joint_position_target(self._processed_actions)
+        self._robot.set_joint_position_target(effective_target)
         
         # --- Apply external forces if domain randomization is enabled ---
         if self.cfg.domain_randomization.enable_randomization:
@@ -860,12 +889,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._act_marker.visualize(marker_pos_act, marker_ori_act, marker_indices=marker_idx, scales=self._act_scale_buffer)
 
     def _get_observations(self) -> dict:
-        """Construct the 48-dimensional observation vector for policy input.
+        """Construct the observation vector for policy input.
 
-        Session 36: Pure RL observation space (no gait phase).
+        Session 36: Pure RL = 48D (no gait phase)
+        Session 37: CPG mode = 50D (adds 2D gait phase: sin/cos)
 
         Returns:
-            Dict with 'policy' key containing 48D observation tensor:
+            Dict with 'policy' key containing observation tensor:
                 - root_lin_vel_b (3): Linear velocity in body frame [m/s]
                 - root_ang_vel_b (3): Angular velocity in body frame [rad/s]
                 - projected_gravity_b (3): Gravity vector in body frame (for orientation)
@@ -873,24 +903,33 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 - joint_vel (12): Joint angular velocities [rad/s]
                 - commands (3): Velocity commands [vx, vy, yaw_rate]
                 - prev_target_delta (12): Previous joint targets relative to neutral pose [rad]
+                - [CPG only] gait_phase (2): sin/cos of CPG phase for timing
         """
 
         # Update temporal state for time-based observations
         self._time += self.step_dt
 
-        # Session 36: Pure RL observation (48D, no gait phase)
-        obs = torch.cat(
-            [
-                self._robot.data.root_lin_vel_b,                                      # (3D) Body linear velocity
-                self._robot.data.root_ang_vel_b,                                      # (3D) Body angular velocity
-                self._robot.data.projected_gravity_b,                                 # (3D) Gravity in body frame
-                self._robot.data.joint_pos - self._robot.data.default_joint_pos,     # (12D) Joint angles (relative)
-                self._robot.data.joint_vel,                                          # (12D) Joint velocities
-                self._commands,                                                      # (3D) Velocity commands
-                self._prev_target_delta,                                             # (12D) Previous target deltas
-            ],
-            dim=-1,  # Concatenate along feature dimension -> [batch_size, 48]
-        )
+        # Base observation components (48D)
+        base_obs = [
+            self._robot.data.root_lin_vel_b,                                      # (3D) Body linear velocity
+            self._robot.data.root_ang_vel_b,                                      # (3D) Body angular velocity
+            self._robot.data.projected_gravity_b,                                 # (3D) Gravity in body frame
+            self._robot.data.joint_pos - self._robot.data.default_joint_pos,     # (12D) Joint angles (relative)
+            self._robot.data.joint_vel,                                          # (12D) Joint velocities
+            self._commands,                                                      # (3D) Velocity commands
+            self._prev_target_delta,                                             # (12D) Previous target deltas
+        ]
+
+        # Add gait phase for CPG mode (2D: sin/cos for continuous phase representation)
+        if self.cfg.cpg.enabled:
+            phase = self._cpg_phase.unsqueeze(-1)  # [num_envs, 1]
+            gait_phase = torch.cat([
+                torch.sin(2 * math.pi * phase),  # [num_envs, 1]
+                torch.cos(2 * math.pi * phase),  # [num_envs, 1]
+            ], dim=-1)  # [num_envs, 2]
+            base_obs.append(gait_phase)
+
+        obs = torch.cat(base_obs, dim=-1)  # [batch_size, 48 or 50]
 
         # Apply observation noise if domain randomization is enabled
         if self.cfg.domain_randomization.enable_randomization:
@@ -1120,6 +1159,15 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         self._actions[env_ids].zero_()
         self._previous_actions[env_ids].zero_()
+
+        # Reset backlash hysteresis state (Session 37)
+        # Set engaged position to athletic pose so policy starts fresh
+        if self._backlash_enabled and self._engaged_position is not None:
+            athletic_pose = torch.tensor(
+                [0.20, -0.20, 0.20, -0.20, 0.70, 0.70, 0.70, 0.70, -1.40, -1.40, -1.40, -1.40],
+                device=self.device,
+            )
+            self._engaged_position[env_ids] = athletic_pose.unsqueeze(0).expand(len(env_ids), -1)
 
         num = len(env_ids)
         sampled_commands = torch.zeros_like(self._commands[env_ids])
@@ -1493,9 +1541,55 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._commands[update_ids] = sampled_commands
         self._command_timer[update_ids] = 0.0
 
+    def _apply_backlash_hysteresis(self, target: torch.Tensor) -> torch.Tensor:
+        """Apply backlash hysteresis model to joint position targets.
+
+        Session 37: Models real servo backlash as dead zone where motor can
+        rotate without moving output. Teaches policy to overdrive joints.
+
+        Physical model:
+        - Track "engaged position" where gears are meshed
+        - Command can be anywhere in [engaged ± half_backlash] without moving output
+        - When command exits zone, output follows with half_backlash offset
+
+        Args:
+            target: Commanded joint positions [num_envs, 12]
+
+        Returns:
+            Effective joint positions after backlash [num_envs, 12]
+        """
+        if not self._backlash_enabled:
+            return target
+
+        # Initialize engaged position on first call
+        if self._engaged_position is None:
+            self._engaged_position = target.clone()
+            return target
+
+        half_backlash = self._backlash_rad / 2.0  # [12]
+
+        # Compute gap between command and current engaged position
+        gap = target - self._engaged_position  # [num_envs, 12]
+
+        # Check if command is outside the dead zone for each joint
+        outside_zone = torch.abs(gap) > half_backlash  # [num_envs, 12]
+
+        # When outside zone: new engaged = target - sign(gap) * half_backlash
+        # This means output lags by half_backlash in direction of motion
+        new_engaged = torch.where(
+            outside_zone,
+            target - torch.sign(gap) * half_backlash,
+            self._engaged_position  # Stay where we are if in dead zone
+        )
+
+        # Update engaged position
+        self._engaged_position = new_engaged
+
+        return self._engaged_position
+
     def _apply_external_forces(self) -> None:
         """Apply random external forces/torques to robot bodies.
-        
+
         Simulates environmental disturbances like wind or collisions.
         Called during physics step with configured probability.
         """

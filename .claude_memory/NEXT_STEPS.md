@@ -1,12 +1,25 @@
 # Harold Next Steps
 
-## PRIORITY 0: Use Hardware-Validated Gait Parameters as RL Reference
+## PRIORITY 0: Deploy Session 35 Policy with Amplitude Scaling
 
-**Status**: Session 36 RPi achieved smooth controlled walking with scripted gait. These parameters define what "good" looks like for RL training.
+**Status**: Session 38 found that hardware-validated params don't work in simulation. Use Session 35 policy (vx=0.036) with amplitude scaling at deployment.
 
 ---
 
-## CRITICAL: Hardware-Validated Gait Parameters (Session 36 RPi)
+## Session 38 Finding: Sim ≠ Hardware Parameters
+
+Hardware-validated parameters are too conservative for simulation:
+| Configuration | vx (m/s) | Result |
+|---------------|----------|--------|
+| Hardware params (7.5°/30° @0.5Hz) | 0.003 | STANDING |
+| Intermediate (15°/40° @0.5Hz) | 0.004 | STANDING |
+| Session 35 (40°/50° @0.7Hz) | 0.036 | **WALKING** |
+
+**Solution**: Train in sim with original params, apply amplitude scaling at deployment.
+
+---
+
+## REFERENCE: Hardware-Validated Gait Parameters (Session 36 RPi)
 
 ### What Works on Real Hardware
 
@@ -43,7 +56,56 @@ GAIT_FREQUENCY_HZ = 0.5       # 2 second cycle
 
 ---
 
-## Recommendations for RL Experimentation Agent
+## Session 37 Findings: Explicit Backlash Hysteresis FAILED
+
+| Approach | Result |
+|----------|--------|
+| Pure RL + 30° hysteresis | vx=-0.016 (BACKWARD) |
+| Pure RL + 15° hysteresis | vx=-0.005 (oscillating) |
+| CPG + 15° hysteresis | vx=+0.002 (slight forward) |
+| CPG baseline (no noise) | vx=+0.006 (below target) |
+| CPG + joint noise (1°) | vx=+0.005 (no improvement) |
+
+**Key Issue**: Session 37 CPG experiments (vx≈0.005) underperform Session 35 (vx=0.036).
+
+The hysteresis model in `_apply_backlash_hysteresis()` is implemented but DISABLED because:
+1. Policy can't learn to compensate from scratch
+2. Gaussian noise works better as regularization
+3. Need curriculum to introduce backlash gradually
+
+Keep the code for future curriculum learning experiments.
+
+---
+
+## Current Configuration
+
+```python
+# Observation space
+observation_space = 50  # For CPG mode (48 + 2 gait phase)
+
+# Backlash (DISABLED)
+BacklashCfg.enable_backlash = False
+
+# Joint noise (ENABLED)
+add_joint_noise = True
+joint_position_noise.std = 0.0175  # 1°
+
+# Rewards
+track_lin_vel_xy_weight = 5.0
+forward_motion_weight = 3.0
+lin_vel_z_weight = -0.0001
+```
+
+### Training Command
+```bash
+# CPG mode (recommended)
+HAROLD_CPG=1 HAROLD_CMD_TRACK=1 HAROLD_DYN_CMD=1 python scripts/harold.py train \
+  --hypothesis "description" --iterations 2500
+```
+
+---
+
+## Recommendations for RL Experimentation
 
 ### 1. Add Joint Amplitude Penalties
 
@@ -85,7 +147,7 @@ calf_ref = 65° - 15° * cos(2π * 0.5 * t)  # 50°-80° range
 
 ---
 
-## Pure RL Status (Desktop Session 36)
+## Pure RL Status
 
 Pure RL from scratch plateaus at vx ≈ 0.01 m/s. The policy finds a standing local minimum.
 
@@ -109,7 +171,18 @@ Pure RL from scratch plateaus at vx ≈ 0.01 m/s. The policy finds a standing lo
 
 ---
 
-## Current Configuration Files
+## Current Best Policies
+
+| Session | Configuration | vx (m/s) | Status |
+|---------|---------------|----------|--------|
+| **Session 35** | CPG, damping=150 | 0.036 | **BEST - use for hardware** |
+| Session 37 | CPG + hysteresis | 0.005 | NOT ready |
+
+**Recommendation**: Use Session 35 checkpoint for hardware deployment.
+
+---
+
+## Key Files
 
 The working scripted gait is in:
 - `firmware/scripted_gait_test_1/scripted_gait_test_1.ino`
@@ -121,7 +194,7 @@ Key RL config files:
 
 ---
 
-## Session 36 Summary
+## Session 36 Summary (Hardware)
 
 ### What Was Accomplished
 
@@ -136,9 +209,3 @@ Key RL config files:
 - **Calf: 30° range** (50° to 80°)
 - **Frequency: 0.5 Hz** (not 0.7 or 1.0)
 - **ACC: 150** (max, for backlash)
-
-### Files Modified
-
-1. `firmware/scripted_gait_test_1/scripted_gait_test_1.ino` - working gait
-2. `.claude_memory/OBSERVATIONS.md` - detailed findings
-3. `.claude_memory/NEXT_STEPS.md` - this file

@@ -36,6 +36,7 @@ from drivers.imu_reader_rpi5 import IMUReaderRPi5, IMUConfig
 from inference.cpg_generator import CPGGenerator, CPGConfig
 from inference.observation_builder import ObservationBuilder, ObservationConfig
 from inference.action_converter import ActionConverter, ActionConfig
+from telemetry.session_logger import SessionLogger, ControllerState
 
 
 class HaroldController:
@@ -85,6 +86,11 @@ class HaroldController:
         self._start_time = 0.0
         self._loop_count = 0
         self._overrun_count = 0
+
+        # Session logging (5 Hz = every 4th cycle of 20 Hz loop)
+        self.logger: Optional[SessionLogger] = None
+        self._log_counter = 0
+        self._LOG_DIVISOR = 4  # 20 Hz / 4 = 5 Hz
 
         # Setup signal handlers
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -181,6 +187,10 @@ class HaroldController:
         self.action_conv = ActionConverter(action_config)
         print("Action converter initialized")
 
+        # Initialize session logger
+        self.logger = SessionLogger()
+        print(f"Session logging to: {self.logger.session_path}")
+
         print("=" * 60)
         print("All components initialized successfully")
         print("=" * 60)
@@ -188,6 +198,8 @@ class HaroldController:
 
     def disconnect(self) -> None:
         """Disconnect all components."""
+        if self.logger:
+            self.logger.close()
         if self.esp32:
             self.esp32.stop_streaming()
             self.esp32.disconnect()
@@ -312,6 +324,19 @@ class HaroldController:
                 # 7. Send HW targets to ESP32
                 self.esp32.send_targets(hw_targets)
 
+                # 7.5 Log telemetry at 5 Hz (every 4th cycle)
+                self._log_counter += 1
+                if self._log_counter >= self._LOG_DIVISOR:
+                    self._log_counter = 0
+                    state = ControllerState(
+                        mode="POLICY" if policy_enabled else "WARMUP",
+                        cpg_phase=self.cpg.phase,
+                        command_vx=obs[33],
+                        command_vy=obs[34],
+                        command_yaw=obs[35],
+                    )
+                    self.logger.log(self.esp32.last_telemetry, state)
+
                 # 8. Logging (every 20 loops = 1 second)
                 self._loop_count += 1
                 if self._loop_count % 20 == 0:
@@ -344,6 +369,11 @@ class HaroldController:
             # Stop streaming and return to safe stance
             print("\nStopping...")
             self.esp32.stop_streaming()
+
+            # Close session logger
+            if self.logger:
+                self.logger.close()
+                print(f"Session saved: {self.logger.session_path} ({self.logger.row_count} rows)")
 
             # Print summary
             total_time = time.time() - self._start_time

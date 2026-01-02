@@ -112,7 +112,7 @@ HAROLD_V4_CFG = ArticulationCfg(
             # CPG provides walking structure, policy adds balance corrections
             effort_limit_sim=2.8,
             stiffness=400.0,   # Sim-to-real aligned (Session 22 validated on hardware)
-            damping=125.0,     # Session 35: Reverting to 125 (safer, vx=0.034)
+            damping=150.0,     # Session 35 BEST: 150 gives vx=0.036
         ),
     },
 )

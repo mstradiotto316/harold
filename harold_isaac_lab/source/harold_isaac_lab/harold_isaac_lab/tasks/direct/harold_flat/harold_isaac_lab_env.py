@@ -55,7 +55,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         Environment Variables:
             HAROLD_SCRIPTED_GAIT: Set to "1" to enable scripted walking gait mode
-            HAROLD_SCRIPTED_GAIT_FREQ: Override gait frequency (default: 1.0 Hz)
+            HAROLD_SCRIPTED_GAIT_FREQ: Override gait frequency (default: cfg.scripted_gait.frequency)
 
         Args:
             cfg: Environment configuration containing robot, terrain, and training parameters
@@ -71,6 +71,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             print("Session 21: vx=+0.141 m/s achieved (141% of target)")
             print("Session 22: Real robot walks forward with this gait")
             print("=" * 60)
+            freq_override = os.getenv("HAROLD_SCRIPTED_GAIT_FREQ")
+            if freq_override:
+                try:
+                    cfg.scripted_gait.frequency = float(freq_override)
+                    print(f"Scripted gait frequency overridden to {cfg.scripted_gait.frequency} Hz")
+                except ValueError:
+                    print(f"WARNING: Invalid HAROLD_SCRIPTED_GAIT_FREQ='{freq_override}', using default.")
 
         # CPG mode (Phase 2 - structured action space)
         if os.getenv("HAROLD_CPG", "0") == "1":
@@ -81,6 +88,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             print(f"Base frequency: {cfg.cpg.base_frequency} Hz")
             print(f"Residual scale: {cfg.cpg.residual_scale}")
             print("=" * 60)
+        cfg.observation_space = 50 if cfg.cpg.enabled else 48
 
         # Command tracking mode (for controllability)
         if os.getenv("HAROLD_CMD_TRACK", "0") == "1":
@@ -580,10 +588,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl, cfg)
         thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl, cfg)
 
-        # Shoulder oscillation for balance (same as scripted gait)
+        # Shoulder oscillation for balance (hardware-aligned sin)
         shoulder_fl = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)
-        shoulder_br = -cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)
-        shoulder_fr = -cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fr_bl)
+        shoulder_br = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)
+        shoulder_fr = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fr_bl)
         shoulder_bl = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fr_bl)
 
         # Assemble joint targets [shoulders(4), thighs(4), calves(4)]
@@ -617,8 +625,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         Gait Pattern:
             - Diagonal trot: FL+BR alternate with FR+BL
-            - Smooth sinusoidal transitions between stance and swing
-            - Configurable frequency, amplitude, and duty cycle
+            - Sinusoidal phase (sin/cos) matched to hardware script
+            - Configurable frequency and amplitude
 
         Joint Order: [shoulders(4), thighs(4), calves(4)]
             - Shoulders: FL, FR, BL, BR (indices 0-3)
@@ -679,19 +687,20 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         if in_warmup:
             # During warmup, hold pose that matches gait mid-stance for smooth transition
-            # Use average of stance/swing thigh and stance calf
+            # Use average of stance/swing thigh and calf (matches firmware stance)
             mid_thigh = (cfg.stance_thigh + cfg.swing_thigh) / 2.0
+            mid_calf = (cfg.stance_calf + cfg.swing_calf) / 2.0
             targets = torch.tensor(
                 [
                     0.0, 0.0, 0.0, 0.0,                             # Shoulders: neutral
                     mid_thigh, mid_thigh, mid_thigh, mid_thigh,     # Thighs: mid-stance
-                    cfg.stance_calf, cfg.stance_calf, cfg.stance_calf, cfg.stance_calf  # Calves: stance
+                    mid_calf, mid_calf, mid_calf, mid_calf          # Calves: mid-stance
                 ],
                 device=self.device,
                 dtype=torch.float32
             ).unsqueeze(0).expand(self.num_envs, -1)
             if self._scripted_gait_step_count % 20 == 0:
-                print(f"[DEBUG WARMUP] t={self._time[0].item():.2f}s, holding gait-matched pose (thigh={mid_thigh:.2f}, calf={cfg.stance_calf:.2f})", flush=True)
+                print(f"[DEBUG WARMUP] t={self._time[0].item():.2f}s, holding gait-matched pose (thigh={mid_thigh:.2f}, calf={mid_calf:.2f})", flush=True)
         else:
             # After warmup, apply the gait pattern
 
@@ -707,11 +716,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl, cfg)
             thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl, cfg)
 
-            # Shoulder oscillation for balance (small amplitude)
-            # Left legs swing out (+) during their swing phase, right legs swing in (-)
+            # Shoulder oscillation for balance (hardware-aligned sin)
             shoulder_fl = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)
-            shoulder_br = -cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)
-            shoulder_fr = -cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fr_bl)
+            shoulder_br = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)
+            shoulder_fr = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fr_bl)
             shoulder_bl = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fr_bl)
 
             # Assemble joint targets
@@ -756,42 +764,20 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         Returns:
             Tuple of (thigh_angle, calf_angle) tensors
 
-        Trajectory Design:
-            - Stance (0 to duty_cycle): Leg on ground, gradually extends backward
-            - Swing (duty_cycle to 1): Leg in air, flexes forward then extends down
-            - Sinusoidal interpolation for smooth transitions
+        Trajectory Design (hardware-aligned):
+            - Thigh uses -sin phase (forward walking)
+            - Calf uses -cos phase (foot down at phase 0, up at phase 0.5)
         """
-        duty = cfg.duty_cycle
+        sin_phase = torch.sin(2 * math.pi * phase)
+        cos_phase = torch.cos(2 * math.pi * phase)
 
-        # Determine if in stance or swing phase
-        in_stance = phase < duty
+        thigh_mid = (cfg.stance_thigh + cfg.swing_thigh) / 2.0
+        thigh_amp = (cfg.swing_thigh - cfg.stance_thigh) / 2.0
+        thigh = thigh_mid - thigh_amp * sin_phase
 
-        # Stance phase progress (0 to 1 within stance)
-        stance_progress = phase / duty
-
-        # Swing phase progress (0 to 1 within swing)
-        swing_progress = (phase - duty) / (1.0 - duty)
-
-        # Thigh trajectory
-        # Stance: starts at swing_thigh (just landed), extends to stance_thigh (pushes back)
-        # Swing: starts at stance_thigh (just lifted), flexes to swing_thigh (recovery)
-        thigh_stance = cfg.swing_thigh + (cfg.stance_thigh - cfg.swing_thigh) * (
-            (1 - torch.cos(stance_progress * math.pi)) / 2
-        )
-        thigh_swing = cfg.stance_thigh + (cfg.swing_thigh - cfg.stance_thigh) * (
-            (1 - torch.cos(swing_progress * math.pi)) / 2
-        )
-        thigh = torch.where(in_stance, thigh_stance, thigh_swing)
-
-        # Calf trajectory
-        # Stance: relatively constant (ground contact)
-        # Swing: lifts during first half, lowers during second half
-        calf_stance = torch.full_like(phase, cfg.stance_calf)
-
-        # Swing calf: parabolic lift profile (up then down)
-        swing_lift = torch.sin(swing_progress * math.pi)  # 0 -> 1 -> 0
-        calf_swing = cfg.stance_calf + (cfg.swing_calf - cfg.stance_calf) * swing_lift
-        calf = torch.where(in_stance, calf_stance, calf_swing)
+        calf_mid = (cfg.stance_calf + cfg.swing_calf) / 2.0
+        calf_amp = (cfg.swing_calf - cfg.stance_calf) / 2.0
+        calf = calf_mid - calf_amp * cos_phase
 
         return thigh, calf
 

@@ -1,24 +1,20 @@
-# CPG Configuration - Matched to simulation (Session 35)
-# DO NOT MODIFY without updating simulation CPGCfg
+# CPG Configuration - Matched to hardware (Session 36)
+# DO NOT MODIFY without updating simulation ScriptedGaitCfg/CPGCfg
 
 # Gait timing
-frequency_hz: 0.7        # Gait frequency (Session 30: optimal in 0.5-0.8 sweep)
-duty_cycle: 0.6          # 60% stance, 40% swing
+frequency_hz: 0.5        # Session 36: hardware-validated frequency
+duty_cycle: 0.6          # Kept for compatibility (sin/cos gait ignores duty cycle)
 
 # Leg trajectory angles (radians)
-# Session 34: BACKLASH-TOLERANT AMPLITUDES
-# Hardware has ~30° backlash on direction reversal. All motions must exceed this.
-# Old calf: -1.35 to -0.90 = 26° (absorbed by backlash)
-# New calf: -1.38 to -0.50 = 50° (exceeds backlash with 20° margin)
 trajectory:
-  swing_thigh: 0.25      # Session 34: More back during swing (was 0.40)
-  stance_thigh: 0.95     # Session 34: More forward during stance (was 0.90)
-  stance_calf: -0.50     # Session 34: More extended during stance (was -0.90)
-  swing_calf: -1.38      # Session 34: Close to limit (was -1.35)
-  shoulder_amplitude: 0.05  # Shoulder oscillation amplitude
+  swing_thigh: 0.54      # Session 36: -30.65 deg hardware -> +30.65 deg sim
+  stance_thigh: 0.67     # Session 36: -38.15 deg hardware -> +38.15 deg sim
+  stance_calf: -0.87     # Session 36: 50 deg hardware -> -50 deg sim
+  swing_calf: -1.3963    # Session 36: 80 deg hardware -> -80 deg sim
+  shoulder_amplitude: 0.0096  # Session 36: 0.55 deg hardware -> 0.0096 rad sim
 
 # Residual learning
-residual_scale: 0.05     # Policy output multiplier (Session 30: 0.08 regressed)
+residual_scale: 0.05     # Low residual to preserve hardware gait
 
 # Control loop
 control:
@@ -43,14 +39,13 @@ hw_default_pose:
   calves: -0.75          # All calves at -0.75 rad
 
 # RL default pose (simulation training convention)
-# NOTE: Shoulders alternate for diagonal trot gait
 rl_default_pose:
-  shoulder_fl: 0.20      # FL shoulder: +0.20 rad
-  shoulder_fr: -0.20     # FR shoulder: -0.20 rad
-  shoulder_bl: 0.20      # BL shoulder: +0.20 rad
-  shoulder_br: -0.20     # BR shoulder: -0.20 rad
+  shoulder_fl: 0.0       # Match sim default pose
+  shoulder_fr: 0.0
+  shoulder_bl: 0.0
+  shoulder_br: 0.0
   thighs: 0.70           # RL thighs at 0.70 rad
-  calves: -1.40          # RL calves at -1.40 rad
+  calves: -1.39          # RL calves at -1.39 rad
 
 # Joint sign for convention conversion (RL <-> Hardware)
 # Multiply relative positions by this to convert: rl_rel = hw_rel * joint_sign

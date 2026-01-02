@@ -1,170 +1,144 @@
 # Harold Next Steps
 
-## PRIORITY 0: Test Acceleration Fix + Smooth Gait on Hardware
+## PRIORITY 0: Use Hardware-Validated Gait Parameters as RL Reference
 
-**Status**: CRITICAL firmware fix applied. Ready for hardware test.
-
----
-
-## What Changed (Session 36 RPi - CRITICAL)
-
-### Servo Acceleration Bug FIXED
-
-**The Problem**: Firmware had `GAIT_ACC = 0` which meant **slowest** servo acceleration (soft ramp-up), NOT fastest. This was fighting against backlash mitigation.
-
-**The Fix**: Changed `GAIT_ACC` from `0` to `150` (maximum/instant acceleration).
-
-**Expected Impact**:
-- Servos will now cross the backlash dead zone as fast as possible
-- Combined with large amplitude (50° calf, 40° thigh), feet should actually lift
-- This is "bang-bang" control - optimal for systems with mechanical play
-
-### Also Added
-- Explicit `st.EnableTorque(id, 1)` for all 12 servos during setup
+**Status**: Session 36 RPi achieved smooth controlled walking with scripted gait. These parameters define what "good" looks like for RL training.
 
 ---
 
-## Hardware Test Instructions
+## CRITICAL: Hardware-Validated Gait Parameters (Session 36 RPi)
 
-### Option A: Test Scripted Gait (Firmware Only - Recommended First)
+### What Works on Real Hardware
 
-This tests the acceleration fix directly without the policy involved.
+Through iterative hardware testing, we found gait parameters that produce smooth, controlled walking:
 
-1. **Upload firmware to ESP32**:
-   - Open `firmware/scripted_gait_test_1/scripted_gait_test_1.ino` in Arduino IDE
-   - Select your ESP32 board and port
-   - Upload
+| Parameter | Hardware Value | Sim Equivalent | Notes |
+|-----------|---------------|----------------|-------|
+| **Frequency** | 0.5 Hz | 0.5 Hz | 2 second cycle, slower = stable |
+| **Thigh range** | 7.5° | ~0.13 rad | Small forward/back swing |
+| **Calf range** | 30° (50°-80°) | ~0.52 rad | Must maintain foot lift |
+| **Thigh:Calf ratio** | 1:4 | 1:4 | Balanced joint motion |
+| **Servo ACC** | 150 (max) | N/A | Instant acceleration |
 
-2. **Run test**:
-   - Open Serial Monitor at 115200 baud
-   - Robot will auto-start walking after warmup
-   - Watch for "Acceleration: 150 (max=150 for instant response)" in startup output
-
-3. **Observe**:
-   - Do feet actually LIFT off the ground now?
-   - Is motion snappier/more responsive than before?
-   - Any issues with the instant acceleration?
-
-### Option B: Test Policy Controller (RPi)
-
-### Step 1: Pull Latest Changes
-```bash
-cd /home/pi/Desktop/harold
-git pull
-```
-
-### Step 2: Run the Controller
-```bash
-source ~/harold_env/bin/activate  # or your venv path
-python deployment/inference/harold_controller.py
-```
-
-### Step 3: Observe and Report
-
-**Key questions to answer:**
-1. Is the gait smoother than before? (Less jerky foot impacts?)
-2. Does the robot still walk forward?
-3. Any new issues introduced?
-
-**Success criteria:**
-- Noticeably reduced shock/jerk on foot contact
-- Robot still walks forward (even if slower)
-- No instability or falling
-
----
-
-## What Changed (Session 35)
-
-Session 34's large amplitude policy walked but was **extremely jerky with harsh shock absorption**. Session 35 added smoothing:
-
-| Parameter | Before | After | Effect |
-|-----------|--------|-------|--------|
-| damping | 30 | **60** | Reduces oscillations at foot contact |
-| action_filter_beta | 0.18 | **0.35** | Stronger EMA smoothing on actions |
-
-Training result: vx=0.016 m/s (slightly lower than 0.020, expected with damping).
-
-### Files Changed
-
-1. `harold.py` - damping 30→60
-2. `harold_isaac_lab_env_cfg.py` - action_filter_beta 0.18→0.35
-3. `deployment/config/cpg.yaml` - action_filter_beta 0.18→0.35
-4. `deployment/policy/harold_policy.onnx` - New smoothed policy
-
----
-
-## If Still Too Jerky: Phase 2 Changes
-
-Report back to desktop agent and we'll add:
-
-1. **Stronger torque penalty**: -0.005 → -0.02
-2. **Foot impact force penalty**: New reward penalizing harsh foot strikes
-3. **Action rate penalty**: New reward penalizing rapid action changes
-
----
-
-## If Hardware Test Succeeds
-
-Next priorities:
-1. Document successful smooth gait parameters
-2. Consider further tuning (damping, filter strength)
-3. Work toward controllable walking (vx, vy, yaw commands)
-
----
-
-## Fallback Options (If Phase 2 Also Fails)
-
-1. **Even higher damping** - Try damping=75
-2. **Slower frequency** - Try 0.5 Hz instead of 0.7 Hz
-3. **Asymmetric trajectory** - Fast swing, slow stance (see below)
-
----
-
-## Reference: Asymmetric Trajectory Option
-
-If sinusoidal trajectory still causes issues, modify `_compute_leg_trajectory()`:
+### Converting to Simulation (Radians)
 
 ```python
-# Rewards (Session 36 final)
-track_lin_vel_xy_weight = 5.0
-forward_motion_weight = 3.0      # Best from sweep
-lin_vel_z_weight = -0.0001       # 4000x smaller than Isaac Lab default
-feet_air_time_weight = 1.0
+# Hardware degrees → Simulation radians (with sign inversion)
+# sim_rad = -hardware_deg * (π/180)
 
-# Commands
-vx_min = 0.0, vx_max = 0.3       # Conservative
+# REFERENCE VALUES for RL reward shaping:
+THIGH_AMPLITUDE_RAD = 0.13    # ±0.065 rad from center (was 0.35 rad - too big!)
+CALF_AMPLITUDE_RAD = 0.52     # ±0.26 rad from center
+GAIT_FREQUENCY_HZ = 0.5       # 2 second cycle
 ```
 
-### Training Command
-```bash
-HAROLD_CMD_TRACK=1 HAROLD_DYN_CMD=1 python scripts/harold.py train \
-  --hypothesis "description" --iterations 2500
-```
+### Key Insight: Original Sim Parameters Were WAY Too Aggressive
 
-### To Revert to CPG Mode (Working)
-```bash
-HAROLD_CPG=1 HAROLD_CMD_TRACK=1 HAROLD_DYN_CMD=1 python scripts/harold.py train ...
-```
+| Parameter | Original Sim | Working Hardware | Reduction Factor |
+|-----------|--------------|------------------|------------------|
+| Thigh amplitude | ~0.35 rad (40°) | 0.13 rad (7.5°) | **5.3x smaller** |
+| Frequency | 0.7-1.0 Hz | 0.5 Hz | **1.4-2x slower** |
+
+**The RL agent should aim for policies with SMALL joint motions, not large sweeping gaits.**
 
 ---
 
-## Deployment Status
+## Recommendations for RL Experimentation Agent
 
-- **Last deployed**: Session 35 CPG policy (damping=125, vx=0.034)
-- **Pure RL**: NOT ready for hardware (vx=0.01 too slow)
-- **Recommended**: Continue using CPG-based policy for hardware tests
+### 1. Add Joint Amplitude Penalties
+
+Penalize large joint angle deviations to encourage small, controlled motions:
+
+```python
+# In rewards section of harold_isaac_lab_env_cfg.py
+joint_amplitude_penalty = -0.1 * torch.mean(torch.abs(joint_pos - default_pos))
+```
+
+Target: Keep thigh motion under ±0.1 rad, calf under ±0.3 rad
+
+### 2. Consider Gait Frequency Reward
+
+If using CPG, target 0.5 Hz instead of 0.7 Hz:
+
+```python
+# In CPG config
+gait_frequency = 0.5  # was 0.7
+```
+
+### 3. Reference Motion Tracking (Optional)
+
+Use the working hardware trajectory as a reference:
+
+```python
+# Thigh target trajectory
+thigh_ref = -34.4° + 3.75° * sin(2π * 0.5 * t)  # ±3.75° = 7.5° range
+
+# Calf target trajectory
+calf_ref = 65° - 15° * cos(2π * 0.5 * t)  # 50°-80° range
+```
+
+### 4. What to Avoid
+
+- **Large thigh amplitudes** (>15°) → causes lunging
+- **Fast frequencies** (>0.7 Hz) → less stable
+- **Small calf ranges** (<30°) → feet don't lift (backlash absorbs motion)
 
 ---
 
-## Key Insight from Session 36
+## Pure RL Status (Desktop Session 36)
 
-The policy finds a **standing local minimum** because:
-1. Upright reward gives 0.97 when standing
-2. Exponential velocity tracking gives ~0.9 even when vx=0
-3. Forward motion bonus (3.0 * vx) is too weak to overcome equilibrium
-4. All penalty terms are minimized by standing still
+Pure RL from scratch plateaus at vx ≈ 0.01 m/s. The policy finds a standing local minimum.
 
-To break this, need either:
-- Stronger incentive to move (asymmetric reward, curriculum)
-- Prior knowledge of walking (fine-tune from CPG)
-- Much more exploration time (longer training)
+### Options to Break the Plateau
+
+1. **Fine-tune from CPG checkpoint** (recommended)
+   - CPG policy already walks (vx=0.034)
+   - Challenge: Observation space mismatch (50D CPG vs 48D pure RL)
+
+2. **Curriculum learning**
+   - Start with very slow velocity commands
+   - Gradually increase target velocity
+
+3. **Use hardware-validated parameters as constraints**
+   - Add penalties for exceeding known-good joint ranges
+   - Target the 0.5 Hz gait frequency
+
+4. **Reference motion tracking**
+   - Use scripted gait trajectory as soft target
+   - Reward matching the known-working motion
+
+---
+
+## Current Configuration Files
+
+The working scripted gait is in:
+- `firmware/scripted_gait_test_1/scripted_gait_test_1.ino`
+
+Key RL config files:
+- `harold_isaac_lab_env_cfg.py` - rewards, termination
+- `agents/skrl_ppo_cfg.yaml` - PPO hyperparameters
+- `harold.py` - robot asset, actuators
+
+---
+
+## Session 36 Summary
+
+### What Was Accomplished
+
+1. **Fixed servo acceleration bug** - ACC=0→150 for instant response
+2. **Iteratively tuned gait parameters** through hardware testing
+3. **Achieved smooth walking** on carpet and hardwood
+4. **Documented what "good" looks like** for RL reference
+
+### Key Numbers to Remember
+
+- **Thigh: 7.5° range** (not 40°!)
+- **Calf: 30° range** (50° to 80°)
+- **Frequency: 0.5 Hz** (not 0.7 or 1.0)
+- **ACC: 150** (max, for backlash)
+
+### Files Modified
+
+1. `firmware/scripted_gait_test_1/scripted_gait_test_1.ino` - working gait
+2. `.claude_memory/OBSERVATIONS.md` - detailed findings
+3. `.claude_memory/NEXT_STEPS.md` - this file

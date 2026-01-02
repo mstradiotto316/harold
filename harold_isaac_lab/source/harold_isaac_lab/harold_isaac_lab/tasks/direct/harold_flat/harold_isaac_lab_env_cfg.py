@@ -143,13 +143,15 @@ class ScriptedGaitCfg:
     # Master switch - enable via env var HAROLD_SCRIPTED_GAIT=1
     enabled: bool = False
 
-    # Gait parameters - Session 34: Backlash-tolerant amplitudes (aligned with CPGCfg)
-    # Session 35: Optimal frequency 0.7 Hz (0.5 Hz was worse)
-    frequency: float = 0.7  # Hz - Optimal from sweeps
-    swing_thigh: float = 0.25    # Session 34: More back during swing (was 0.40)
-    stance_thigh: float = 0.95   # Session 34: More forward during stance (was 0.90)
-    stance_calf: float = -0.50   # Session 34: More extended stance (was -0.90)
-    swing_calf: float = -1.38    # Session 34: Close to limit (was -1.35)
+    # Gait parameters - REVERTED to Session 34/35 (working in sim)
+    # Session 38 finding: Hardware-validated params (7.5°/30° @0.5Hz) are too conservative
+    # for simulation (vx=0.003). Intermediate values (15°/40°) also fail (vx=0.004).
+    # Sim-to-real transfer will need amplitude scaling, not sim parameter reduction.
+    frequency: float = 0.7  # Hz - Optimal in sim (0.5 Hz causes regression)
+    swing_thigh: float = 0.25    # Session 34: Backlash-tolerant (40° range)
+    stance_thigh: float = 0.95   # Session 34: Backlash-tolerant
+    stance_calf: float = -0.50   # Session 34: 50° calf range (exceeds backlash)
+    swing_calf: float = -1.38    # Session 34: Close to limit
     shoulder_amplitude: float = 0.05  # Unchanged
     duty_cycle: float = 0.6
 
@@ -158,20 +160,19 @@ class ScriptedGaitCfg:
 class CPGCfg:
     """Central Pattern Generator configuration for residual learning.
 
-    Session 24: NOW ALIGNED with ScriptedGaitCfg - uses the same duty-cycle based
-    trajectory that achieved vx=+0.141 m/s in sim and walks on real hardware.
+    REVERTED to Session 34/35 parameters (working in sim, vx=0.036).
 
-    Session 34: BACKLASH-TOLERANT UPDATE - Hardware testing (Session 33) revealed
-    ~30° servo backlash absorbs direction reversals. Old calf amplitude (26°) was
-    entirely absorbed by backlash, causing feet to never lift.
+    Session 38 FINDINGS:
+    - Hardware-validated (7.5°/30° @0.5Hz) → vx=0.003 (too conservative for sim)
+    - Intermediate (15°/40° @0.5Hz) → vx=0.004 (still too conservative)
+    - Original Session 34/35 (40°/50° @0.7Hz) → vx=0.036 (WORKS in sim)
 
-    New design principle: All joint motions > 45° to exceed backlash zone.
+    CONCLUSION: Sim-to-real transfer needs amplitude SCALING at deployment,
+    not reduced sim parameters. Hardware can use smaller amplitudes while
+    sim needs larger ones for learning.
 
     Architecture:
         target_joints = CPG_base_trajectory + policy_output * residual_scale
-
-    When policy_output = 0, robot follows the proven scripted gait trajectory.
-    Policy learns to provide balance corrections while CPG provides walking structure.
 
     Enable via: HAROLD_CPG=1
     """
@@ -179,24 +180,19 @@ class CPGCfg:
     # Enable CPG-based action space
     enabled: bool = False  # Set True via env var HAROLD_CPG=1
 
-    # Base gait parameters
-    # Session 35: 0.5 Hz was worse (vx=0.009), reverting to optimal 0.7 Hz
-    base_frequency: float = 0.7  # Hz - Optimal from previous sweeps
+    # Base gait parameters - Session 35 OPTIMAL
+    base_frequency: float = 0.7  # Hz - Optimal in sim (0.5 Hz regresses)
     duty_cycle: float = 0.6      # 60% stance, 40% swing
 
-    # Trajectory parameters - SESSION 34: BACKLASH-TOLERANT AMPLITUDES
-    # Hardware has ~30° backlash on direction reversal. All motions must exceed this.
-    # Old calf: -1.35 to -0.90 = 26° (absorbed by backlash)
-    # New calf: -1.38 to -0.50 = 50° (exceeds backlash with 20° margin)
-    swing_thigh: float = 0.25     # Session 34: More back during swing (was 0.40)
-    stance_thigh: float = 0.95    # Session 34: More forward during stance (was 0.90, close to 0.9599 limit)
-    stance_calf: float = -0.50    # Session 34: More extended during stance (was -0.90)
-    swing_calf: float = -1.38     # Session 34: Close to limit -1.3963 (was -1.35)
-    shoulder_amplitude: float = 0.05  # Unchanged - shoulders have less backlash
+    # Trajectory parameters - SESSION 34 BACKLASH-TOLERANT (works in sim)
+    # Large amplitudes needed to overcome sim physics and learn walking
+    swing_thigh: float = 0.25     # Session 34: Backlash-tolerant
+    stance_thigh: float = 0.95    # Session 34: Near limit
+    stance_calf: float = -0.50    # Session 34: 50° calf range
+    swing_calf: float = -1.38     # Session 34: Close to limit
+    shoulder_amplitude: float = 0.05  # Unchanged
 
-    # Residual scaling - how much the policy can adjust the CPG trajectory
-    # EXP-126: 0.15 allowed policy to reverse CPG motion (vx=-0.018)
-    # Lowering to 0.05 to limit policy authority - can only fine-tune, not override
+    # Residual scaling
     residual_scale: float = 0.05  # EXP-166: 0.08 regressed, 0.05 is optimal
 
 
@@ -230,36 +226,75 @@ class TerminationCfg:
     front_calf_threshold: float = -1.0    # AND front calf > -1.0 rad
 
 @configclass
+class BacklashCfg:
+    """Explicit backlash hysteresis model for sim-to-real transfer.
+
+    Session 37: Hardware testing (Session 33) revealed ~30° servo backlash on
+    direction reversals. Previous approach of adding Gaussian noise (std=0.0175)
+    is INCORRECT - backlash is hysteresis, not noise.
+
+    This model tracks "engaged position" where gears are meshed. Commands can
+    move within a dead zone without affecting output. Only when command exits
+    the zone does output follow (with backlash offset).
+
+    Physical behavior:
+    - gap = command - engaged_position
+    - if |gap| > half_backlash: output moves toward command
+    - else: output stays where it was (motor in dead zone)
+
+    This teaches policy to "overdrive" joints to compensate for dead zone.
+    """
+
+    # Enable explicit backlash hysteresis modeling
+    # Session 37: Disabled to establish CPG baseline, then curriculum
+    enable_backlash: bool = False
+
+    # Backlash magnitude in radians
+    # Session 33 hardware test: ~30° backlash observed on direction reversals
+    # Session 37: Starting with 15° (0.26 rad) - easier for policy to learn
+    # Can increase to 30° after policy learns to compensate for smaller backlash
+    backlash_rad: float = 0.26  # 15 degrees
+
+    # Per-joint backlash (optional - use if joints have different backlash)
+    # If None, use backlash_rad for all joints
+    per_joint_backlash: tuple | None = None
+
+    # Randomize backlash magnitude per episode for robustness
+    randomize_backlash: bool = False
+    backlash_range: tuple = (0.4, 0.6)  # ±15% variation around 0.52
+
+
+@configclass
 class DomainRandomizationCfg:
     """Domain randomization configuration for sim-to-real transfer.
-    
+
     To enable domain randomization in training, set:
     ```python
     cfg.domain_randomization.enable_randomization = True
     cfg.domain_randomization.randomize_on_reset = True  # Per-episode randomization
     cfg.domain_randomization.randomize_per_step = True   # Per-step noise
     ```
-    
+
     Provides controlled variation in simulation parameters to improve policy
     robustness when deployed on physical hardware. Parameters are tuned
     specifically for Harold's lightweight construction and servo capabilities.
-    
+
     Randomization Categories:
     - Physics: Material properties affecting contact dynamics
     - Robot: Mass, inertia, and actuator characteristics
     - Sensors: Observation noise modeling real sensor imperfections
     - Actions: Control delays and noise
     - External: Environmental disturbances
-    
+
     All randomization can be toggled on/off for debugging and gradual
     introduction during training curriculum.
     """
-    
+
     # === MASTER SWITCHES ===
     # EXP-090: FULL domain randomization made training HARDER - vx=0.0056 (MUCH WORSE)
     # Robot learned to stand still to cope with uncertainty
     # Session 28: Re-enabled for SENSOR NOISE ONLY to simulate gear backlash (~2°)
-    # All physics randomization flags remain False - only sensor noise is active
+    # Session 37: Replaced noise with explicit hysteresis model (BacklashCfg)
     enable_randomization: bool = True   # Session 28: OPTIMAL for backlash robustness
     randomize_on_reset: bool = False
     randomize_per_step: bool = True     # Session 28: Per-step noise for backlash
@@ -332,11 +367,11 @@ class DomainRandomizationCfg:
     # Session 28: Position noise simulates gear backlash (~1-3° in ST3215 servos)
     # - 2° (0.035 rad): STANDING, vx=0.007 - too much noise
     # - 1° (0.0175 rad): WALKING, vx=0.022 - OPTIMAL (31% better than baseline!)
-    # The noise acts as regularization, improving generalization
-    add_joint_noise: bool = True              # Add noise to joint measurements
+    # Session 37: Re-enabling as explicit hysteresis didn't help
+    add_joint_noise: bool = True              # Session 28: OPTIMAL for backlash robustness
     joint_position_noise: GaussianNoiseCfg = GaussianNoiseCfg(
         mean=0.0,
-        std=0.0175,                           # Session 28: 1° optimal for backlash robustness
+        std=0.0175,                           # Not used when disabled
         operation="add"
     )
     joint_velocity_noise: GaussianNoiseCfg = GaussianNoiseCfg(
@@ -387,8 +422,10 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     action_scale = 0.5  # Session 23: 0.7 was worse (vx=0.029, contact failing)
 
     # Space definitions
-    # Session 36: Removed gait phase (no CPG), pure RL
-    observation_space = 48
+    # Session 36: Removed gait phase (no CPG), pure RL = 48D
+    # Session 37: Restored for CPG mode = 50D (adds 2D gait phase)
+    # Toggle based on HAROLD_CPG env var
+    observation_space = 50  # CPG mode: 48 + 2 gait phase
     action_space = 12
     state_space = 0
 
@@ -423,6 +460,9 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
 
     # Domain randomization configuration
     domain_randomization = DomainRandomizationCfg()
+
+    # Backlash hysteresis configuration (Session 37)
+    backlash = BacklashCfg()
 
     # viewer configuration - follow single robot for clear screenshots
     viewer = ViewerCfg(

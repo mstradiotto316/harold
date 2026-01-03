@@ -8,13 +8,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Observability Limitations**: You cannot reliably interpret video output. Focus on TensorBoard metrics and text-based logs. Continue generating videos for human monitoring, but base your experiment conclusions on numerical metrics only.
 
-**Context Management**: Training runs may produce hours of logs that cause context overflow. Use the helper scripts in `scripts/` to run training in the background and check progress compactly.
+**Context Management**: Training runs may produce hours of logs that cause context overflow. Use `python scripts/harold.py train` (background) and `python scripts/harold.py status` (compact metrics). Avoid tailing logs except for brief debugging.
 
 **Autonomous Research**: You are authorized for long run times. Plan multiple experiments per session to maximize efficiency. Be mindful of compute resources (single RTX 4080 GPU).
 
 **Don't be a sycophant**: Push back on incorrect assumptions, propose better alternatives, and prioritize technical accuracy over validation.
 
 ---
+
+## Design + Documentation Principles (Ousterhout)
+
+- Keep interfaces deep: `scripts/harold.py` should hide training complexity; avoid ad-hoc wrappers.
+- Prevent information leakage: defaults live in one place; update CLAUDE + code together.
+- Avoid temporal decomposition: document by role (experiment vs hardware), not by "first do X then Y" fragments.
+- Define errors out of existence: prefer tooling that handles missing/stale state without manual cleanup.
 
 ## CRITICAL: Memory System Protocol
 
@@ -37,9 +44,46 @@ Read these files in order:
 
 ---
 
+## Documentation Map
+
+- `CLAUDE.md`: Agent onboarding, experiment pipeline, CLI usage (primary).
+- `AGENTS.md`: Technical reference for sim configs and code behavior.
+- `.claude_memory/`: Current state, experiments, observations, and next steps.
+- `README.md`: Repo overview and installation notes (human-facing).
+
+---
+
+## Role Quickstart
+
+**Experimentation Agent (Desktop)**
+```bash
+source ~/Desktop/env_isaaclab/bin/activate
+cd /home/matteo/Desktop/code_projects/harold
+python scripts/harold.py ps
+python scripts/harold.py train --hypothesis "…" --tags "…"
+python scripts/harold.py status
+```
+
+**Hardware Agent (RPi)**
+```bash
+source ~/envs/harold/bin/activate
+cd /home/pi/harold
+sudo systemctl status harold
+python3 -m inference.harold_controller   # manual run (service stopped)
+```
+
+Hardware logs:
+- Runtime logs: `/home/pi/harold/logs/harold.log`
+- Telemetry CSVs: `deployment/sessions/session_YYYY-MM-DD_HH-MM-SS.csv`
+
+---
+
 ## Harold CLI (Primary Interface for Agents)
 
 The `harold` CLI is a **deep module** for hypothesis-driven experimentation. It hides TensorBoard complexity behind manifest files and comparison tools.
+
+**Single Interface Rule**: For training/monitoring, use `python scripts/harold.py` only. Do not create custom runner scripts.
+Defaults for env count, headless/video settings, and duration live in the CLI; avoid overriding unless debugging a specific issue.
 
 ### Before Starting an Experiment (IMPORTANT)
 
@@ -65,10 +109,39 @@ cd /home/matteo/Desktop/code_projects/harold
 # Start experiment with metadata (hypothesis-driven workflow)
 python scripts/harold.py train --hypothesis "Lower threshold (10N) prevents elbow exploit" \
                                --tags "body_contact,elbow_fix"
-python scripts/harold.py train --iterations 2500   # Custom duration (~60 min)
+python scripts/harold.py train --duration standard # Preset duration (~60 min)
 python scripts/harold.py train --checkpoint path   # Resume from checkpoint
-python scripts/harold.py train --num-envs 4096     # Fewer envs if memory-constrained
+python scripts/harold.py train --mode cpg          # CPG residual mode
+python scripts/harold.py train --mode scripted     # Scripted gait (policy ignored)
+python scripts/harold.py train --task rough        # Rough terrain task
 ```
+
+### Autonomous Loop (Interactive for Hours)
+
+Use this loop for long sessions so you keep control without flooding logs:
+
+```bash
+# Start a run (defaults handle envs/headless/video)
+python scripts/harold.py train --hypothesis "…" --tags "…"
+
+# Sleep 15-30 minutes
+sleep 1200
+
+# Check status + metrics
+python scripts/harold.py status
+
+# If clearly failing, stop early and validate
+python scripts/harold.py stop
+python scripts/harold.py validate
+```
+
+**Early stop rules** (after 10-15 min of data):
+- SANITY fails → stop
+- Height/contact failing AND vx negative → stop
+- Standing passes but vx low → keep running
+- If vx is noisy, use `x_displacement` to confirm real forward progress
+
+**Scripted gait runs**: stop once the first video exists and metrics are clearly failing; additional time won’t improve a scripted trajectory.
 
 ### Monitoring & Analysis
 
@@ -95,6 +168,11 @@ python scripts/harold.py compare --tag forward_motion  # All with tag
 python scripts/harold.py note EXP-034 "Robot walked at 40-80% then regressed"
 ```
 
+### Video Location (Training)
+
+Videos are saved under:
+`logs/skrl/harold_direct/<run_id>/videos/train`
+
 ### Process Management
 
 ```bash
@@ -106,13 +184,15 @@ python scripts/harold.py stop                 # Stop all training and cleanup
 ```
 RUN: 2025-12-22_14-30-00_ppo_torch (EXP-039)
 HYPOTHESIS: Lower body contact threshold prevents elbow exploit
-STATUS: RUNNING (45%, 1h 23m elapsed, 6.5 it/s, 6144 envs)
+CONFIG: task=flat, mode=rl, duration=short
+STATUS: RUNNING (45%, 1h 23m elapsed, 6.5 it/s, 8192 envs)
 REWARD: 1234.5
 SANITY: PASS (ep_len=342)
-STANDING: PASS (height=2.1, contact=-0.02)
-WALKING: WARN (vx=0.03, need >0.1)
+STANDING: PASS (height=0.72, contact=-0.02)
+WALKING: WARN (vx=0.005, need >0.01)
+DISPLACEMENT: x=0.02 (|x|=0.02)
 VERDICT: STANDING
-DIAGNOSIS: Upright and stable, forward velocity 0.030 m/s
+DIAGNOSIS: Upright and stable, forward velocity 0.005 m/s
 ```
 
 The STATUS line shows: progress %, elapsed time, iterations/second, and environment count.
@@ -129,7 +209,7 @@ Each experiment gets a `manifest.json` with:
 - `alias`: EXP-NNN identifier
 - `hypothesis`: What you're testing
 - `tags`: For filtering in `harold compare --tag`
-- `training_config`: `{num_envs, iterations}` for status display
+- `training_config`: `{task, mode, duration, num_envs, iterations, gait_scale}` for status display
 - `summary.final`: Cached final metrics
 - `summary.verdict`: WALKING/STANDING/FAILING/etc.
 - `notes`: Timestamped observations
@@ -141,21 +221,21 @@ Machine-readable output includes:
 - `running`, `pid`, `elapsed_seconds`: Process state
 - `progress`, `current_iteration`, `total_iterations`: Training progress
 - `iterations_per_second`: Current training rate
-- `training_config`: `{num_envs, iterations}` from manifest
+- `training_config`: `{task, mode, duration, num_envs, iterations, gait_scale}` from manifest
 - `metrics`: All TensorBoard metrics
 - `status`, `diagnosis`, `exit_code`: Validation result
 - `killed_by_watchdog`: Memory watchdog kill info (if applicable)
 
 ---
 
-## Low-Level Commands (for manual use)
+## Low-Level Commands (manual/legacy, avoid for agents)
 
 ```bash
 # Direct training (verbose output - avoid in agents)
 # NOTE: --video is MANDATORY, never omit it
 python harold_isaac_lab/scripts/skrl/train.py \
   --task=Template-Harold-Direct-flat-terrain-v0 \
-  --num_envs 6144 --headless --video
+  --num_envs 8192 --headless --video --video_length 250 --video_interval 3200
 
 # Play/evaluate a checkpoint
 python harold_isaac_lab/scripts/skrl/play.py \
@@ -174,17 +254,31 @@ python3 -m tensorboard.main --logdir logs/skrl/harold_direct/ --bind_all
 
 | Priority | Metric | Threshold | Failure Mode |
 |----------|--------|-----------|--------------|
-| 1. SANITY | `episode_length` | > 100 | Robots dying immediately (BUG!) |
+| 1. SANITY | `episode_length` | > 300 | Robots dying immediately (BUG!) |
 | 2. Stability | `upright_mean` | > 0.9 | Falling over |
-| 3. Height | `height_reward` | > 1.2 | On elbows/collapsed |
+| 3. Height | `height_reward` | > 0.5 | On elbows/collapsed |
 | 4. Contact | `body_contact_penalty` | > -0.1 | Body on ground |
-| 5. Walking | `vx_w_mean` | > 0.1 m/s | Not walking forward |
+| 5. Walking | `vx_w_mean` | > 0.01 m/s | Not walking forward |
 
 **CRITICAL**: If SANITY fails, ALL other metrics are invalid.
 
 **Answering the key questions:**
-- **Is robot standing?** → STANDING: PASS means height > 1.2 and contact > -0.1
-- **Is robot walking?** → WALKING: PASS means vx > 0.1 m/s (and standing)
+- **Is robot standing?** → STANDING: PASS means height > 0.5 and contact > -0.1
+- **Is robot walking?** → WALKING: PASS means vx > 0.01 m/s (and standing)
+
+### Gait Observability Metrics (Per-Foot)
+
+Logged to TensorBoard under `Episode_Metric/*`:
+
+- `foot_contact_ratio_{fl,fr,bl,br}`: fraction of steps each foot is in contact
+- `foot_contact_force_peak_{fl,fr,bl,br}`: peak contact force per foot (impact severity)
+- `foot_air_time_mean_{fl,fr,bl,br}`: mean air time per step (landing-triggered)
+- `foot_air_time_std_{fl,fr,bl,br}`: air time variability (gait symmetry)
+- `foot_slip_speed_mean_{fl,fr,bl,br}`: mean XY slip speed while in contact
+- `x_displacement`: total episode X displacement (signed)
+- `x_displacement_abs`: magnitude of episode X displacement
+
+Use `x_displacement` to confirm true forward progress when `vx_w_mean` is noisy or misleading.
 
 ---
 
@@ -229,7 +323,7 @@ harold_isaac_lab/
 - **Control rate**: 20 Hz policy (dt=1/180, decimation=9)
 - **Observation**: 48D (velocities, gravity, joint states, commands, prev_actions)
 - **Action**: 12D joint position deltas, normalized [-1, 1]
-- **Actuators**: Implicit PD, stiffness=200, damping=75, effort_limit=2.0
+- **Actuators**: Implicit PD, stiffness=400, damping=150, effort_limit=2.8
 
 ### Deployment Artifacts
 ```
@@ -244,7 +338,7 @@ policy/                   # Hardware inference code
 ## Known Failure Modes
 
 ### "On Elbows" Exploit
-Robot falls forward onto elbows with back elevated. Passes `upright_mean > 0.9` but fails `height_reward < 2.0`. **Always check height_reward.**
+Robot falls forward onto elbows with back elevated. Passes `upright_mean > 0.9` but fails `height_reward < 0.5`. **Always check height_reward.**
 
 ### Height Termination Bug
 If using height-based termination, check height above terrain, NOT world Z coordinate. Spawn pose must be above threshold.
@@ -257,9 +351,9 @@ Long training runs flood context with tqdm output. Always use `python scripts/ha
 ## Simulation Settings & Memory Safety
 
 ### Recommended Environment Count
-- **Default**: 6144 envs (best throughput/stability balance)
-- **If unstable after crash**: Use 4096 envs temporarily
-- **Never exceed**: 8192 envs (causes memory pressure)
+- **Default**: 8192 envs (standard training baseline)
+- **Avoid overrides** unless training fails to launch (memory pressure)
+- **Fallbacks**: 6144 or 4096 envs temporarily
 
 ### Memory Watchdog
 Training automatically starts a memory watchdog that prevents OOM-induced system hangs:
@@ -273,11 +367,34 @@ The watchdog writes to `/tmp/harold_watchdog.log` and creates `/tmp/harold_watch
 ### Training Duration Guidelines
 **Target: 30-60 minutes per experiment.** Fast iteration is more valuable than long runs.
 
-| Iterations | Duration | Timesteps | Use Case |
-|------------|----------|-----------|----------|
-| 1250 | ~30 min | 30k | Quick hypothesis test |
-| 2500 | ~60 min | 60k | Standard experiment |
-| 4167 | ~100 min | 100k | Extended run (only if promising) |
+Use presets with `--duration`:
+
+| Preset | Iterations | Duration | Timesteps | Use Case |
+|--------|------------|----------|-----------|----------|
+| short | 1250 | ~30 min | 30k | Quick hypothesis test |
+| standard | 2500 | ~60 min | 60k | Standard experiment |
+| long | 4167 | ~100 min | 100k | Extended run (only if promising) |
+
+### Actuator Overrides (Simulation Responsiveness)
+
+Defaults are stiffness=400, damping=150, effort_limit=2.8. Override per run:
+
+```bash
+HAROLD_ACTUATOR_STIFFNESS=1200 HAROLD_ACTUATOR_DAMPING=50 HAROLD_ACTUATOR_EFFORT_LIMIT=2.8 \
+python scripts/harold.py train --hypothesis "…" --tags "actuator_sweep"
+```
+
+Use overrides for responsiveness tests; keep within hardware constraints.
+
+### Gait Overrides (Diagnostics)
+
+For scripted/CPG mismatch debugging, you can scale gait amplitude without editing configs:
+
+```bash
+python scripts/harold.py train --mode scripted --gait-scale 1.5 --hypothesis "…" --tags "gait_scale"
+```
+
+Only use for diagnostics; keep defaults aligned to hardware.
 
 ---
 
@@ -300,7 +417,7 @@ Before modifying simulation parameters, check `.claude_memory/HARDWARE_CONSTRAIN
 - **Freely tunable** - No hardware impact (reward weights, termination thresholds)
 
 Key hardware specs (FeeTech ST3215 servo):
-- Max torque: 30 kg·cm (2.94 Nm) @12V - simulation uses conservative 2.0 Nm
+- Max torque: 30 kg·cm (2.94 Nm) @12V - simulation uses conservative 2.8 Nm
 - Position resolution: 0.088° (4096 steps/360°)
 - Max speed: 45 RPM (4.71 rad/s)
 - Joint limits: shoulders ±30°, thighs/calves ±90° (mechanical stops)

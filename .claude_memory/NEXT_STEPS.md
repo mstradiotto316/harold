@@ -17,6 +17,32 @@ Use these logs to diagnose hardware issues (backlash, thermal, power problems).
 
 ---
 
+## NEW: Scripted Gait Alignment Follow-ups
+
+1. **Fix missing metrics in scripted gait runs**
+   - `height_reward` and `body_contact_penalty` are not logged during scripted-gait runs.
+   - Confirm whether tags are emitted in scripted mode or need explicit logging.
+
+2. **Decide next stiffness tests**
+   - 1200/50 and 1200/150 improved upright but not vx.
+   - Consider testing 600/45 or 800/60 for responsiveness vs stability balance.
+
+3. **Check sim↔hardware mismatch for Session 36 gait**
+   - If metrics are still failing after stiffness tuning, re-check gait amplitude scaling in sim.
+
+4. **Investigate low height in scripted gait**
+   - Height reward stays ~0.67; likely joint offset/pose mismatch.
+   - Compare sim stance height vs hardware logs at same joint angles.
+
+5. **Validate axis/phase alignment**
+   - Confirm sim joint sign conventions vs firmware (thigh/calf inversion).
+   - Ensure diagonal pairing matches hardware (FL+BR, FR+BL).
+
+6. **Use new gait metrics to match video observations**
+   - Run a short scripted-gait diagnostic and inspect per-foot contact/air-time/slip metrics.
+
+---
+
 ## Session 38 Finding: Sim ≠ Hardware Parameters
 
 Hardware-validated parameters are too conservative for simulation:
@@ -110,8 +136,8 @@ lin_vel_z_weight = -0.0001
 ### Training Command
 ```bash
 # CPG mode (recommended)
-HAROLD_CPG=1 HAROLD_CMD_TRACK=1 HAROLD_DYN_CMD=1 python scripts/harold.py train \
-  --hypothesis "description" --iterations 2500
+python scripts/harold.py train --mode cpg --duration standard \
+  --hypothesis "description"
 ```
 
 ---

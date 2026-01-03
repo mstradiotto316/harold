@@ -21,18 +21,21 @@ https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/binaries_ins
 2. To see the available tasks use:
     python harold_isaac_lab/scripts/list_envs.py
 
-3. To run the task use:
+3. To run training (recommended):
     activate the virtual environment:
     source ~/Desktop/env_isaaclab/bin/activate
 
-    generic template:
-    python harold_isaac_lab/scripts/skrl/train.py --task=<Task-Name>
+    run the default flat-terrain training:
+    python scripts/harold.py train
 
-    run baisc harold:
-    python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0
+    optional task selection:
+    python scripts/harold.py train --task rough
 
-    run headless with video recording:
-    python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1024 --headless --video --video_length 250 --video_interval 3200
+    optional mode selection:
+    python scripts/harold.py train --mode scripted
+
+    advanced/manual (avoid for agents):
+    python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 8192 --headless --video --video_length 250 --video_interval 3200
 
 4. Launch Tensorboard to view training progress:
 python3 -m tensorboard.main --logdir logs/

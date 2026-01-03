@@ -246,27 +246,6 @@ class ObservationBuilder:
             # No blending - use actual values (may cause divergence)
             self._prev_targets = delta
 
-    def update_prev_actions(self, raw_policy_output: np.ndarray) -> None:
-        """DEPRECATED: Use update_prev_target_delta() instead.
-
-        The simulation stores prev_target_delta = processed_actions - default_pose,
-        NOT raw policy output.
-        """
-        import warnings
-        warnings.warn("update_prev_actions is deprecated, use update_prev_target_delta", DeprecationWarning)
-        self._prev_targets = raw_policy_output.astype(np.float32)
-
-    def update_prev_targets(self, targets: np.ndarray) -> None:
-        """DEPRECATED: Use update_prev_actions() instead.
-
-        This method incorrectly stored (targets - default_pose) which doesn't
-        match what simulation expects (raw policy output).
-        """
-        # Keep for backwards compatibility but warn
-        import warnings
-        warnings.warn("update_prev_targets is deprecated, use update_prev_actions", DeprecationWarning)
-        self._prev_targets = (targets - self.cfg.default_pose).astype(np.float32)
-
     def _estimate_joint_velocities(
         self,
         positions: np.ndarray,

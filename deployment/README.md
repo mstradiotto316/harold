@@ -68,3 +68,9 @@ python tests/test_esp32.py
 # Test inference (no hardware)
 python tests/test_inference.py
 ```
+
+## Diagnostics
+
+- Session CSVs now flush every row by default to survive abrupt resets.
+- Controller exceptions write to `logs/controller_diagnostics.log` with throttling + USB state.
+- To persist system logs across reboots, run `scripts/enable_persistent_journal.sh` on the Pi (requires sudo).

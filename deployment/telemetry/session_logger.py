@@ -5,11 +5,12 @@ Implements Ousterhout's deep module pattern: simple interface, complex internals
 
 Usage:
     logger = SessionLogger()
-    logger.log(telemetry, cpg_phase, commands)  # Called at 5 Hz
+    logger.log(telemetry, controller_state)  # Called at 5 Hz
     logger.close()  # Graceful shutdown
 """
 import atexit
 import csv
+import os
 import signal
 import sys
 import time
@@ -42,12 +43,14 @@ class ControllerState:
         command_vx: Commanded forward velocity (m/s)
         command_vy: Commanded lateral velocity (m/s)
         command_yaw: Commanded yaw rate (rad/s)
+        cmd_positions: 12D commanded joint targets (hardware convention, radians)
     """
     mode: str = "UNKNOWN"
     cpg_phase: float = 0.0
     command_vx: float = 0.0
     command_vy: float = 0.0
     command_yaw: float = 0.0
+    cmd_positions: list[float] | None = None
 
 
 class SessionLogger:
@@ -73,12 +76,13 @@ class SessionLogger:
         row_count: Number of rows written
     """
 
-    BUFFER_SIZE = 50  # Flush every 10 seconds at 5 Hz
+    BUFFER_SIZE = 1  # Crash-safe default: flush every row at 5 Hz
 
     def __init__(
         self,
         output_dir: Optional[Path] = None,
         buffer_size: Optional[int] = None,
+        fsync: bool = True,
     ):
         """Initialize session logger.
 
@@ -86,7 +90,8 @@ class SessionLogger:
             output_dir: Directory for session files.
                        Default: deployment/sessions/
             buffer_size: Rows to buffer before flushing.
-                        Default: 50 (10 seconds at 5 Hz)
+                        Default: 1 (flush every row at 5 Hz)
+            fsync: If True, fsync after flush for crash-safe logging.
 
         Creates output directory if it doesn't exist.
         Creates new session file with timestamp: session_YYYY-MM-DD_HH-MM-SS.csv
@@ -98,6 +103,7 @@ class SessionLogger:
 
         # Buffer configuration
         self._buffer_size = buffer_size or self.BUFFER_SIZE
+        self._fsync = fsync
 
         # State
         self._buffer: list[list] = []
@@ -123,6 +129,9 @@ class SessionLogger:
             self._file = open(self._session_path, "w", newline="", buffering=1)
             self._writer = csv.writer(self._file)
             self._write_header()
+            self._file.flush()
+            if self._fsync:
+                os.fsync(self._file.fileno())
         except OSError as e:
             print(f"WARNING: Could not create session file: {e}", file=sys.stderr)
             self._file = None
@@ -142,9 +151,13 @@ class SessionLogger:
 
         header = ["timestamp", "timestamp_ms"]
 
-        # Position columns
+        # Position columns (measured)
         for name in JOINT_NAMES:
             header.append(f"pos_{name}")
+
+        # Commanded position columns (hardware convention)
+        for name in JOINT_NAMES:
+            header.append(f"cmd_pos_{name}")
 
         # Load columns
         for name in JOINT_NAMES:
@@ -234,13 +247,23 @@ class SessionLogger:
         # Servo data (NaN if invalid)
         if telemetry.valid:
             row.extend(telemetry.positions)
+        else:
+            row.extend([math.nan] * 12)
+
+        # Commanded positions (hardware convention)
+        if state is not None and state.cmd_positions is not None:
+            row.extend([float(val) for val in state.cmd_positions])
+        else:
+            row.extend([math.nan] * 12)
+
+        if telemetry.valid:
             row.extend(telemetry.loads)
             row.extend(telemetry.currents)
             row.extend(telemetry.temperatures)
             row.append(telemetry.voltage_V)
         else:
-            # 12*4 servo values + 1 voltage = 49 NaN values
-            row.extend([math.nan] * 48)
+            # 12*3 servo values + 1 voltage = 37 NaN values
+            row.extend([math.nan] * 36)
             row.append(math.nan)
 
         # RPi metrics
@@ -271,6 +294,8 @@ class SessionLogger:
             for row in self._buffer:
                 self._writer.writerow(row)
             self._file.flush()
+            if self._fsync:
+                os.fsync(self._file.fileno())
             self._buffer.clear()
         except OSError as e:
             print(f"WARNING: Could not flush session log: {e}", file=sys.stderr)

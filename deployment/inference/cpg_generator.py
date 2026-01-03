@@ -26,6 +26,8 @@ class CPGConfig:
     stance_calf: float = -0.87
     swing_calf: float = -1.3963
     shoulder_amplitude: float = 0.0096
+    thigh_offset_front: float = 0.0
+    thigh_offset_back: float = 0.0
     residual_scale: float = 0.05
 
     @classmethod
@@ -42,6 +44,8 @@ class CPGConfig:
             stance_calf=traj.get("stance_calf", -0.87),
             swing_calf=traj.get("swing_calf", -1.3963),
             shoulder_amplitude=traj.get("shoulder_amplitude", 0.0096),
+            thigh_offset_front=traj.get("thigh_offset_front", 0.0),
+            thigh_offset_back=traj.get("thigh_offset_back", 0.0),
             residual_scale=data.get("residual_scale", 0.05),
         )
 
@@ -87,6 +91,12 @@ class CPGGenerator:
         thigh_br, calf_br = self._compute_leg_trajectory(phase_fl_br)
         thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl)
         thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl)
+
+        # Optional front/back thigh bias to shift weight distribution.
+        thigh_fl += self.cfg.thigh_offset_front
+        thigh_fr += self.cfg.thigh_offset_front
+        thigh_bl += self.cfg.thigh_offset_back
+        thigh_br += self.cfg.thigh_offset_back
 
         # Shoulder oscillation for balance (hardware-aligned sin)
         amp = self.cfg.shoulder_amplitude

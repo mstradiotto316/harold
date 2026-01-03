@@ -20,6 +20,31 @@ import numpy as np
 import yaml
 
 
+def _expand_joint_sign(js: dict) -> np.ndarray:
+    """Expand joint_sign config into a 12D array (shoulders, thighs, calves)."""
+    if not isinstance(js, dict):
+        js = {}
+
+    shoulders = js.get("shoulders", 1.0)
+    if isinstance(shoulders, (list, tuple)) and len(shoulders) == 4:
+        shoulder_vals = list(shoulders)
+    else:
+        shoulder_vals = [
+            js.get("shoulder_fl", shoulders),
+            js.get("shoulder_fr", shoulders),
+            js.get("shoulder_bl", shoulders),
+            js.get("shoulder_br", shoulders),
+        ]
+
+    thigh_val = js.get("thighs", -1.0)
+    calf_val = js.get("calves", -1.0)
+
+    return np.array(
+        shoulder_vals + [thigh_val] * 4 + [calf_val] * 4,
+        dtype=np.float32,
+    )
+
+
 @dataclass
 class ActionConfig:
     """Action converter configuration."""
@@ -53,8 +78,8 @@ class ActionConfig:
             # Hardware convention - what servo encoders read at rest
             self.hw_default_pose = np.array([
                 0.0, 0.0, 0.0, 0.0,         # Shoulders: 0 rad
-                0.3, 0.3, 0.3, 0.3,         # Thighs: 0.3 rad
-                -0.75, -0.75, -0.75, -0.75  # Calves: -0.75 rad
+                0.40, 0.40, 0.40, 0.40,     # Thighs: tuned stance
+                -0.74, -0.74, -0.74, -0.74  # Calves: tuned stance
             ], dtype=np.float32)
 
         if self.rl_default_pose is None:
@@ -62,8 +87,8 @@ class ActionConfig:
             # Shoulders alternate for diagonal trot gait
             self.rl_default_pose = np.array([
                 0.20, -0.20, 0.20, -0.20,   # Shoulders: alternating
-                0.70, 0.70, 0.70, 0.70,     # Thighs: 0.70 rad
-                -1.40, -1.40, -1.40, -1.40  # Calves: -1.40 rad
+                0.60, 0.60, 0.60, 0.60,     # Thighs: tuned stance
+                -1.40, -1.40, -1.40, -1.40  # Calves: tuned stance
             ], dtype=np.float32)
 
         if self.joint_sign is None:
@@ -141,22 +166,8 @@ class ActionConfig:
             rl_pose.get("calves", -1.40),
         ], dtype=np.float32)
 
-        # Get joint sign from CPG config
-        js = cpg_data.get("joint_sign", {})
-        joint_sign = np.array([
-            js.get("shoulders", 1.0),
-            js.get("shoulders", 1.0),
-            js.get("shoulders", 1.0),
-            js.get("shoulders", 1.0),
-            js.get("thighs", -1.0),
-            js.get("thighs", -1.0),
-            js.get("thighs", -1.0),
-            js.get("thighs", -1.0),
-            js.get("calves", -1.0),
-            js.get("calves", -1.0),
-            js.get("calves", -1.0),
-            js.get("calves", -1.0),
-        ], dtype=np.float32)
+        # Get joint sign from CPG config (supports per-shoulder overrides)
+        joint_sign = _expand_joint_sign(cpg_data.get("joint_sign", {}))
 
         return cls(
             residual_scale=cpg_data.get("residual_scale", 0.05),

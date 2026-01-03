@@ -27,7 +27,7 @@ const uint32_t BUS_BAUD = 1000000;
 // ============================================================================
 // GAIT PARAMETERS - SESSION 34: BACKLASH-TOLERANT LARGE AMPLITUDE
 // ============================================================================
-// Hardware has ~30° servo backlash on direction reversals.
+// Hardware has ~10° servo backlash on direction reversals (measured 2026-01-03).
 // Session 34 increased amplitudes to exceed backlash zone:
 //   Old calf: 26° swing → absorbed by backlash (feet never lifted)
 //   New calf: 50° swing → 20° actual motion after backlash

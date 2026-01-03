@@ -158,7 +158,7 @@ Session 34 hardware test showed jerky walking. Session 35 completed damping swee
 
 ### Session 34: Large Amplitude CPG for Backlash Tolerance (Desktop)
 
-Session 33 discovered ~30° servo backlash was absorbing entire calf swing (26°).
+Session 33 discovered servo backlash was absorbing calf swing (initially estimated ~30°). Updated measurement (2026-01-03) indicates ~10° dead zone.
 Session 34 increased calf amplitude to 50° to exceed backlash zone.
 
 **Changes Applied**:
@@ -171,7 +171,7 @@ Session 34 increased calf amplitude to 50° to exceed backlash zone.
 
 ### Session 33: Hardware Walking Test & Backlash Discovery (RPi)
 
-**Critical Finding**: ~30° servo backlash on direction reversals.
+**Critical Finding (updated)**: Measured servo backlash dead zone is ~10° (2026-01-03). Earlier ~30° estimate was incorrect.
 - Feet never lifted with old gait
 - Robot shuffled by pushing, not stepping
 - Servos strong under load, issue is only at direction changes

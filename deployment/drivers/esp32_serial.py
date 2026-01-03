@@ -152,6 +152,12 @@ class ESP32Interface:
                         self.serial.timeout = old_timeout
                         print(f"ESP32 connected on {self.cfg.port}")
                         return True
+                    if line.startswith("TELEM,") or "STATUS,STARTED" in line or "STATUS,STOPPED" in line:
+                        # If the firmware is already streaming, treat it as ready.
+                        self.serial.timeout = old_timeout
+                        self._streaming = line.startswith("TELEM,") or "STATUS,STARTED" in line
+                        print(f"ESP32 streaming detected on {self.cfg.port}")
+                        return True
                 except Exception:
                     pass
             print(f"Handshake attempt {attempt + 1}/{retry_count} failed")

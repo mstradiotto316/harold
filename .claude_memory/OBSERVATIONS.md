@@ -28,10 +28,16 @@
 
 ## Technical Observations
 
+### Backlash Measurement Update (2026-01-03)
+Measured servo dead zone is ~10° (not ~30° as previously reported). Treat older 30° references as historical context; update any sim-to-real calibration based on the new value.
+
 ### Simulation Performance
 - Boot time: ~14s (acceptable for long training runs)
 - Training speed: ~12 it/s with 1 env, scales with num_envs
 - Checkpoint size: ~770KB-2.3MB per save
+
+### Hardware Telemetry Update
+- Session logs now include `cmd_pos_*` columns (commanded joint targets) to compare against measured positions.
 
 ### Log Analysis Insights
 - TensorBoard logs available for all runs

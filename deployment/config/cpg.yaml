@@ -12,6 +12,8 @@ trajectory:
   stance_calf: -0.87     # Session 36: 50 deg hardware -> -50 deg sim
   swing_calf: -1.3963    # Session 36: 80 deg hardware -> -80 deg sim
   shoulder_amplitude: 0.0096  # Session 36: 0.55 deg hardware -> 0.0096 rad sim
+  thigh_offset_front: 0.05    # Bias front thighs forward (rad)
+  thigh_offset_back: -0.05    # Bias rear thighs back (rad)
 
 # Residual learning
 residual_scale: 0.05     # Low residual to preserve hardware gait
@@ -35,8 +37,8 @@ joint_range:
 # Hardware default pose (servo encoder readings at athletic stance)
 hw_default_pose:
   shoulders: 0.0         # All shoulders at 0 rad
-  thighs: 0.3            # All thighs at 0.3 rad
-  calves: -0.75          # All calves at -0.75 rad
+  thighs: 0.40           # Tuned stance: foot under shoulder
+  calves: -0.74          # Tuned stance: foot under shoulder
 
 # RL default pose (simulation training convention)
 rl_default_pose:
@@ -44,12 +46,12 @@ rl_default_pose:
   shoulder_fr: 0.0
   shoulder_bl: 0.0
   shoulder_br: 0.0
-  thighs: 0.70           # RL thighs at 0.70 rad
-  calves: -1.39          # RL calves at -1.39 rad
+  thighs: 0.60           # Tuned stance: foot under shoulder
+  calves: -1.40          # Tuned stance: foot under shoulder
 
 # Joint sign for convention conversion (RL <-> Hardware)
 # Multiply relative positions by this to convert: rl_rel = hw_rel * joint_sign
 joint_sign:
-  shoulders: 1.0         # Same direction
+  shoulders: [1.0, -1.0, 1.0, -1.0]  # FL, FR, BL, BR (mirror right side)
   thighs: -1.0           # Inverted
   calves: -1.0           # Inverted

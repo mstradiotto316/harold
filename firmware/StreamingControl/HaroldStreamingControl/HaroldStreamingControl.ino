@@ -39,8 +39,8 @@ const float JOINT_SIGN[12] = {
 // --- Control parameters -----------------------------------------------------
 const float DEFAULT_POSE[12] = {
   0.0f, 0.0f, 0.0f, 0.0f,
-  0.3f, 0.3f, 0.3f, 0.3f,
- -0.75f,-0.75f,-0.75f,-0.75f
+  0.40f, 0.40f, 0.40f, 0.40f,
+ -0.74f,-0.74f,-0.74f,-0.74f
 };
 
 // Collision-safe limits (based on actual robot geometry, not servo limits)

@@ -38,7 +38,7 @@ joint_range:
 hw_default_pose:
   shoulders: 0.0         # All shoulders at 0 rad
   thighs: 0.40           # Tuned stance: foot under shoulder
-  calves: -0.74          # Tuned stance: foot under shoulder
+  calves: -1.05          # Tuned stance: foot under shoulder
 
 # RL default pose (simulation training convention)
 rl_default_pose:

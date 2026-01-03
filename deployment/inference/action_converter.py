@@ -301,15 +301,6 @@ class ActionConverter:
             clamped[i] = np.clip(targets[i], lo, hi)
         return clamped
 
-    def apply_joint_sign(self, targets: np.ndarray) -> np.ndarray:
-        """DEPRECATED: Use rl_to_hardware() instead.
-
-        Simple sign flip doesn't account for offset differences.
-        """
-        import warnings
-        warnings.warn("apply_joint_sign is deprecated, use rl_to_hardware", DeprecationWarning)
-        return targets * self.cfg.joint_sign
-
     def reset(self) -> None:
         """Reset action smoothing state."""
         self._smooth_action = None

@@ -31,18 +31,21 @@ Robot Assets and Actuators
 
 - Flat (tasks/direct/harold_flat/harold.py)
   - USD: part_files/V4/harold_8.usd
-  - Init pose: body z=0.22; thighs 0.3 rad; calves -0.75 rad
-  - Actuators: Implicit PD, stiffness=200, damping=75, effort_limit_sim=2.0
+  - Init pose: body z=0.30; thighs 0.70 rad; calves -1.39 rad
+  - Actuators: Implicit PD, stiffness=400, damping=150, effort_limit_sim=2.8
 
 - Rough (tasks/direct/harold_rough/harold.py)
   - USD: part_files/V4/harold_8.usd
-  - Init pose: body z=0.20; thighs 0.3 rad; calves -0.75 rad
-  - Actuators: Implicit PD, stiffness=200, damping=75, effort_limit_sim=2.0
+  - Init pose: body z=0.20; thighs 0.30 rad; calves -0.75 rad
+  - Actuators: Implicit PD, stiffness=400, damping=150, effort_limit_sim=2.8
 
 - Pushup (tasks/direct/harold_pushup/harold.py)
   - USD: part_files/V4/harold_8.usd
-  - Init pose: all joints 0.0
-  - Actuators: Implicit PD, stiffness=400, damping=75, effort_limit_sim=2.0
+  - Init pose: body z=0.20; all joints 0.0
+  - Actuators: Implicit PD, stiffness=400, damping=150, effort_limit_sim=2.8
+
+Actuator defaults can be overridden with environment variables:
+`HAROLD_ACTUATOR_STIFFNESS`, `HAROLD_ACTUATOR_DAMPING`, `HAROLD_ACTUATOR_EFFORT_LIMIT`.
 
 Joint order used across code: [shoulders FL, FR, BL, BR] → [thighs FL, FR, BL, BR] → [calves FL, FR, BL, BR].
 
@@ -133,11 +136,11 @@ Notes and Gotchas
 - Terrain curriculum in rough task is configured but max_init_terrain_level is currently 2.
 - Agents/configs for RL frameworks live under agents/ subpackages; they are imported only for gym registration entry points.
 
-Quick Start (examples from comments)
+Quick Start (preferred via Harold CLI)
 
-- Train flat: python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1024
-- Train rough: python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-rough-terrain-v0 --num_envs 1024
-- Pushup playback (1 env): python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-pushup-v0 --num_envs 1
+- Train flat: python scripts/harold.py train
+- Train rough: python scripts/harold.py train --task rough
+- Pushup playback (1 env): python scripts/harold.py train --task pushup
 - Log single-env replay for hardware tests: `HAROLD_POLICY_LOG_DIR=deployment_artifacts/terrain_64_2/sim_logs python harold_isaac_lab/scripts/skrl/play.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1 --checkpoint=logs/skrl/harold_direct/terrain_64_2/checkpoints/best_agent.pt --max_steps 200` (flat env holds 0.4 m/s forward command when logging variable is set, producing JSONL observations/actions).
 
 Isaac Lab Documentation Links
@@ -166,7 +169,7 @@ These are the physical robot targets used for sim-to-real context. They are not 
   - Torque: 30 kg·cm (2.94 Nm) max @12V; TTL serial 1 Mbps
   - Speed: 45 RPM max (4.71 rad/s) @12V
   - Feedback: position, velocity, load, temperature; built‑in limits
-  - Note: Simulation uses effort_limit=2.0 Nm (conservative margin below hardware max)
+- Note: Simulation uses effort_limit=2.8 Nm (95% of hardware max)
 - Controller
   - ESP32 MCU; host <-> ESP32 over USB serial 115200 baud
   - Control loop: ~200 Hz on MCU; safety monitoring and E‑stop support

@@ -1,30 +1,6 @@
-"""
-# WHEN USING SKRL TRAINING LIBRARY
-Train model:
-python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1024
-HAROLD_PHASE0_FORWARD=1 python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1024
+"""Harold flat-terrain robot asset.
 
-Train model in headless mode with video recording:
-python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 4096 --headless --video --video_length 250 --video_interval 6400
-HAROLD_PHASE0_FORWARD=1 python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 4096 --headless --video --video_length 250 --video_interval 6400
-
-Resume training from checkpoint:
-python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 4096 --checkpoint=/home/matteo/Desktop/code_projects/harold/logs/skrl/harold_direct/terrain_10/checkpoints/best_agent.pt --headless --video --video_length 250 --video_interval 6400
-
-Play back from checkpoint:
-python harold_isaac_lab/scripts/skrl/play.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 16 --checkpoint=/home/matteo/Desktop/code_projects/harold/logs/skrl/harold_direct/terrain_17/checkpoints/best_agent.pt 
-
-Record single-env trajectory with logging (JSONL at policy rate):
-HAROLD_POLICY_LOG_DIR=deployment_artifacts/terrain_64_2/sim_logs python harold_isaac_lab/scripts/skrl/play.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1 --checkpoint=/home/matteo/Desktop/code_projects/harold/logs/skrl/harold_direct/terrain_64_2/checkpoints/best_agent.pt
-
-
-"""
-
-
-"""
-Start Tensorboard:
-source ~/Desktop/env_isaaclab/bin/activate
-python3 -m tensorboard.main --logdir logs/skrl/harold_direct/ --bind_all
+Training and monitoring should use `scripts/harold.py` (see `CLAUDE.md`).
 """
 
 
@@ -35,6 +11,17 @@ from isaaclab.assets.articulation import ArticulationCfg
 from isaaclab.sensors import ContactSensorCfg
 import os
 from pathlib import Path
+
+# Allow quick actuator sweeps without code changes.
+def _env_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        print(f"WARNING: Invalid {name}='{value}', using default {default}.")
+        return default
 
 # Determine the project root directory
 try:
@@ -57,6 +44,10 @@ if not USD_FILE_PATH.exists():
         f"Please ensure the part_files directory is at the project root.\n"
         f"You can also set HAROLD_PROJECT_ROOT environment variable to the project root directory."
     )
+
+ACTUATOR_EFFORT_LIMIT = _env_float("HAROLD_ACTUATOR_EFFORT_LIMIT", 2.8)
+ACTUATOR_STIFFNESS = _env_float("HAROLD_ACTUATOR_STIFFNESS", 400.0)
+ACTUATOR_DAMPING = _env_float("HAROLD_ACTUATOR_DAMPING", 150.0)
 
 # robot
 HAROLD_V4_CFG = ArticulationCfg(
@@ -104,15 +95,11 @@ HAROLD_V4_CFG = ArticulationCfg(
     actuators={
         "all_joints": ImplicitActuatorCfg(
             joint_names_expr=[".*"],
-            # FeeTech ST3215 servo: max 2.94 Nm @ 12V
-            # Session 22: Real robot has more "give" than sim with stiffness=1200
-            # Session 24: RESTORED to 400/30 for sim-to-real alignment
-            # Session 35: Increased damping for smooth gait
-            # Sweep results: 125-150 best vx, >175 = standing only
-            # CPG provides walking structure, policy adds balance corrections
-            effort_limit_sim=2.8,
-            stiffness=400.0,   # Sim-to-real aligned (Session 22 validated on hardware)
-            damping=150.0,     # Session 35 BEST: 150 gives vx=0.036
+            # FeeTech ST3215 servo: max 2.94 Nm @ 12V.
+            # Defaults target a stable baseline; override via HAROLD_ACTUATOR_* for sweeps.
+            effort_limit_sim=ACTUATOR_EFFORT_LIMIT,
+            stiffness=ACTUATOR_STIFFNESS,
+            damping=ACTUATOR_DAMPING,
         ),
     },
 )

@@ -1,28 +1,6 @@
-"""
-# WHEN USING SKRL TRAINING LIBRARY
+"""Harold rough-terrain robot asset.
 
-Train model:
-python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-rough-terrain-v0 --num_envs 1024
-
-Train model in headless mode with video recording:
-python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-rough-terrain-v0 --num_envs 4096 --headless --video --video_length 250 --video_interval 6400
-
-Resume training from checkpoint:
-python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-rough-terrain-v0 --num_envs 4096 --checkpoint=/home/matteo/Desktop/code_projects/harold/logs/skrl/harold_direct/terrain_10/checkpoints/best_agent.pt --headless --video --video_length 250 --video_interval 6400
-
-Play back from checkpoint:
-python harold_isaac_lab/scripts/skrl/play.py --task=Template-Harold-Direct-rough-terrain-v0 --num_envs 16 --checkpoint=/home/matteo/Desktop/code_projects/harold/logs/skrl/harold_direct/terrain_17/checkpoints/best_agent.pt 
-
-Record single-env trajectory with logging (JSONL at policy rate):
-HAROLD_POLICY_LOG_DIR=deployment_artifacts/terrain_64_2/sim_logs python harold_isaac_lab/scripts/skrl/play.py --task=Template-Harold-Direct-rough-terrain-v0 --num_envs 1 --checkpoint=/home/matteo/Desktop/code_projects/harold/logs/skrl/harold_direct/terrain_64_2/checkpoints/best_agent.pt
-
-"""
-
-
-"""
-Start Tensorboard:
-source ~/Desktop/env_isaaclab/bin/activate
-python3 -m tensorboard.main --logdir logs/skrl/harold_direct/ --bind_all
+Training and monitoring should use `scripts/harold.py` (see `CLAUDE.md`).
 """
 
 
@@ -33,6 +11,17 @@ from isaaclab.assets.articulation import ArticulationCfg
 from isaaclab.sensors import ContactSensorCfg
 import os
 from pathlib import Path
+
+# Allow quick actuator sweeps without code changes.
+def _env_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        print(f"WARNING: Invalid {name}='{value}', using default {default}.")
+        return default
 
 # Determine the project root directory
 try:
@@ -55,6 +44,10 @@ if not USD_FILE_PATH.exists():
         f"Please ensure the part_files directory is at the project root.\n"
         f"You can also set HAROLD_PROJECT_ROOT environment variable to the project root directory."
     )
+
+ACTUATOR_EFFORT_LIMIT = _env_float("HAROLD_ACTUATOR_EFFORT_LIMIT", 2.8)
+ACTUATOR_STIFFNESS = _env_float("HAROLD_ACTUATOR_STIFFNESS", 400.0)
+ACTUATOR_DAMPING = _env_float("HAROLD_ACTUATOR_DAMPING", 150.0)
 
 # robot
 HAROLD_V4_CFG = ArticulationCfg(
@@ -99,9 +92,9 @@ HAROLD_V4_CFG = ArticulationCfg(
     actuators={
         "all_joints": ImplicitActuatorCfg(
             joint_names_expr=[".*"],
-            effort_limit_sim=2.0, #1.0,  #2.5,
-            stiffness=200.0, #750,
-            damping=75.0, #100.0,
+            effort_limit_sim=ACTUATOR_EFFORT_LIMIT,
+            stiffness=ACTUATOR_STIFFNESS,
+            damping=ACTUATOR_DAMPING,
         ),
     },
 )

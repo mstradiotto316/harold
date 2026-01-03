@@ -54,6 +54,8 @@ Hardware-validated parameters are too conservative for simulation:
 
 **Solution**: Train in sim with original params, apply amplitude scaling at deployment.
 
+**Update (2026-01-03)**: Measured servo backlash dead zone is ~10° (previous 30° estimate was incorrect). Revisit any gait amplitude or backlash assumptions accordingly.
+
 ---
 
 ## REFERENCE: Hardware-Validated Gait Parameters (Session 36 RPi)

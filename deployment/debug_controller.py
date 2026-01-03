@@ -104,9 +104,15 @@ def main():
             else:
                 action = np.zeros(12, dtype=np.float32)
 
-            targets = action_conv.compute(cpg_targets, action, use_cpg=True)
-            obs_builder.update_prev_actions(action)
-            esp32.send_targets(targets)
+            rl_targets, hw_targets = action_conv.compute(cpg_targets, action, use_cpg=True)
+            prev_targets_training_mean = running_mean[36:48]
+            obs_builder.update_prev_target_delta(
+                rl_targets,
+                action_conv.get_hw_default_pose(),
+                training_mean=prev_targets_training_mean,
+                blend_factor=0.1,
+            )
+            esp32.send_targets(hw_targets)
 
             loop_count += 1
 

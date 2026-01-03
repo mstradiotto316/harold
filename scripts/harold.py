@@ -10,6 +10,16 @@ Usage:
     harold train --hypothesis "Higher backward penalty prevents regression" \
                  --tags "forward_motion,regression"
 
+    # Use duration presets (short/standard/long)
+    harold train --duration standard
+
+    # Run scripted gait or CPG modes
+    harold train --mode scripted
+    harold train --mode cpg
+
+    # Train a different task
+    harold train --task rough
+
     # Check current status (state-only, no prescriptive suggestions)
     harold status                   # Current run with metrics
     harold status --json            # Machine-readable output
@@ -42,6 +52,7 @@ Exit Codes:
 import argparse
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -60,6 +71,29 @@ WATCHDOG_PID_FILE = Path("/tmp/harold_watchdog.pid")
 WATCHDOG_LOG_FILE = Path("/tmp/harold_watchdog.log")
 WATCHDOG_KILL_MARKER = Path("/tmp/harold_watchdog_killed.json")
 ENV_PATH = Path.home() / "Desktop" / "env_isaaclab" / "bin" / "activate"
+RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_ppo_")
+
+# Training defaults (single source of truth for run configuration)
+TASK_IDS = {
+    'flat': 'Template-Harold-Direct-flat-terrain-v0',
+    'rough': 'Template-Harold-Direct-rough-terrain-v0',
+    'pushup': 'Template-Harold-Direct-pushup-v0',
+}
+DEFAULT_TASK = 'flat'
+TRAINING_DEFAULTS = {
+    'num_envs': 8192,
+    'video_interval': 3200,
+    'video_length': 250,
+    'rendering_mode': 'performance',
+}
+DURATION_PRESETS = {
+    'short': 1250,     # ~30 minutes
+    'standard': 2500,  # ~60 minutes
+    'long': 4167,      # ~100 minutes
+}
+DEFAULT_DURATION = 'short'
+MODE_CHOICES = ('rl', 'cpg', 'scripted')
+DATA_POINTS_TAG = 'Info / Episode_Metric/vx_w_mean'
 
 # Memory safety (prevents OOM-induced system hangs)
 # Only intervene at truly dangerous levels to avoid interrupting legitimate training
@@ -74,17 +108,29 @@ SWAP_KILL_THRESHOLD = 70  # Kill only when swap heavily used (thrashing imminent
 class MetricSpec:
     """Specification for a training metric."""
     key: str                # Internal key used in dicts
-    tensorboard_tag: str    # TensorBoard scalar tag path
+    tensorboard_tag: str | tuple[str, ...]    # TensorBoard scalar tag path(s)
     threshold: float        # Pass threshold value
     compare_gt: bool        # True = value > threshold is PASS
     display_name: str       # Human-readable name for output
 
+@dataclass
+class AuxMetricSpec:
+    """Specification for auxiliary metrics (no thresholds)."""
+    key: str
+    tensorboard_tag: str | tuple[str, ...]
+    display_name: str
+
 METRICS = [
     MetricSpec('episode_length', 'Episode / Total timesteps (mean)', 300, True, 'Episode Length'),  # Session 35: raised from 100 (15s minimum for stable walking)
     MetricSpec('upright_mean', 'Info / Episode_Metric/upright_mean', 0.9, True, 'Upright Mean'),
-    MetricSpec('height_reward', 'Info / Episode_Reward/height_reward', 0.5, True, 'Height Reward'),  # Session 24: lowered from 1.2 (CPG gait has different natural height)
-    MetricSpec('body_contact', 'Info / Episode_Reward/body_contact_penalty', -0.1, True, 'Body Contact'),
+    MetricSpec('height_reward', ('Info / Episode_Reward/height_reward', 'Info / Episode_Metric/height_reward'), 0.5, True, 'Height Reward'),  # Session 24: lowered from 1.2 (CPG gait has different natural height)
+    MetricSpec('body_contact', ('Info / Episode_Reward/body_contact_penalty', 'Info / Episode_Metric/body_contact_penalty'), -0.1, True, 'Body Contact'),
     MetricSpec('vx_w_mean', 'Info / Episode_Metric/vx_w_mean', 0.01, True, 'Forward Velocity'),  # Session 24: lowered from 0.1 (slow controlled gait is acceptable)
+]
+
+AUX_METRICS = [
+    AuxMetricSpec('x_displacement', 'Info / Episode_Metric/x_displacement', 'X Displacement'),
+    AuxMetricSpec('x_displacement_abs', 'Info / Episode_Metric/x_displacement_abs', 'Abs X Displacement'),
 ]
 
 # Derived lookups (computed once at import time)
@@ -117,9 +163,20 @@ def get_latest_run() -> Path | None:
         return None
     runs = sorted([
         d for d in LOG_DIR.iterdir()
-        if d.is_dir() and '2025-' in d.name
+        if d.is_dir() and RUN_DIR_PATTERN.match(d.name)
     ])
     return runs[-1] if runs else None
+
+
+def wait_for_new_run(previous: Path | None, timeout_s: int = 600) -> Path | None:
+    """Wait for a new run directory to appear after training starts."""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        latest = get_latest_run()
+        if latest and (previous is None or latest.name != previous.name):
+            return latest
+        time.sleep(2)
+    return get_latest_run()
 
 
 def get_metrics(run_path: Path) -> dict:
@@ -134,28 +191,39 @@ def get_metrics(run_path: Path) -> dict:
     except Exception:
         return {}
 
-    def avg_last(tag: str, n: int = 10) -> float | None:
-        try:
-            scalars = ea.Scalars(tag)
+    def _as_tags(tags: str | tuple[str, ...]) -> list[str]:
+        if isinstance(tags, (list, tuple)):
+            return list(tags)
+        return [tags]
+
+    def avg_last(tags: str | tuple[str, ...], n: int = 10) -> float | None:
+        for tag in _as_tags(tags):
+            try:
+                scalars = ea.Scalars(tag)
+            except KeyError:
+                continue
             if not scalars:
-                return None
+                continue
             last_n = scalars[-n:]
             return sum(s.value for s in last_n) / len(last_n)
-        except KeyError:
-            return None
+        return None
 
-    def get_count(tag: str) -> int:
-        try:
-            return len(ea.Scalars(tag))
-        except KeyError:
-            return 0
+    def get_count(tags: str | tuple[str, ...]) -> int:
+        for tag in _as_tags(tags):
+            try:
+                return len(ea.Scalars(tag))
+            except KeyError:
+                continue
+        return 0
 
-    # Extract all metrics from METRICS spec
+    # Extract metrics from spec lists
     result = {spec.key: avg_last(spec.tensorboard_tag) for spec in METRICS}
+    for spec in AUX_METRICS:
+        result[spec.key] = avg_last(spec.tensorboard_tag)
 
     # Add derived metrics (not in METRICS spec)
     result['reward_total'] = avg_last('Reward / Total reward (mean)')
-    result['data_points'] = get_count(METRICS[-1].tensorboard_tag)  # Use last metric for count
+    result['data_points'] = get_count(DATA_POINTS_TAG)
 
     return result
 
@@ -371,7 +439,7 @@ def get_recent_experiments(n: int = 5) -> list[str]:
 
     runs = sorted([
         d for d in LOG_DIR.iterdir()
-        if d.is_dir() and '2025-' in d.name
+        if d.is_dir() and RUN_DIR_PATTERN.match(d.name)
     ])
 
     # Get aliases for runs that have them, or directory names
@@ -477,6 +545,10 @@ def is_training_running() -> TrainingStatus:
         elapsed = float(result.stdout.strip()) if result.returncode == 0 else None
         return TrainingStatus(running=True, pid=pid, elapsed_seconds=elapsed)
     except (ProcessLookupError, ValueError):
+        try:
+            PID_FILE.unlink()
+        except FileNotFoundError:
+            pass
         return TrainingStatus(running=False)
 
 
@@ -605,7 +677,12 @@ def get_training_rate() -> tuple[float | None, float | None]:
 
 # === SUBCOMMANDS ===
 
-def build_train_command(num_envs: int, iterations: int, checkpoint: str | None = None) -> list[str]:
+def build_train_command(
+    num_envs: int,
+    iterations: int,
+    task_id: str,
+    checkpoint: str | None = None,
+) -> list[str]:
     """Build the Isaac Lab training command.
 
     Encapsulates command construction and benchmark-based defaults.
@@ -619,14 +696,14 @@ def build_train_command(num_envs: int, iterations: int, checkpoint: str | None =
     #  16384 envs:  8.7 it/s, 3.43M samples/s, GPU 7.6GB, RAM 11GB  <- MAX THROUGHPUT
     cmd = [
         'python', str(PROJECT_ROOT / 'harold_isaac_lab' / 'scripts' / 'skrl' / 'train.py'),
-        '--task=Template-Harold-Direct-flat-terrain-v0',
+        f'--task={task_id}',
         '--num_envs', str(num_envs),
         '--max_iterations', str(iterations),
         '--headless',
-        '--rendering_mode', 'performance',
+        '--rendering_mode', TRAINING_DEFAULTS['rendering_mode'],
         '--video',
-        '--video_interval', '3200',
-        '--video_length', '250',
+        '--video_interval', str(TRAINING_DEFAULTS['video_interval']),
+        '--video_length', str(TRAINING_DEFAULTS['video_length']),
     ]
     if checkpoint:
         cmd.extend(['--checkpoint', str(checkpoint)])
@@ -661,14 +738,48 @@ def cmd_train(args):
         print(f"Kill it: kill {train_status.pid}")
         return 1
 
+    existing_processes = find_training_processes()
+    if existing_processes:
+        print("ERROR: Found existing training processes not tracked by PID file.")
+        for proc in existing_processes:
+            elapsed_str = format_elapsed(proc['elapsed'])
+            print(f"  PID {proc['pid']} (running {elapsed_str})")
+        print("Run: harold stop")
+        return 1
+
     # Parse arguments with defaults
-    num_envs = getattr(args, 'num_envs', 6144) or 6144
-    iterations = args.iterations or 1250
+    task_key = getattr(args, 'task', DEFAULT_TASK) or DEFAULT_TASK
+    if task_key not in TASK_IDS:
+        print(f"ERROR: Unknown task '{task_key}'. Valid: {', '.join(TASK_IDS.keys())}")
+        return 1
+    task_id = TASK_IDS[task_key]
+
+    if args.iterations and args.duration:
+        print("ERROR: Use either --iterations or --duration, not both.")
+        return 1
+
+    if args.iterations:
+        iterations = args.iterations
+        duration_label = None
+    else:
+        duration_label = args.duration or DEFAULT_DURATION
+        iterations = DURATION_PRESETS[duration_label]
+
+    if getattr(args, 'num_envs', None) is None:
+        num_envs = 1 if task_key == 'pushup' else TRAINING_DEFAULTS['num_envs']
+    else:
+        num_envs = args.num_envs
+
     hypothesis = getattr(args, 'hypothesis', '') or ''
     tags = [t.strip() for t in args.tags.split(',') if t.strip()] if getattr(args, 'tags', None) else []
 
+    mode = args.mode
+
+    # Capture latest run before launch (used to detect new run directory)
+    previous_run = get_latest_run()
+
     # Build command
-    cmd = build_train_command(num_envs, iterations, args.checkpoint)
+    cmd = build_train_command(num_envs, iterations, task_id, args.checkpoint)
 
     # Clear old log and kill marker
     LOG_FILE.write_text('')
@@ -676,18 +787,32 @@ def cmd_train(args):
 
     # Print startup info
     print(f"Starting Harold training in background...")
-    print(f"  Iterations: {iterations}")
+    print(f"  Task: {task_key}")
+    if duration_label:
+        print(f"  Duration: {duration_label} ({iterations} iterations)")
+    else:
+        print(f"  Iterations: {iterations}")
     print(f"  Environments: {num_envs}")
     print(f"  Video recording: enabled")
     if args.checkpoint:
         print(f"  Checkpoint: {args.checkpoint}")
+    print(f"  Mode: {mode}")
+    if getattr(args, 'gait_scale', None) is not None:
+        print(f"  Gait scale: {args.gait_scale}")
 
     # Launch training in background
-    # Add environment variable prefix if CPG mode is enabled
-    env_prefix = ""
-    if getattr(args, 'cpg', False):
-        env_prefix = "HAROLD_CPG=1 "
-        print(f"  CPG Mode: enabled (Phase 2 structured action space)")
+    # Build environment variable prefix (explicitly overrides inherited env)
+    env_vars = {
+        "HAROLD_CPG": "1" if mode == "cpg" else "0",
+        "HAROLD_SCRIPTED_GAIT": "1" if mode == "scripted" else "0",
+    }
+    if getattr(args, 'gait_scale', None) is not None:
+        env_vars["HAROLD_GAIT_AMP_SCALE"] = str(args.gait_scale)
+    else:
+        env_vars["HAROLD_GAIT_AMP_SCALE"] = ""
+    env_prefix = " ".join(f"{k}={v}" for k, v in env_vars.items())
+    if env_prefix:
+        env_prefix += " "
 
     shell_cmd = f"source {ENV_PATH} && cd {PROJECT_ROOT} && {env_prefix}{' '.join(cmd)} > {LOG_FILE} 2>&1 &"
     process = subprocess.Popen(
@@ -708,13 +833,19 @@ def cmd_train(args):
         if start_watchdog(pid_val):
             print(f"  Memory watchdog: active (kills at RAM>{RAM_KILL_THRESHOLD}% or Swap>{SWAP_KILL_THRESHOLD}%)")
 
-    # Register experiment with training config
-    run_path = get_latest_run()
+    # Register experiment with training config (wait for new run directory)
+    run_path = wait_for_new_run(previous_run)
     if run_path:
         training_config = {
             'num_envs': num_envs,
             'iterations': iterations,
+            'task': task_key,
+            'mode': mode,
         }
+        if duration_label:
+            training_config['duration'] = duration_label
+        if getattr(args, 'gait_scale', None) is not None:
+            training_config['gait_scale'] = args.gait_scale
         alias = register_experiment(
             run_path,
             hypothesis=hypothesis,
@@ -761,12 +892,15 @@ def cmd_status(args):
             'iterations_per_second': get_training_rate()[0] if train_status.running else None,
             'iterations_per_second_avg': get_training_rate()[1] if train_status.running else None,
             'killed_by_watchdog': None,
+            'orphan_pids': [],
         }
         # Check if watchdog killed training
         if not train_status.running:
             kill_info = get_kill_info()
             if kill_info:
                 result['killed_by_watchdog'] = kill_info
+            else:
+                result['orphan_pids'] = [p['pid'] for p in find_training_processes()]
         if run_path:
             result['metrics'] = get_metrics(run_path)
             diag = get_diagnosis(result['metrics'])
@@ -785,6 +919,19 @@ def cmd_status(args):
             print(f"RUN: {run_path.name}")
         if manifest and manifest.get('hypothesis'):
             print(f"HYPOTHESIS: {manifest['hypothesis']}")
+        if manifest and manifest.get('training_config'):
+            cfg = manifest['training_config']
+            config_parts = []
+            if cfg.get('task'):
+                config_parts.append(f"task={cfg['task']}")
+            if cfg.get('mode'):
+                config_parts.append(f"mode={cfg['mode']}")
+            if cfg.get('duration'):
+                config_parts.append(f"duration={cfg['duration']}")
+            if cfg.get('gait_scale') is not None:
+                config_parts.append(f"gait_scale={cfg['gait_scale']}")
+            if config_parts:
+                print(f"CONFIG: {', '.join(config_parts)}")
     else:
         print("RUN: (none)")
 
@@ -827,7 +974,12 @@ def cmd_status(args):
             else:
                 print(f"STATUS: KILLED_BY_WATCHDOG ({reason})")
         else:
-            print("STATUS: NOT RUNNING")
+            orphans = find_training_processes()
+            if orphans:
+                pids = ", ".join(str(p['pid']) for p in orphans)
+                print(f"STATUS: ORPHAN (pids={pids})")
+            else:
+                print("STATUS: NOT RUNNING")
 
     # Get metrics
     if run_path:
@@ -866,6 +1018,14 @@ def cmd_status(args):
             print(f"WALKING: {status} (vx={vx:.3f}, need >{vx_spec.threshold})")
         else:
             print("WALKING: (no data)")
+
+        x_disp = metrics.get('x_displacement')
+        x_disp_abs = metrics.get('x_displacement_abs')
+        if x_disp is not None:
+            if x_disp_abs is not None:
+                print(f"DISPLACEMENT: x={x_disp:.3f} (|x|={x_disp_abs:.3f})")
+            else:
+                print(f"DISPLACEMENT: x={x_disp:.3f}")
 
         # Diagnosis (state-only, no NEXT field)
         diag = get_diagnosis(metrics)
@@ -917,6 +1077,16 @@ def cmd_validate(args):
         val = metrics.get(spec.key)
         print(format_metric_line(spec.key, val))
 
+    if AUX_METRICS:
+        print()
+        print("AUX METRICS:")
+        for spec in AUX_METRICS:
+            val = metrics.get(spec.key)
+            if val is None:
+                print(f"  {spec.display_name}: (no data)")
+            else:
+                print(f"  {spec.display_name}: {val:.4f}")
+
     print()
     diag = get_diagnosis(metrics)
     print(f"VERDICT: {diag.status}")
@@ -933,7 +1103,7 @@ def cmd_runs(args):
 
     runs = sorted([
         d for d in LOG_DIR.iterdir()
-        if d.is_dir() and '2025-' in d.name
+        if d.is_dir() and RUN_DIR_PATTERN.match(d.name)
     ])
 
     if not runs:
@@ -1173,13 +1343,16 @@ def main():
 
     # train
     train_parser = subparsers.add_parser('train', help='Start training in background')
-    train_parser.add_argument('--iterations', type=int, help='Max iterations (default: 1250 = ~30 min)')
+    train_parser.add_argument('--task', choices=sorted(TASK_IDS.keys()), default=DEFAULT_TASK, help='Task to train (default: flat)')
+    train_parser.add_argument('--duration', choices=sorted(DURATION_PRESETS.keys()), help='Duration preset: short (~30m), standard (~60m), long (~100m) (default: short)')
+    train_parser.add_argument('--iterations', type=int, help='Max iterations (advanced override)')
     train_parser.add_argument('--checkpoint', type=str, help='Resume from checkpoint')
     train_parser.add_argument('--hypothesis', type=str, help='Hypothesis being tested (stored with experiment)')
     train_parser.add_argument('--tags', type=str, help='Comma-separated tags for categorization')
     train_parser.add_argument('--no-watchdog', action='store_true', help='Disable memory watchdog (not recommended)')
-    train_parser.add_argument('--num-envs', type=int, default=8192, help='Number of environments (default: 8192)')
-    train_parser.add_argument('--cpg', action='store_true', help='Enable CPG mode (Phase 2 structured action space)')
+    train_parser.add_argument('--num-envs', type=int, default=None, help='Number of environments (advanced override; default: 8192, pushup: 1)')
+    train_parser.add_argument('--mode', choices=MODE_CHOICES, default='rl', help='Control mode: rl, cpg, scripted (default: rl)')
+    train_parser.add_argument('--gait-scale', type=float, help='Scale scripted/CPG gait amplitude (diagnostic)')
 
     # status
     status_parser = subparsers.add_parser('status', help='Check training status and metrics')

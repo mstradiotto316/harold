@@ -88,11 +88,17 @@ def main():
         action_raw = outputs[0][0]
 
         # Compute targets
-        targets = action_conv.compute(cpg_targets, action_raw, use_cpg=True)
+        rl_targets, hw_targets = action_conv.compute(cpg_targets, action_raw, use_cpg=True)
 
         # Send to robot
-        esp32.send_targets(targets)
-        obs_builder.update_prev_targets(targets)
+        esp32.send_targets(hw_targets)
+        prev_targets_training_mean = running_mean[36:48]
+        obs_builder.update_prev_target_delta(
+            rl_targets,
+            action_conv.get_hw_default_pose(),
+            training_mean=prev_targets_training_mean,
+            blend_factor=0.1,
+        )
 
         loop_count += 1
 

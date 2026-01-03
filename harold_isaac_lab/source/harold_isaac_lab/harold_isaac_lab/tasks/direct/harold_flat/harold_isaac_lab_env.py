@@ -90,6 +90,31 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             print("=" * 60)
         cfg.observation_space = 50 if cfg.cpg.enabled else 48
 
+        # Optional gait amplitude scaling (for sim↔hardware mismatch diagnostics)
+        amp_scale_env = os.getenv("HAROLD_GAIT_AMP_SCALE")
+        if amp_scale_env:
+            try:
+                amp_scale = float(amp_scale_env)
+                if amp_scale <= 0:
+                    raise ValueError("scale must be > 0")
+                def _scale_gait(gait_cfg):
+                    thigh_mid = (gait_cfg.stance_thigh + gait_cfg.swing_thigh) / 2.0
+                    thigh_amp = (gait_cfg.swing_thigh - gait_cfg.stance_thigh) / 2.0
+                    calf_mid = (gait_cfg.stance_calf + gait_cfg.swing_calf) / 2.0
+                    calf_amp = (gait_cfg.swing_calf - gait_cfg.stance_calf) / 2.0
+                    gait_cfg.swing_thigh = thigh_mid + thigh_amp * amp_scale
+                    gait_cfg.stance_thigh = thigh_mid - thigh_amp * amp_scale
+                    gait_cfg.swing_calf = calf_mid + calf_amp * amp_scale
+                    gait_cfg.stance_calf = calf_mid - calf_amp * amp_scale
+                    gait_cfg.shoulder_amplitude = gait_cfg.shoulder_amplitude * amp_scale
+                _scale_gait(cfg.scripted_gait)
+                _scale_gait(cfg.cpg)
+                print("=" * 60)
+                print(f"GAIT AMPLITUDE SCALE ENABLED: {amp_scale}x")
+                print("=" * 60)
+            except ValueError:
+                print(f"WARNING: Invalid HAROLD_GAIT_AMP_SCALE='{amp_scale_env}', ignoring.")
+
         # Command tracking mode (for controllability)
         if os.getenv("HAROLD_CMD_TRACK", "0") == "1":
             print("=" * 60)
@@ -191,6 +216,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             self._feet_ids = self._feet_ids.index_select(0, index_tensor)
         else:
             self._feet_ids = [self._feet_ids[i] for i in reorder_slots]
+        if not isinstance(self._feet_ids, torch.Tensor):
+            self._feet_ids = torch.tensor(self._feet_ids, device=self.device, dtype=torch.long)
         self._front_foot_slots = torch.tensor((0, 1), device=self.device, dtype=torch.long)
         self._rear_foot_slots = torch.tensor((2, 3), device=self.device, dtype=torch.long)
         
@@ -298,6 +325,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "vx_w_mean",
             "vy_w_mean",
             "upright_mean",
+            "height_reward",
+            "body_contact_penalty",
             "cmd_vx_error",
             "cmd_vy_error",
             "cmd_yaw_error",
@@ -306,6 +335,18 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
             for key in [*self._reward_keys, *self._metric_keys]
         }
+
+        # --- Gait Observability Buffers ---
+        # Track per-foot contact, air time, slip speed, and peak forces.
+        self._foot_contact_force_threshold = 1.0
+        self._foot_contact_count = torch.zeros((self.num_envs, 4), device=self.device)
+        self._foot_contact_force_peak = torch.zeros((self.num_envs, 4), device=self.device)
+        self._foot_air_time_sum = torch.zeros((self.num_envs, 4), device=self.device)
+        self._foot_air_time_sumsq = torch.zeros((self.num_envs, 4), device=self.device)
+        self._foot_air_time_count = torch.zeros((self.num_envs, 4), device=self.device)
+        self._foot_slip_speed_sum = torch.zeros((self.num_envs, 4), device=self.device)
+        self._foot_slip_speed_count = torch.zeros((self.num_envs, 4), device=self.device)
+        self._episode_start_pos = self._robot.data.root_pos_w.clone()
         # --- Domain Randomization Buffers ---
         # Store randomized parameters per environment for consistency within episodes
         # Initialize with default values from configuration
@@ -1019,8 +1060,38 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             (undesired_forces > cfg.undesired_contacts_threshold).float(), dim=1
         )
 
+        # === PER-FOOT CONTACT + SLIP METRICS ===
+        foot_forces = torch.norm(net_contact_forces[:, self._feet_ids], dim=-1)
+        foot_contact = foot_forces > self._foot_contact_force_threshold
+        self._foot_contact_count += foot_contact.float()
+        self._foot_contact_force_peak = torch.maximum(self._foot_contact_force_peak, foot_forces)
+
+        air_time_sample = torch.where(first_contact, last_air_time, torch.zeros_like(last_air_time))
+        self._foot_air_time_sum += air_time_sample
+        self._foot_air_time_sumsq += air_time_sample * air_time_sample
+        self._foot_air_time_count += first_contact.float()
+
+        foot_lin_vel_xy = self._robot.data.body_lin_vel_w[:, self._feet_ids, :2]
+        foot_slip_speed = torch.linalg.vector_norm(foot_lin_vel_xy, dim=-1)
+        slip_sample = foot_slip_speed * foot_contact.float()
+        self._foot_slip_speed_sum += slip_sample
+        self._foot_slip_speed_count += foot_contact.float()
+
         # === STABILITY: UPRIGHT ===
         upright = -projected_gravity[:, 2]
+
+        # === HEIGHT METRIC (terrain-relative) ===
+        pos_z = self._height_scanner.data.pos_w[:, 2].unsqueeze(1)
+        ray_z = self._height_scanner.data.ray_hits_w[..., 2]
+        ray_z = torch.where(torch.isfinite(ray_z), ray_z, pos_z)
+        height_data = pos_z - ray_z
+        current_height = torch.mean(height_data, dim=1)
+        target_height = self.cfg.gait.target_height
+        height_error = torch.abs(current_height - target_height)
+        height_reward = torch.tanh(3.0 * torch.exp(-5.0 * height_error))
+
+        # === BODY CONTACT METRIC ===
+        body_contact_penalty = -undesired_contacts
 
         # === FORWARD MOTION BONUS ===
         # Direct reward for positive vx to bootstrap walking
@@ -1051,6 +1122,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._episode_sums["vx_w_mean"] += vx
         self._episode_sums["vy_w_mean"] += torch.abs(vy)
         self._episode_sums["upright_mean"] += upright.clamp(0.0, 1.0)
+        self._episode_sums["height_reward"] += height_reward
+        self._episode_sums["body_contact_penalty"] += body_contact_penalty
         self._episode_sums["cmd_vx_error"] += torch.abs(vx - cmd_vx)
         self._episode_sums["cmd_vy_error"] += torch.abs(vy - cmd_vy)
         self._episode_sums["cmd_yaw_error"] += torch.abs(wz - cmd_yaw)
@@ -1133,7 +1206,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         if env_ids is None or len(env_ids) == self.num_envs:
             env_ids = self._robot._ALL_INDICES
 
+        env_ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long)
         prev_episode_steps = self.episode_length_buf[env_ids].clone()
+        current_root_pos = self._robot.data.root_pos_w[env_ids].clone()
 
         self._robot.reset(env_ids)
         super()._reset_idx(env_ids)
@@ -1282,8 +1357,41 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 for key in self._metric_keys:
                     values = self._episode_sums[key][env_ids][valid] / step_counts
                     log[f'Episode_Metric/{key}'] = torch.mean(values)
+
+                valid_env_ids = env_ids[valid]
+                x_displacement = current_root_pos[valid, 0] - self._episode_start_pos[valid_env_ids, 0]
+                log['Episode_Metric/x_displacement'] = torch.mean(x_displacement)
+                log['Episode_Metric/x_displacement_abs'] = torch.mean(torch.abs(x_displacement))
+
+                foot_labels = ("fl", "fr", "bl", "br")
+                contact_ratio = self._foot_contact_count[valid_env_ids] / step_counts.unsqueeze(1)
+                foot_force_peak = self._foot_contact_force_peak[valid_env_ids]
+
+                air_time_count = torch.clamp(self._foot_air_time_count[valid_env_ids], min=1.0)
+                air_time_mean = self._foot_air_time_sum[valid_env_ids] / air_time_count
+                air_time_var = self._foot_air_time_sumsq[valid_env_ids] / air_time_count - air_time_mean * air_time_mean
+                air_time_std = torch.sqrt(torch.clamp(air_time_var, min=0.0))
+
+                slip_count = torch.clamp(self._foot_slip_speed_count[valid_env_ids], min=1.0)
+                slip_mean = self._foot_slip_speed_sum[valid_env_ids] / slip_count
+
+                for i, label in enumerate(foot_labels):
+                    log[f'Episode_Metric/foot_contact_ratio_{label}'] = torch.mean(contact_ratio[:, i])
+                    log[f'Episode_Metric/foot_contact_force_peak_{label}'] = torch.mean(foot_force_peak[:, i])
+                    log[f'Episode_Metric/foot_air_time_mean_{label}'] = torch.mean(air_time_mean[:, i])
+                    log[f'Episode_Metric/foot_air_time_std_{label}'] = torch.mean(air_time_std[:, i])
+                    log[f'Episode_Metric/foot_slip_speed_mean_{label}'] = torch.mean(slip_mean[:, i])
             for key in [*self._reward_keys, *self._metric_keys]:
                 self._episode_sums[key][env_ids] = 0.0
+            self._foot_contact_count[env_ids] = 0.0
+            self._foot_contact_force_peak[env_ids] = 0.0
+            self._foot_air_time_sum[env_ids] = 0.0
+            self._foot_air_time_sumsq[env_ids] = 0.0
+            self._foot_air_time_count[env_ids] = 0.0
+            self._foot_slip_speed_sum[env_ids] = 0.0
+            self._foot_slip_speed_count[env_ids] = 0.0
+
+        self._episode_start_pos[env_ids] = default_root_state[:, :3]
 
         log['Episode_Termination/orientation'] = int(torch.sum(self.reset_terminated[env_ids]).item())
         log['Episode_Termination/time_out'] = int(torch.count_nonzero(self.reset_time_outs[env_ids]).item())

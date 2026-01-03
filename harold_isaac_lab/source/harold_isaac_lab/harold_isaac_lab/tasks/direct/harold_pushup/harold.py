@@ -1,14 +1,6 @@
-"""
-# ACTIVATE VENV:
-source ~/Desktop/env_isaaclab/bin/activate
+"""Harold push-up robot asset.
 
-# WHEN USING SKRL TRAINING LIBRARY
-Run Pushup Test:
-python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-pushup-v0 --num_envs 1
-
-Headless video recording of pushup:
-python harold_isaac_lab/scripts/skrl/train.py --task=Template-Harold-Direct-pushup-v0 --num_envs 1 --headless --video --video_length 250 --video_interval 6400
-
+Training and monitoring should use `scripts/harold.py` (see `CLAUDE.md`).
 """
 
 # Isaac Lab Imports
@@ -18,6 +10,17 @@ from isaaclab.assets.articulation import ArticulationCfg
 from isaaclab.sensors import ContactSensorCfg
 import os
 from pathlib import Path
+
+# Allow quick actuator sweeps without code changes.
+def _env_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        print(f"WARNING: Invalid {name}='{value}', using default {default}.")
+        return default
 
 # Determine the project root directory
 try:
@@ -40,6 +43,10 @@ if not USD_FILE_PATH.exists():
         f"Please ensure the part_files directory is at the project root.\n"
         f"You can also set HAROLD_PROJECT_ROOT environment variable to the project root directory."
     )
+
+ACTUATOR_EFFORT_LIMIT = _env_float("HAROLD_ACTUATOR_EFFORT_LIMIT", 2.8)
+ACTUATOR_STIFFNESS = _env_float("HAROLD_ACTUATOR_STIFFNESS", 400.0)
+ACTUATOR_DAMPING = _env_float("HAROLD_ACTUATOR_DAMPING", 150.0)
 
 # robot
 HAROLD_V4_CFG = ArticulationCfg(
@@ -84,9 +91,9 @@ HAROLD_V4_CFG = ArticulationCfg(
     actuators={
         "all_joints": ImplicitActuatorCfg(
             joint_names_expr=[".*"],
-            effort_limit_sim=2.0, #1.0,  #2.5,
-            stiffness=400.0, #200.0, #750,
-            damping=75.0, #100.0,
+            effort_limit_sim=ACTUATOR_EFFORT_LIMIT,
+            stiffness=ACTUATOR_STIFFNESS,
+            damping=ACTUATOR_DAMPING,
         ),
     },
 )

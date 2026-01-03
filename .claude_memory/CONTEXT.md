@@ -73,6 +73,19 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 
 Tested end-to-end: 12.7s run logged 63 rows at 20 Hz control / 5 Hz logging.
 
+### Session 40: Scripted Gait Alignment (Desktop)
+
+**SCRIPTED GAIT STILL FAILS IN SIM (Session 36 params)** despite higher stiffness.
+
+- Stiffness 1200 improves upright/episode length, but vx remains ≈0 or negative.
+- `height_reward` and `body_contact_penalty` now log after metrics fix.
+- Amplitude scaling 1.5x–2.0x yields only vx ≈ 0.002 m/s.
+- `scripts/harold.py train` now waits for the new run directory before registering an alias.
+- `scripts/harold.py` now supports `--mode` (rl/cpg/scripted), `--duration` presets, and `--task` selection; status shows config + x displacement.
+- Actuator defaults are unified across tasks (effort=2.8, stiffness=400, damping=150) with env overrides.
+- Added `HAROLD_GAIT_AMP_SCALE` for scripted/CPG diagnostics.
+- Added per-foot contact/air-time/slip metrics + x displacement logging for observability.
+
 ### Session 38: Hardware-Validated CPG (Desktop)
 
 **FINDING: Sim ≠ Hardware Parameters**
@@ -279,6 +292,8 @@ target_joints = CPG_base_trajectory + policy_output * residual_scale
 | `HAROLD_DYN_CMD=1` | Enable dynamic command changes (implies VAR_CMD) |
 | `HAROLD_SCRIPTED_GAIT=1` | Enable scripted gait (no learning) |
 
+Prefer CLI flags (`--mode`, `--duration`, `--task`) for experiments; use env vars only for advanced overrides.
+
 ---
 
 ## Deployment Pipeline
@@ -309,8 +324,8 @@ python scripts/harold.py ps
 python scripts/harold.py stop  # if needed
 
 # Run with controllability + backlash robustness
-HAROLD_CPG=1 HAROLD_CMD_TRACK=1 HAROLD_DYN_CMD=1 python scripts/harold.py train \
-  --hypothesis "..." --iterations 1250
+python scripts/harold.py train --mode cpg --duration short \
+  --hypothesis "..."
 
 # Monitor
 python scripts/harold.py status

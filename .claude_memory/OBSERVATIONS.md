@@ -37,6 +37,7 @@
 - TensorBoard logs available for all runs
 - Checkpoints saved every 2 timesteps during training
 - Config (env.yaml, agent.yaml) preserved per experiment
+- New Episode_Metric logs include per-foot gait metrics and `x_displacement` for forward-progress verification
 
 ## Failure Modes (Confirmed)
 
@@ -160,29 +161,27 @@ and simulation logs flood the terminal, consuming all available context.
 
 ### Solution: Background Execution + Compact Monitoring
 
-Created helper scripts in `scripts/`:
+Use the deep `harold` CLI to avoid log floods and stale state:
 
-1. **`run_experiment.sh [iterations]`** - Runs training in background
-   - Redirects all output to `/tmp/harold_train.log`
+1. **`python scripts/harold.py train`** - Runs training in background
+   - Writes logs to `/tmp/harold_train.log`
    - Saves PID to `/tmp/harold_train.pid`
-   - Returns immediately (doesn't block context)
+   - Registers manifest + alias
 
-2. **`check_training.sh`** - Compact progress check
-   - Outputs only: STATUS, ELAPSED, LOG SIZE, PROGRESS %
-   - No raw logs, no flooding
-   - Use this instead of `tail -f`
+2. **`python scripts/harold.py status`** - Compact progress check
+   - Prints STATUS + key metrics only
+   - Avoids tqdm spam
 
-3. **`analyze_run.py [run_name]`** - 4-metric analysis
+3. **`python scripts/harold.py validate [run]`** - 5-metric analysis
    - Reads TensorBoard logs programmatically
    - Returns structured diagnosis + exit codes
-   - Use after training completes
 
 ### Protocol for Long Training Runs
 
-1. Start training: `./scripts/run_experiment.sh 4167`
-2. Check periodically (every 30-90 min): `./scripts/check_training.sh`
-3. After completion: `source ~/Desktop/env_isaaclab/bin/activate && python scripts/analyze_run.py`
-4. Document results in EXPERIMENTS.md
+1. Start training: `python scripts/harold.py train --iterations 4167`
+2. Sleep 15-30 min, then check: `python scripts/harold.py status`
+3. If failing, stop early: `python scripts/harold.py stop`
+4. Validate + document in EXPERIMENTS.md
 
 ### Key Insight: Observability over Video
 
@@ -218,6 +217,41 @@ After 14 experiments trying reward shaping, we discovered the actual root causes
 
 The robot correctly learned that elbow contact has no penalty (was below threshold).
 **Fix the detection gap, not the rewards.**
+
+---
+
+## 2026-01-02: Scripted Gait + Stiffness Tests
+
+### Findings
+- **Higher stiffness improves stability**: stiffness=1200 gave upright ~0.98 and ep_len ~470-480.
+- **No forward motion**: Session 36 scripted gait still yields vx ≈ 0 or negative in sim.
+- **Metrics gap**: `height_reward` and `body_contact_penalty` are missing in scripted-gait runs.
+
+### Implications
+- Actuator responsiveness alone doesn’t fix sim↔hardware mismatch for scripted gait.
+- We need to confirm why height/contact metrics are not being logged for scripted mode.
+
+### Pipeline Fix
+- `scripts/harold.py train` now waits for the new run directory before registering the alias to avoid mislabeling runs during Isaac Sim boot.
+
+---
+
+## 2026-01-02: Scripted Gait Metrics + Amplitude Scaling
+
+### Findings
+- **Metrics fixed**: `height_reward` and `body_contact_penalty` now log for scripted gait.
+- **Height still low**: height_reward ≈ 0.67 even when upright is ~0.98.
+- **Amplitude scaling insufficient**: 1.5x and 2.0x only reached vx ≈ 0.002 m/s.
+
+### Implications
+- The sim/hardware mismatch isn’t just stiffness or small amplitude.
+- Likely causes: joint offset/height calibration mismatch, contact model differences, or phase/axis alignment.
+
+### New Diagnostic Tooling
+- `HAROLD_GAIT_AMP_SCALE` env var scales CPG/scripted amplitudes around midpoints for quick tests.
+
+### Observability Upgrade
+- Added per-foot contact ratio, peak contact force, air time mean/std, slip speed, and total x displacement metrics (logged to TensorBoard).
 
 ---
 

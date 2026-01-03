@@ -3367,3 +3367,62 @@ Key finding: Explicit hysteresis makes training HARDER, not easier.
 3. **50D observation underperforms** - Session 35 with 50D got vx=0.036, need investigation
 4. **Curriculum needed** - Train without backlash first, then add
 
+---
+
+## Session 40: Scripted Gait Stiffness Tests (Desktop, 2026-01-02)
+
+### EXP-220: Scripted Gait Baseline (Session 36 params)
+- **Date**: 2026-01-02
+- **ID**: `2026-01-02_21-15-16_ppo_torch`
+- **Config**: HAROLD_SCRIPTED_GAIT=1, default actuators (stiffness=400, damping=150, effort=2.8)
+- **Duration**: ~7-8 min (stopped early)
+- **Metrics**: ep_len=179 (FAIL), upright=0.466 (FAIL), vx=-0.007 (FAIL)
+- **Notes**: Very low height/upright; no height/contact metrics logged. Video: `logs/skrl/harold_direct/2026-01-02_21-15-16_ppo_torch/videos/train`
+
+### EXP-222: Scripted Gait + High Stiffness (1200/50)
+- **Date**: 2026-01-02
+- **ID**: `2026-01-02_21-40-31_ppo_torch`
+- **Config**: HAROLD_SCRIPTED_GAIT=1, stiffness=1200, damping=50, effort=2.8
+- **Duration**: ~17 min (stopped after video)
+- **Metrics**: ep_len=482 (PASS), upright=0.975 (PASS), vx=-0.001 (FAIL)
+- **Notes**: More upright but still no forward motion. Height/contact metrics missing. Video: `logs/skrl/harold_direct/2026-01-02_21-40-31_ppo_torch/videos/train`
+
+### EXP-223: Scripted Gait + High Stiffness/High Damping (1200/150)
+- **Date**: 2026-01-02
+- **ID**: `2026-01-02_21-58-56_ppo_torch`
+- **Config**: HAROLD_SCRIPTED_GAIT=1, stiffness=1200, damping=150, effort=2.8
+- **Duration**: ~15-16 min (stopped after video)
+- **Metrics**: ep_len=469 (PASS), upright=0.981 (PASS), vx=-0.003 (FAIL)
+- **Notes**: Upright is stable, but forward velocity remains negative. Height/contact metrics missing. Video: `logs/skrl/harold_direct/2026-01-02_21-58-56_ppo_torch/videos/train`
+
+### EXP-224: Scripted Gait + Metrics Fix (1200/50)
+- **Date**: 2026-01-02
+- **ID**: `2026-01-02_23-12-56_ppo_torch`
+- **Config**: HAROLD_SCRIPTED_GAIT=1, stiffness=1200, damping=50, effort=2.8
+- **Duration**: ~15-16 min (stopped after video)
+- **Metrics**: ep_len=485 (PASS), upright=0.975 (PASS), height_reward=0.670 (PASS), contact=0.000 (PASS), vx=-0.002 (FAIL)
+- **Notes**: Height/contact metrics now logged. Still no forward motion. Video: `logs/skrl/harold_direct/2026-01-02_23-12-56_ppo_torch/videos/train`
+
+### EXP-225: Scripted Gait + Amplitude Scale 1.5x (1200/50)
+- **Date**: 2026-01-02
+- **ID**: `2026-01-02_23-31-31_ppo_torch`
+- **Config**: HAROLD_SCRIPTED_GAIT=1, HAROLD_GAIT_AMP_SCALE=1.5, stiffness=1200, damping=50
+- **Duration**: ~15-16 min (stopped after video)
+- **Metrics**: ep_len=489 (PASS), upright=0.973 (PASS), height_reward=0.671 (PASS), contact=0.000 (PASS), vx=0.002 (FAIL)
+- **Notes**: Slightly positive vx but still far below target. Video: `logs/skrl/harold_direct/2026-01-02_23-31-31_ppo_torch/videos/train`
+
+### EXP-226: Scripted Gait + Amplitude Scale 2.0x (1200/50)
+- **Date**: 2026-01-02
+- **ID**: `2026-01-02_23-47-27_ppo_torch`
+- **Config**: HAROLD_SCRIPTED_GAIT=1, HAROLD_GAIT_AMP_SCALE=2.0, stiffness=1200, damping=50
+- **Duration**: ~15-16 min (stopped after video)
+- **Metrics**: ep_len=482 (PASS), upright=0.972 (PASS), height_reward=0.669 (PASS), contact=0.000 (PASS), vx=0.002 (FAIL)
+- **Notes**: Amplitude scaling to 2.0x still fails to reach walking velocity. Video: `logs/skrl/harold_direct/2026-01-02_23-47-27_ppo_torch/videos/train`
+
+### EXP-227: Scripted Gait + Stats Verification (Default Actuators)
+- **Date**: 2026-01-03
+- **ID**: `2026-01-03_11-02-59_ppo_torch`
+- **Config**: `python scripts/harold.py train --mode scripted --duration short` (default actuators)
+- **Duration**: ~11 min (stopped after metrics appeared)
+- **Metrics**: ep_len=465 (PASS), upright=0.981 (PASS), height_reward=0.672 (PASS), contact=-0.025 (PASS), vx=-0.008 (FAIL), x_disp=-0.004 (|x|=0.004)
+- **Notes**: New x displacement metrics logged correctly; forward motion still negative. Video: `logs/skrl/harold_direct/2026-01-03_11-02-59_ppo_torch/videos/train`

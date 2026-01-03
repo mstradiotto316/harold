@@ -79,7 +79,7 @@ class ActionConfig:
             self.hw_default_pose = np.array([
                 0.0, 0.0, 0.0, 0.0,         # Shoulders: 0 rad
                 0.40, 0.40, 0.40, 0.40,     # Thighs: tuned stance
-                -0.74, -0.74, -0.74, -0.74  # Calves: tuned stance
+                -1.05, -1.05, -1.05, -1.05  # Calves: tuned stance
             ], dtype=np.float32)
 
         if self.rl_default_pose is None:

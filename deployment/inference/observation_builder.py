@@ -75,7 +75,7 @@ class ObservationConfig:
             self.hw_default_pose = np.array([
                 0.0, 0.0, 0.0, 0.0,         # Shoulders: 0 rad
                 0.40, 0.40, 0.40, 0.40,     # Thighs: tuned stance
-                -0.74, -0.74, -0.74, -0.74  # Calves: tuned stance
+                -1.05, -1.05, -1.05, -1.05  # Calves: tuned stance
             ], dtype=np.float32)
 
         if self.joint_sign is None:
@@ -104,14 +104,14 @@ class ObservationConfig:
             hw_pose.get("shoulders", 0.0),
             hw_pose.get("shoulders", 0.0),
             hw_pose.get("shoulders", 0.0),
-            hw_pose.get("thighs", 0.3),
-            hw_pose.get("thighs", 0.3),
-            hw_pose.get("thighs", 0.3),
-            hw_pose.get("thighs", 0.3),
-            hw_pose.get("calves", -0.75),
-            hw_pose.get("calves", -0.75),
-            hw_pose.get("calves", -0.75),
-            hw_pose.get("calves", -0.75),
+            hw_pose.get("thighs", 0.40),
+            hw_pose.get("thighs", 0.40),
+            hw_pose.get("thighs", 0.40),
+            hw_pose.get("thighs", 0.40),
+            hw_pose.get("calves", -1.05),
+            hw_pose.get("calves", -1.05),
+            hw_pose.get("calves", -1.05),
+            hw_pose.get("calves", -1.05),
         ], dtype=np.float32)
 
         # Joint sign for HW -> RL conversion (supports per-shoulder overrides)

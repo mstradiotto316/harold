@@ -42,8 +42,8 @@ def test_sign_conversion():
     # Constants from config
     hw_default_pose = np.array([
         0.0, 0.0, 0.0, 0.0,       # Shoulders
-        0.3, 0.3, 0.3, 0.3,       # Thighs
-        -0.75, -0.75, -0.75, -0.75  # Calves
+        0.40, 0.40, 0.40, 0.40,       # Thighs
+        -1.05, -1.05, -1.05, -1.05  # Calves
     ], dtype=np.float32)
 
     joint_sign = np.array([

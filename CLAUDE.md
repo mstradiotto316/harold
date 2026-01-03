@@ -70,6 +70,7 @@ source ~/envs/harold/bin/activate
 cd /home/pi/harold
 sudo systemctl status harold
 python3 -m inference.harold_controller   # manual run (service stopped)
+python3 -m inference.harold_controller --cpg-only --max-seconds 60   # scripted/CPG-only walking test
 ```
 
 Hardware logs:
@@ -433,11 +434,12 @@ The robot controller automatically logs detailed telemetry at 5 Hz to CSV files 
 deployment/sessions/session_YYYY-MM-DD_HH-MM-SS.csv
 ```
 
-### Data Captured (60 columns)
+### Data Captured (72 columns)
 | Category | Columns | Description |
 |----------|---------|-------------|
 | Timestamp | `timestamp`, `timestamp_ms` | ISO format + ESP32 timestamp |
 | Positions | `pos_{fl,fr,bl,br}_{sh,th,ca}` | 12 joint angles (radians) |
+| Commands | `cmd_pos_{fl,fr,bl,br}_{sh,th,ca}` | 12 commanded joint targets (hardware convention, radians) |
 | Loads | `load_{fl,fr,bl,br}_{sh,th,ca}` | 12 servo load % (0-100) |
 | Currents | `curr_{fl,fr,bl,br}_{sh,th,ca}` | 12 motor currents (mA) |
 | Temperatures | `temp_{fl,fr,bl,br}_{sh,th,ca}` | 12 servo temps (°C) |

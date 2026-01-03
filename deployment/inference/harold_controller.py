@@ -4,7 +4,7 @@
 Runs CPG + RL policy inference for quadruped walking gait.
 
 Usage:
-    python harold_controller.py [--config-dir CONFIG_DIR]
+    python harold_controller.py [--config-dir CONFIG_DIR] [--cpg-only] [--max-seconds N]
 
 Components:
     - CPG Generator: Base walking trajectory
@@ -15,8 +15,11 @@ Components:
 import argparse
 import json
 import signal
+import subprocess
 import sys
 import time
+import traceback
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -100,6 +103,73 @@ class HaroldController:
         """Handle shutdown signals."""
         print("\nShutdown signal received...")
         self._running = False
+
+    def _run_diag_command(self, cmd: list[str] | str, timeout_s: float = 2.0) -> str:
+        """Run a diagnostic command and return combined output."""
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+                check=False,
+                shell=isinstance(cmd, str),
+            )
+            stdout = (result.stdout or "").strip()
+            stderr = (result.stderr or "").strip()
+            output = stdout if stdout else "(no stdout)"
+            if stderr:
+                output = f"{output}\n(stderr) {stderr}"
+            return f"{output}\n(exit={result.returncode})"
+        except FileNotFoundError:
+            return "(command not found)"
+        except Exception as exc:
+            return f"(diagnostic error: {exc})"
+
+    def _capture_diagnostics(self, reason: str, exc: Exception | None = None) -> None:
+        """Capture system diagnostics to a local log file."""
+        try:
+            log_dir = self.config_dir.parent / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / "controller_diagnostics.log"
+
+            lines = []
+            lines.append("=" * 60)
+            lines.append(f"{datetime.now().isoformat(timespec='seconds')} | {reason}")
+
+            if exc is not None:
+                lines.append(f"exception: {exc!r}")
+                lines.append("traceback:")
+                lines.append(traceback.format_exc().strip())
+
+            if self.logger is not None:
+                lines.append(f"session_path: {self.logger.session_path}")
+                lines.append(f"session_rows: {self.logger.row_count}")
+
+            if self.esp32 is not None:
+                lines.append(f"esp32_connected: {self.esp32.connected}")
+                lines.append(f"esp32_streaming: {self.esp32.streaming}")
+                telem = self.esp32.last_telemetry
+                lines.append(f"last_telem_valid: {telem.valid}")
+                if telem.valid:
+                    lines.append(f"last_voltage_v: {telem.voltage_V:.2f}")
+                    lines.append(f"last_pos_0_3: {np.array2string(telem.positions[:3], precision=4)}")
+
+            lines.append("-- vcgencmd get_throttled --")
+            lines.append(self._run_diag_command(["vcgencmd", "get_throttled"]))
+            lines.append("-- dmesg tail --")
+            lines.append(self._run_diag_command("/bin/sh -c 'dmesg -T | tail -n 80'"))
+            lines.append("-- journalctl kernel tail --")
+            lines.append(self._run_diag_command(["journalctl", "-k", "-n", "200", "--no-pager"]))
+            lines.append("-- lsusb --")
+            lines.append(self._run_diag_command(["lsusb"]))
+            lines.append("-- ttyUSB devices --")
+            lines.append(self._run_diag_command("/bin/sh -c 'ls -l /dev/ttyUSB* 2>/dev/null'"))
+
+            with open(log_path, "a", encoding="utf-8") as log_file:
+                log_file.write("\n".join(lines) + "\n")
+        except Exception as exc:
+            print(f"WARNING: Diagnostics capture failed: {exc}")
 
     def connect(self) -> bool:
         """Initialize and connect all components.
@@ -216,19 +286,38 @@ class HaroldController:
         if self.imu:
             self.imu.calibrate(duration)
 
-    def run(self, use_cpg: bool = True, warmup_cycles: int = 3) -> None:
+    def run(
+        self,
+        use_cpg: bool = True,
+        warmup_cycles: int = 3,
+        enable_policy: bool = True,
+        max_seconds: float | None = None,
+    ) -> None:
         """Run the main control loop.
 
         Args:
             use_cpg: If True, use CPG + residual mode; if False, direct policy mode
             warmup_cycles: Number of CPG cycles before enabling policy (avoids
                           cold-start observation mismatch)
+            enable_policy: If False, run open-loop CPG only (zero policy residuals)
+            max_seconds: Optional auto-stop after this many seconds
         """
         print("\n" + "=" * 60)
         print("Starting Control Loop")
-        print(f"  Mode: {'CPG + Residual' if use_cpg else 'Direct Policy'}")
+        if use_cpg and enable_policy:
+            mode_label = "CPG + Residual"
+        elif use_cpg and not enable_policy:
+            mode_label = "CPG only"
+        else:
+            mode_label = "Direct Policy"
+        print(f"  Mode: {mode_label}")
         print(f"  Rate: {self.CONTROL_RATE_HZ} Hz")
-        print(f"  Warmup: {warmup_cycles} CPG cycles before policy")
+        if enable_policy:
+            print(f"  Warmup: {warmup_cycles} CPG cycles before policy")
+        else:
+            print("  Warmup: disabled (policy off)")
+        if max_seconds is not None:
+            print(f"  Max runtime: {max_seconds:.0f}s")
         print("  Press Ctrl+C to stop")
         print("=" * 60 + "\n")
 
@@ -250,9 +339,13 @@ class HaroldController:
         self.action_conv.reset()
 
         # Calculate warmup duration based on CPG frequency
-        warmup_duration = warmup_cycles / self.cpg.cfg.frequency_hz
-        # Add extra transition period for blending (2 additional CPG cycles)
-        transition_duration = warmup_duration + (2.0 / self.cpg.cfg.frequency_hz)
+        if enable_policy:
+            warmup_duration = warmup_cycles / self.cpg.cfg.frequency_hz
+            # Add extra transition period for blending (2 additional CPG cycles)
+            transition_duration = warmup_duration + (2.0 / self.cpg.cfg.frequency_hz)
+        else:
+            warmup_duration = 0.0
+            transition_duration = 0.0
         policy_enabled = False
 
         try:
@@ -268,7 +361,9 @@ class HaroldController:
                 # During warmup: blend=0.0 (use training mean)
                 # During transition: gradually increase to 1.0
                 # After transition: blend=1.0 (use actual values)
-                if t < warmup_duration:
+                if not enable_policy:
+                    joint_pos_blend = 1.0
+                elif t < warmup_duration:
                     joint_pos_blend = 0.3  # 30% actual during warmup
                 elif t < transition_duration:
                     # Linear interpolation from 0.3 to 1.0 during transition
@@ -289,11 +384,11 @@ class HaroldController:
                 # See policy/export_policy.py for details.
 
                 # Check if warmup period is complete
-                if not policy_enabled and t >= warmup_duration:
+                if enable_policy and not policy_enabled and t >= warmup_duration:
                     policy_enabled = True
                     print(f"[t={t:.1f}s] Warmup complete, enabling policy")
 
-                if policy_enabled:
+                if enable_policy and policy_enabled:
                     # 4. Run policy inference with RAW observations
                     # ONNX model normalizes internally - pass raw obs!
                     outputs = self.policy.run(
@@ -328,12 +423,17 @@ class HaroldController:
                 self._log_counter += 1
                 if self._log_counter >= self._LOG_DIVISOR:
                     self._log_counter = 0
+                    if enable_policy:
+                        mode = "POLICY" if policy_enabled else "WARMUP"
+                    else:
+                        mode = "CPG_ONLY" if use_cpg else "ZERO"
                     state = ControllerState(
-                        mode="POLICY" if policy_enabled else "WARMUP",
+                        mode=mode,
                         cpg_phase=self.cpg.phase,
                         command_vx=obs[33],
                         command_vy=obs[34],
                         command_yaw=obs[35],
+                        cmd_positions=hw_targets,
                     )
                     self.logger.log(self.esp32.last_telemetry, state)
 
@@ -343,7 +443,10 @@ class HaroldController:
                     elapsed = time.time() - self._start_time
                     rate = self._loop_count / elapsed
                     telem = self.esp32.read_telemetry()
-                    mode_str = "POLICY" if policy_enabled else "WARMUP"
+                    if enable_policy:
+                        mode_str = "POLICY" if policy_enabled else "WARMUP"
+                    else:
+                        mode_str = "CPG_ONLY" if use_cpg else "ZERO"
                     if telem.valid:
                         print(
                             f"t={t:.1f}s [{mode_str}] | rate={rate:.1f}Hz | "
@@ -360,15 +463,22 @@ class HaroldController:
                     if self._overrun_count % 10 == 1:
                         print(f"WARNING: Loop overrun ({elapsed * 1000:.1f}ms > {self.CONTROL_PERIOD * 1000:.0f}ms)")
 
+                if max_seconds is not None and t >= max_seconds:
+                    self._running = False
+
         except Exception as e:
             print(f"ERROR: Control loop exception: {e}")
-            import traceback
             traceback.print_exc()
+            self._capture_diagnostics("control_loop_exception", e)
 
         finally:
             # Stop streaming and return to safe stance
             print("\nStopping...")
-            self.esp32.stop_streaming()
+            try:
+                self.esp32.stop_streaming()
+            except Exception as e:
+                print(f"WARNING: stop_streaming failed: {e}")
+                self._capture_diagnostics("stop_streaming_exception", e)
 
             # Close session logger
             if self.logger:
@@ -404,10 +514,16 @@ def main():
         default=Path(__file__).parent.parent / "policy" / "policy_metadata.json",
         help="Path to policy metadata JSON",
     )
-    parser.add_argument(
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         "--no-cpg",
         action="store_true",
         help="Run in direct policy mode (no CPG base trajectory)",
+    )
+    mode_group.add_argument(
+        "--cpg-only",
+        action="store_true",
+        help="Run open-loop CPG only (no policy residuals)",
     )
     parser.add_argument(
         "--calibrate",
@@ -420,6 +536,12 @@ def main():
         type=int,
         default=0,
         help="CPG cycles before enabling policy (default: 0, immediate)",
+    )
+    parser.add_argument(
+        "--max-seconds",
+        type=float,
+        default=None,
+        help="Auto-stop after this many seconds (optional)",
     )
     args = parser.parse_args()
 
@@ -441,7 +563,12 @@ def main():
             controller.calibrate(duration=args.calibrate)
 
         # Run control loop
-        controller.run(use_cpg=not args.no_cpg, warmup_cycles=args.warmup_cycles)
+        controller.run(
+            use_cpg=not args.no_cpg,
+            warmup_cycles=args.warmup_cycles,
+            enable_policy=not args.cpg_only,
+            max_seconds=args.max_seconds,
+        )
 
     finally:
         controller.disconnect()

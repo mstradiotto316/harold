@@ -133,9 +133,9 @@ class ScriptedGaitCfg:
 
     Session 22 RESULT: SUCCESS - Real robot walks forward with this gait.
 
-    Session 34: BACKLASH-TOLERANT UPDATE - Hardware testing (Session 33) revealed
-    ~30° servo backlash. Old amplitude (26°) was absorbed. New amplitude (50°)
-    should exceed backlash with margin for actual foot lift.
+    Session 34: BACKLASH-TOLERANT UPDATE - Early estimate suggested ~30° servo
+    backlash. New measurement (2026-01-03) shows ~10° dead zone; treat older
+    notes as historical context.
 
     Use HAROLD_SCRIPTED_GAIT=1 to enable for physics validation.
     """
@@ -231,9 +231,10 @@ class TerminationCfg:
 class BacklashCfg:
     """Explicit backlash hysteresis model for sim-to-real transfer.
 
-    Session 37: Hardware testing (Session 33) revealed ~30° servo backlash on
-    direction reversals. Previous approach of adding Gaussian noise (std=0.0175)
-    is INCORRECT - backlash is hysteresis, not noise.
+    Session 37: Early hardware estimate suggested ~30° servo backlash on
+    direction reversals (updated measurement: ~10° as of 2026-01-03).
+    Previous approach of adding Gaussian noise (std=0.0175) is INCORRECT -
+    backlash is hysteresis, not noise.
 
     This model tracks "engaged position" where gears are meshed. Commands can
     move within a dead zone without affecting output. Only when command exits
@@ -252,10 +253,9 @@ class BacklashCfg:
     enable_backlash: bool = False
 
     # Backlash magnitude in radians
-    # Session 33 hardware test: ~30° backlash observed on direction reversals
-    # Session 37: Starting with 15° (0.26 rad) - easier for policy to learn
-    # Can increase to 30° after policy learns to compensate for smaller backlash
-    backlash_rad: float = 0.26  # 15 degrees
+    # Updated measurement (2026-01-03): ~10° dead zone on direction reversals
+    # Start with the measured value; increase only if hardware tests contradict.
+    backlash_rad: float = math.radians(10)  # 10 degrees
 
     # Per-joint backlash (optional - use if joints have different backlash)
     # If None, use backlash_rad for all joints
@@ -263,7 +263,7 @@ class BacklashCfg:
 
     # Randomize backlash magnitude per episode for robustness
     randomize_backlash: bool = False
-    backlash_range: tuple = (0.4, 0.6)  # ±15% variation around 0.52
+    backlash_range: tuple = (0.85, 1.15)  # ±15% variation around backlash_rad
 
 
 @configclass

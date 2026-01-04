@@ -112,6 +112,12 @@ Before touching hardware:
 - If the Pi repo is dirty, STOP and reconcile the changes on desktop before testing; do not edit code on the Pi.
 - Agents must execute the SSH/tests themselves; do not ask the operator to run these steps.
 
+RPi layout (authoritative):
+- Git repo on the Pi (syncs with desktop): `/home/pi/harold`
+- Runtime root used by systemd/manual runs: `/home/pi/harold/deployment`
+- Hardware logs live under `deployment/logs/` and `deployment/sessions/` (gitignored, but accessible).
+- Keep `/home/matteo/Desktop/code_projects/harold` and `/home/pi/harold` in lockstep via git push/pull (ff-only).
+
 ```bash
 source ~/envs/harold/bin/activate
 cd <runtime-root>

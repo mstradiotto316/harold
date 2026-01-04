@@ -143,18 +143,26 @@ class ScriptedGaitCfg:
     # Master switch - enable via env var HAROLD_SCRIPTED_GAIT=1
     enabled: bool = False
 
-    # Gait parameters - HARDWARE-VALIDATED from Session 36 RPi
-    # These exact values produce smooth walking on real robot with feet lifting.
+    # Gait parameters - base values HARDWARE-VALIDATED from Session 36 RPi.
+    # stride_scale shortens step length without changing the stance endpoint.
     # Source: firmware/scripted_gait_test_1/scripted_gait_test_1.ino
     #   BASE_STANCE_THIGH = -38.15°, BASE_SWING_THIGH = -30.65° (7.5° range)
     #   BASE_STANCE_CALF = 50°, BASE_SWING_CALF = 80° (30° range)
-    frequency: float = 0.5   # Hz - Hardware-validated (slower = more stable)
+    frequency: float = 0.4   # Hz - Softer gait (longer cycle reduces impact)
     swing_thigh: float = 0.54    # -30.65° → +30.65° in sim coords
     stance_thigh: float = 0.67   # -38.15° → +38.15° in sim coords
     stance_calf: float = -0.87   # 50° → -50° in sim coords (extended)
     swing_calf: float = -1.3963  # 80° → -80° in sim coords (flexed)
     shoulder_amplitude: float = 0.0096  # 0.55 deg in hardware
-    duty_cycle: float = 0.6  # Stance fraction (swing is faster for clearance)
+    thigh_offset_front: float = 0.05    # Bias front thighs forward (rad)
+    thigh_offset_back: float = -0.05    # Bias rear thighs back (rad)
+    duty_cycle: float = 0.5  # 50% stance / 50% swing to slow the lift/plant
+    stride_scale: float = 0.35        # Shorter steps to reduce lunge/impact
+    calf_lift_scale: float = 0.85     # Slightly lower lift to soften touchdown
+    stride_scale_front: float = 1.0
+    stride_scale_back: float = 1.3
+    calf_lift_scale_front: float = 1.0
+    calf_lift_scale_back: float = 1.15
 
 
 @configclass
@@ -181,10 +189,11 @@ class CPGCfg:
     enabled: bool = False  # Set True via env var HAROLD_CPG=1
 
     # Base gait parameters - HARDWARE-VALIDATED
-    base_frequency: float = 0.5  # Hz - Hardware-validated (2 second cycle)
-    duty_cycle: float = 0.6      # 60% stance, 40% swing (used by trajectory)
+    base_frequency: float = 0.4  # Hz - Softer gait (longer cycle reduces impact)
+    duty_cycle: float = 0.5      # 50% stance / 50% swing (used by trajectory)
 
-    # Trajectory parameters - HARDWARE-VALIDATED from Session 36 RPi
+    # Trajectory parameters - base values HARDWARE-VALIDATED from Session 36 RPi
+    # stride_scale shortens step length without changing the stance endpoint.
     # Source: firmware/scripted_gait_test_1/scripted_gait_test_1.ino
     # These produce real walking with feet actually lifting!
     swing_thigh: float = 0.54     # -30.65° in hardware → +30.65° in sim
@@ -192,6 +201,14 @@ class CPGCfg:
     stance_calf: float = -0.87    # 50° in hardware → -50° in sim (extended)
     swing_calf: float = -1.3963   # 80° in hardware → -80° in sim (flexed)
     shoulder_amplitude: float = 0.0096  # 0.55 deg in hardware
+    thigh_offset_front: float = 0.05    # Bias front thighs forward (rad)
+    thigh_offset_back: float = -0.05    # Bias rear thighs back (rad)
+    stride_scale: float = 0.35        # Shorter steps to reduce lunge/impact
+    calf_lift_scale: float = 0.85     # Slightly lower lift to soften touchdown
+    stride_scale_front: float = 1.0
+    stride_scale_back: float = 1.3
+    calf_lift_scale_front: float = 1.0
+    calf_lift_scale_back: float = 1.15
 
     # Residual scaling - LOW to preserve hardware gait
     # CPG provides timing/coordination, RL adds small balance corrections

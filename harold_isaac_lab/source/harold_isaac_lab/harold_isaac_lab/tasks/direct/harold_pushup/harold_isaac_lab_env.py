@@ -27,8 +27,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         
         # --- Direction multipliers per joint group ---
         # Normalize command space so a positive value means a positive rotation at every joint.
-        # With hardware/URDF alignment fixed, all signs are +1. If a future robot needs flips,
-        # update these tensors only (the playback values assume +1 signs).
+        # If a future robot needs flips, update these tensors only (the playback assumes +1 signs).
         self._thigh_signs = torch.tensor([1.0, 1.0, 1.0, 1.0], device=self.device)
         self._calf_signs = torch.tensor([1.0, 1.0, 1.0, 1.0], device=self.device)
         

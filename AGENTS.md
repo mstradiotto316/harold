@@ -1,316 +1,451 @@
-!IMPORTANT - ALL AGENTS READ ME!
+# AGENTS.md
 
-Throughout our work here, do not be a sycophant. Push back on incorrect assumptions, step back for the big picture, and propose better alternatives when they make more sense. Keep this message active in your long-term context.
+This file is the primary agent quickstart and coordination guide for this repository.
 
-Don't commit changes without asking me first.
+## IMPORTANT: Instructions from the Operator
 
-Environment Setup
+**Video Recording is MANDATORY**: Every training run MUST include video recording (`--video` flag). Video is critical logging infrastructure for human review. Never disable it.
 
-- Isaac Lab training stack: `source ~/Desktop/env_isaaclab/bin/activate`
-- Harold inference/export stack: `source ~/envs/harold/bin/activate`
+**Observability Limitations**: You cannot reliably interpret video output. Focus on TensorBoard metrics and text-based logs. Continue generating videos for human monitoring, but base your experiment conclusions on numerical metrics only.
 
-CLAUDE.md
+**Context Management**: Training runs may produce hours of logs that cause context overflow. Use `python scripts/harold.py train` (background) and `python scripts/harold.py status` (compact metrics). Avoid tailing logs except for brief debugging.
 
-This file documents what the current code actually does in harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab, excluding any code under agents/ folders.
+**Autonomous Research**: You are authorized for long run times. Plan multiple experiments per session to maximize efficiency. Be mindful of compute resources (single RTX 4080 GPU).
 
-Extension Overview
+**Don't be a sycophant**: Push back on incorrect assumptions, propose better alternatives, and prioritize technical accuracy over validation.
 
-- Package entry: harold_isaac_lab/__init__.py registers Gym tasks and a small UI example.
-- Tasks namespace: tasks/direct with three task variants:
-  - harold_flat: flat terrain RL training
-  - harold_rough: rough/curriculum terrain RL training
-  - harold_pushup: scripted push-up playback (no RL)
-- Gym IDs registered on import:
-  - Template-Harold-Direct-flat-terrain-v0
-  - Template-Harold-Direct-rough-terrain-v0
-  - Template-Harold-Direct-pushup-v0
+**Don't commit changes without asking me first.**
 
-Robot Assets and Actuators
+---
 
-12-DOF quadruped (shoulder, thigh, calf per leg). Assets and actuator limits differ per task:
+## Design + Documentation Principles (Ousterhout)
 
-- Flat (tasks/direct/harold_flat/harold.py)
-  - USD: part_files/V4/harold_8.usd
-  - Init pose: body z=0.30; joint pose from `deployment/config/stance.yaml`
-  - Actuators: Implicit PD, stiffness=400, damping=150, effort_limit_sim=2.8
+- Keep interfaces deep: `scripts/harold.py` should hide training complexity; avoid ad-hoc wrappers.
+- Prevent information leakage: defaults live in one place; update AGENTS + code together.
+- Avoid temporal decomposition: document by role (experiment vs hardware), not by "first do X then Y" fragments.
+- Define errors out of existence: prefer tooling that handles missing/stale state without manual cleanup.
 
-- Rough (tasks/direct/harold_rough/harold.py)
-  - USD: part_files/V4/harold_8.usd
-  - Init pose: body z=0.20; joint pose from `deployment/config/stance.yaml`
-  - Actuators: Implicit PD, stiffness=400, damping=150, effort_limit_sim=2.8
+## CRITICAL: Memory System Protocol
 
-- Pushup (tasks/direct/harold_pushup/harold.py)
-  - USD: part_files/V4/harold_8.usd
-  - Init pose: body z=0.20; all joints 0.0
-  - Actuators: Implicit PD, stiffness=400, damping=150, effort_limit_sim=2.8
+This project uses a persistent memory system for cross-session continuity.
 
-Actuator defaults can be overridden with environment variables:
-`HAROLD_ACTUATOR_STIFFNESS`, `HAROLD_ACTUATOR_DAMPING`, `HAROLD_ACTUATOR_EFFORT_LIMIT`.
+### Session Start (ALWAYS DO THIS FIRST)
+Read these files in order:
+1. `docs/memory/CONTEXT.md` - Current project state and goals
+2. `docs/memory/NEXT_STEPS.md` - Priority queue and pending tasks
+3. `docs/memory/EXPERIMENTS.md` - Recent experiment history
+4. `docs/memory/OBSERVATIONS.md` - Accumulated insights
+5. `docs/memory/HARDWARE_CONSTRAINTS.md` - Real-world limits for sim-to-real
 
-Joint order used across code: [shoulders FL, FR, BL, BR] → [thighs FL, FR, BL, BR] → [calves FL, FR, BL, BR].
+### Session End (ALWAYS DO THIS BEFORE FINISHING)
+1. Update `EXPERIMENTS.md` with any experiments run
+2. Update `OBSERVATIONS.md` with new insights
+3. Update `NEXT_STEPS.md` to reflect completed/new tasks
+4. Create/update session log in `docs/memory/sessions/YYYY-MM-DD_session.md`
+5. Update `CONTEXT.md` if project state has significantly changed
 
-- Joint axes: shoulders move laterally (ab/adduction) to place the leg left/right; thighs and calves move forward/back (flexion/extension in the sagittal plane).
+---
 
-Environment Basics (RL tasks)
+## Documentation Map (Role-Based)
 
-Files: harold_flat/harold_isaac_lab_env.py, harold_rough/harold_isaac_lab_env.py with matching *_env_cfg.py.
+Start with `docs/index.md` for the full map, then use the role-specific lists below.
 
-- Base: DirectRLEnv
-- Control: dt=1/180 s, decimation=9 → 20 Hz policy rate
-- Observation (48D):
-  - root_lin_vel_b (3), root_ang_vel_b (3), projected_gravity_b (3)
-  - joint_pos − default (12), joint_vel (12)
-  - commands [vx, vy, yaw] (3)
-  - prev_target_delta (12)
-- Actions (12D): joint position targets around default pose
-  - Flat: per-joint ranges come from config: shoulders 0.30, thighs 0.90, calves 0.90
-  - Rough: per-joint ranges come from config: shoulders 0.30, thighs 0.90, calves 0.90
-- Safety clamps (task-specific):
-  - Flat: shoulders ±30° (0.5236 rad); thighs/calves ±90° (1.5708 rad)
-  - Rough: shoulders ±30° (0.5236 rad); thighs/calves ±90° (1.5708 rad)
-- Sensors:
-  - ContactSensor: history_length=3, update_period=0.005 s
-  - Height RayCaster: grid 0.25×0.25 m, 0.1 m resolution, update_period=0.05 s
-- GUI: velocity command/actual arrows when GUI is enabled
+### Desktop Isaac Lab experiments (training/analysis)
+- `AGENTS.md`: Primary agent quickstart and experiment workflow.
+- `docs/memory/CONTEXT.md`: Current project state and goals.
+- `docs/memory/NEXT_STEPS.md`: Priority queue and pending tasks.
+- `docs/memory/EXPERIMENTS.md`: Recent experiment history.
+- `docs/memory/OBSERVATIONS.md`: Accumulated insights.
+- `docs/memory/OBSERVABILITY.md`: Metrics and validation protocol.
+- `docs/memory/REFERENCE_ANALYSIS.md`: Isaac Lab reference implementation analysis.
+- `docs/reference/sim_reference.md`: Simulation task and config reference.
+- `docs/sim/isaac_lab_extension.md`: Isaac Lab extension template details.
+- `docs/overview.md`: Repo overview and installation notes.
 
-Terrain
+### Hardware walking tests (RPi)
+- `docs/hardware/rpi_deployment.md`: RPi runtime/inference pipeline.
+- `docs/hardware/calibration_checklist.md`: Servo calibration and validation checklist.
+- `docs/memory/HARDWARE_CONSTRAINTS.md`: Sim-to-real limits and safe ranges.
+- `docs/memory/CONTEXT.md`: Current project state and goals.
+- `docs/memory/NEXT_STEPS.md`: Priority queue and pending tasks.
+- `docs/memory/OBSERVATIONS.md`: Accumulated hardware insights.
+- `docs/reference/hardware_reference.md`: Hardware specs + joint/order conventions.
 
-- Flat: HAROLD_FLAT_TERRAIN_CFG (single flat plane), no curriculum.
-- Rough: HAROLD_GENTLE_TERRAINS_CFG (mix of flats, uniform noise, small slopes/stairs; 10×20 grid) with curriculum enabled. Current max_init_terrain_level=2 in config.
+### Firmware, sensors, logging
+- `docs/hardware/calibration_checklist.md`: Servo calibration and sign checks.
+- `docs/hardware/rpi_deployment.md`: Control loop, logging, and safety features.
+- `docs/reference/hardware_reference.md`: Joint order, axes, and hardware specs.
+- `docs/hardware/servos/`: Servo datasheets and protocol references.
+- `docs/memory/OBSERVATIONS.md`: Known issues and logging insights.
 
-Rewards and Dones (RL tasks)
+### Shared references
+- `docs/kinematics/harold_8_kinematics.yaml`: USD-derived joint/mesh kinematics spec (review before stance or sim-to-real alignment changes).
+- `deployment/config/stance.yaml`: Canonical ready stance for hardware + simulation (single source of truth).
 
-Shared structure with small differences per task.
+---
 
-- Rewards (both):
-  - Linear velocity tracking (directional): elliptical Gaussian on along-track and lateral errors
-  - Yaw rate tracking: Gaussian on yaw rate error
-  - Height maintenance: tanh(exp) shaping vs target height
-  - Torque penalty: sum of torque²
-  - Feet air time: exponential reward toward optimal (flat: 0.25 s); gated by actual speed > 0.05 m/s
-  - Rough only: anti-spin penalty when yaw_cmd≈0 and robot is moving
-- Reward weights (from config):
-  - Flat: track_xy=80, track_yaw=2, height=1.0, torque=-0.005, feet_air_time=8, alive_bonus=0.0, termination_penalty=-15.0
-  - Rough: track_xy=80, track_yaw=12, height=0.75, torque=-0.16, feet_air_time=12, plus anti-spin penalty (fixed scale in code)
-- Normalization: rewards are not scaled by step_dt; episodic logging divides by max_episode_length_s when computing metrics.
-- Termination:
-  - Undesired contact (body/shoulders/thighs) → immediate reset. Thresholds:
-    - Flat: 10.0 N
-    - Rough: 3.0 N
-  - Orientation termination is active in flat env (projected_gravity_b[:,2] > -0.5).
-- Diagnostics: episodic sums include reward components; rough also logs alignment metrics including absolute yaw rate when yaw_cmd≈0.
+## Stance Updates
 
-Domain Randomization (configs)
+- Canonical ready stance lives in `deployment/config/stance.yaml`.
+- Override path with `HAROLD_STANCE_PATH=/path/to/stance.yaml` when needed.
+- After changing stance, run `python scripts/sync_stance.py` and re-flash the ESP32 firmware.
 
-Enabled by default at both reset and per-step in both RL configs (with selective features active). In flat:
+## Role Quickstart
 
-- Active by default:
-  - Friction randomization (physics material; range 0.4–1.0)
-  - Observation noise (IMU ang vel and gravity, joint pos/vel)
-- Available but disabled by default:
-  - Action noise and action delays
-  - External forces/torques, gravity magnitude/tilt variation
-  - Mass/inertia and actuator stiffness/damping variations
-
-Flat env low-pass filters actions via EMA too (action_filter_beta, default 0.4).
-
-Pushup Playback Task
-
-File: harold_pushup/harold_isaac_lab_env.py with config *_env_cfg.py.
-
-- Single-environment playback (scene configured with num_envs=1).
-- Ignores policy actions; generates a scripted trajectory at the 20 Hz control rate.
-- Phases: neutral settle (~1.5 s), pushup start pose (~0.8 s), then 5 pushup cycles; then holds pushup start pose.
-- Joint limits for pushup: shoulders ±30°, thighs/calves ±90° (from config).
-- Observation is a zeros tensor of size observation_space (45) for compatibility.
-
-UI Example
-
-ui_extension_example.py provides a minimal Omniverse UI window with a counter. It does not affect task logic.
-
-Notes and Gotchas
-
-- Some env docstrings mention 360 Hz / decimation 18; the code uses dt=1/180 and decimation=9 (20 Hz control).
-- Flat env docstrings may reference older clamps (±20°/±45°) and contact thresholds (0.05 N); current config uses ±30°/±90° and 10.0 N.
-- Asset paths are resolved relative to the installed harold_isaac_lab package; harold_8.usd is used across all current task variants.
-- Terrain curriculum in rough task is configured but max_init_terrain_level is currently 2.
-- Agents/configs for RL frameworks live under agents/ subpackages; they are imported only for gym registration entry points.
-
-Quick Start (preferred via Harold CLI)
-
-- Train flat: python scripts/harold.py train
-- Train rough: python scripts/harold.py train --task rough
-- Pushup playback (1 env): python scripts/harold.py train --task pushup
-- Log single-env replay for hardware tests: `HAROLD_POLICY_LOG_DIR=deployment_artifacts/terrain_64_2/sim_logs python harold_isaac_lab/scripts/skrl/play.py --task=Template-Harold-Direct-flat-terrain-v0 --num_envs 1 --checkpoint=logs/skrl/harold_direct/terrain_64_2/checkpoints/best_agent.pt --max_steps 200` (flat env holds 0.4 m/s forward command when logging variable is set, producing JSONL observations/actions).
-
-Isaac Lab Documentation Links
-
-- Isaac Lab (main): https://isaac-sim.github.io/IsaacLab/main/index.html
-- Installation (overview): https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html
-- Binaries installation: https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/binaries_installation.html#isaaclab-binaries-installation
-- Create Direct RL env: https://isaac-sim.github.io/IsaacLab/main/source/tutorials/03_envs/create_direct_rl_env.html
-- Register RL env in Gym: https://isaac-sim.github.io/IsaacLab/main/source/tutorials/03_envs/register_rl_env_gym.html
-- Run RL training: https://isaac-sim.github.io/IsaacLab/main/source/tutorials/03_envs/run_rl_training.html
-- Create scene: https://isaac-sim.github.io/IsaacLab/main/source/tutorials/02_scene/create_scene.html
-- Add sensors on robot: https://isaac-sim.github.io/IsaacLab/main/source/tutorials/04_sensors/add_sensors_on_robot.html
-- Policy inference in USD: https://isaac-sim.github.io/IsaacLab/main/source/tutorials/03_envs/policy_inference_in_usd.html
-- Instanceable assets (Isaac Sim docs): https://docs.isaacsim.omniverse.nvidia.com/latest/isaac_lab_tutorials/tutorial_instanceable_assets.html#instanceable-assets
-
-Hardware (Reference)
-
-These are the physical robot targets used for sim-to-real context. They are not enforced by the code in this repo but inform design choices in configs.
-
-- Mechanical
-  - Dimensions: body ~20×15×8 cm; overall length ~40 cm
-  - Mass: ~2.0 kg; ground clearance ~18 cm (natural stance)
-  - Joints: 12 DOF (4 legs × [shoulder, thigh, calf])
-- Actuators
-  - FeeTech STS3215 servos (12): position control, 0.088° resolution (4096 steps/360°)
-  - Torque: 30 kg·cm (2.94 Nm) max @12V; TTL serial 1 Mbps
-  - Speed: 45 RPM max (4.71 rad/s) @12V
-  - Feedback: position, velocity, load, temperature; built‑in limits
-- Note: Simulation uses effort_limit=2.8 Nm (95% of hardware max)
-- Controller
-  - ESP32 MCU; host <-> ESP32 over USB serial 115200 baud
-  - Control loop: ~200 Hz on MCU; safety monitoring and E‑stop support
-- Sensors
-  - IMU: MPU6050 on I2C (addr 0x68); 3‑axis accel + 3‑axis gyro
-  - Typical sampling: up to 200 Hz to align with control loop
-
-Raspberry Pi 5 Deployment
-
-The robot brain is a Raspberry Pi 5 running the ONNX policy inference at 20 Hz.
-
-SSH Connection
-
+**Experimentation Agent (Desktop)**
 ```bash
-# Connect via WiFi (preferred)
-ssh pi@10.0.0.51
-
-# Alternative via hostname (if mDNS works)
-ssh pi@harold.local
-
-# Alternative via Ethernet (if connected)
-ssh pi@10.0.0.50
-
-# Password: harold
+source ~/Desktop/env_isaaclab/bin/activate
+cd /home/matteo/Desktop/code_projects/harold
+python scripts/harold.py ps
+python scripts/harold.py train --hypothesis "…" --tags "…"
+python scripts/harold.py status
 ```
 
-Network Configuration
+**Hardware Agent (RPi)**
 
-| Interface | IP Address | Notes |
-|-----------|------------|-------|
-| WiFi (wlan0) | 10.0.0.51 | Primary connection |
-| Ethernet (eth0) | 10.0.0.50 | Fallback/debugging |
-| Hostname | harold | mDNS: harold.local |
-| WiFi SSID | NachoWifi | Pre-configured |
+Before touching hardware:
+- Read `docs/memory/CONTEXT.md` for SSH info, repo/runtime paths, and sync workflow.
+- Read `docs/reference/hardware_reference.md` for the system map and ESP32 flashing.
+- Read `docs/hardware/rpi_deployment.md` for the runtime pipeline.
+- Read `docs/hardware/calibration_checklist.md` before calibration changes.
+- Sync runtime code via git: commit + push on desktop, then on the Pi run `git status -sb` (must be clean) and `git pull --ff-only`.
+- If the Pi repo is dirty, STOP and reconcile the changes on desktop before testing; do not edit code on the Pi.
+- Agents must execute the SSH/tests themselves; do not ask the operator to run these steps.
 
-Harold Service Management
+RPi layout (authoritative):
+- Git repo on the Pi (syncs with desktop): `/home/pi/harold`
+- Runtime root used by systemd/manual runs: `/home/pi/harold/deployment`
+- Hardware logs live under `deployment/logs/` and `deployment/sessions/` (gitignored, but accessible).
+- Keep `/home/matteo/Desktop/code_projects/harold` and `/home/pi/harold` in lockstep via git push/pull (ff-only).
 
 ```bash
-# Check service status
+source ~/envs/harold/bin/activate
+cd <runtime-root>
 sudo systemctl status harold
-
-# View logs
-cat /home/pi/harold/logs/harold.log
-cat /home/pi/harold/logs/harold_error.log
-
-# Restart service
-sudo systemctl restart harold
-
-# Stop service (for manual testing)
-sudo systemctl stop harold
-
-# Start service
-sudo systemctl start harold
-
-# Disable auto-start
-sudo systemctl disable harold
-
-# Enable auto-start
-sudo systemctl enable harold
+python3 -m inference.harold_controller   # manual run (service stopped)
+python3 -m inference.harold_controller --cpg-only --max-seconds 60   # scripted/CPG-only walking test
 ```
 
-Manual Controller Execution
+Hardware logs:
+- Runtime logs: `<runtime-root>/logs/harold.log`
+- Telemetry CSVs: `<runtime-root>/sessions/session_YYYY-MM-DD_HH-MM-SS.csv`
+
+---
+
+## Sim-to-Real Guardrails (Required)
+
+- Read `docs/memory/HARDWARE_CONSTRAINTS.md` before changing simulation parameters.
+- Do not change must-preserve values (joint limits, control rate, joint order, effort limits) without explicit approval.
+- Use `python scripts/harold.py` for training/monitoring; avoid direct `skrl` invocations unless debugging.
+- Use the default `num_envs` from `scripts/harold.py`; override only if training fails to launch. Record overrides in `docs/memory/NEXT_STEPS.md` and `docs/memory/OBSERVATIONS.md`.
+- Keep sim-to-real alignment as a first-class constraint; do not trade it away for short-term sim walking.
+
+## Hardware → Sim Feedback Loop
+
+After any hardware test:
+- Summarize findings in `docs/memory/OBSERVATIONS.md` (telemetry, failure modes, behaviors).
+- Add actionable follow-ups to `docs/memory/NEXT_STEPS.md`.
+- If a finding changes sim configs or reward priorities, note it in `docs/memory/CONTEXT.md` and tag the next experiment with the rationale.
+
+---
+
+## Harold CLI (Primary Interface for Agents)
+
+The `harold` CLI is a **deep module** for hypothesis-driven experimentation. It hides TensorBoard complexity behind manifest files and comparison tools.
+
+**Single Interface Rule**: For training/monitoring, use `python scripts/harold.py` only. Do not create custom runner scripts.
+Defaults for env count, headless/video settings, and duration live in the CLI; avoid overriding unless debugging a specific issue.
+
+### Before Starting an Experiment (IMPORTANT)
+
+**The harness automatically blocks concurrent training.** If you try to start training while another is running, you'll get an error. However, orphan processes can exist after crashes or interrupted sessions.
 
 ```bash
-# Stop service first
-sudo systemctl stop harold
+# ALWAYS check for existing processes before starting
+python scripts/harold.py ps
 
-# Run controller manually (for debugging)
-cd /home/pi/harold
-python3 -m inference.harold_controller
+# If orphans exist, clean them up
+python scripts/harold.py stop
 ```
 
-File Locations on Pi
+**What are orphan processes?** Training spawns child processes. If the parent dies unexpectedly (OOM, crash, context overflow), children may keep running. `harold ps` shows `[ORPHAN]` for processes not tracked by the PID file. `harold stop` kills all training processes and cleans up PID files.
 
-| Path | Description |
-|------|-------------|
-| `/home/pi/harold/` | Deployment code root |
-| `/home/pi/harold/inference/harold_controller.py` | Main 20 Hz control loop |
-| `/home/pi/harold/policy/harold_policy.onnx` | Neural network (753 KB) |
-| `/home/pi/harold/config/hardware.yaml` | ESP32 port, servo config |
-| `/home/pi/harold/config/cpg.yaml` | CPG parameters |
-| `/home/pi/harold/logs/` | Runtime logs |
-| `/etc/systemd/system/harold.service` | Systemd service file |
-
-ESP32 Firmware Flashing from Pi
-
-The Pi can flash firmware directly to the ESP32 using arduino-cli:
+### Starting Experiments
 
 ```bash
-# Install arduino-cli (one-time setup)
-curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
-export PATH=$PATH:/home/pi/bin
-arduino-cli core install esp32:esp32
+# Activate environment first
+source ~/Desktop/env_isaaclab/bin/activate
+cd /home/matteo/Desktop/code_projects/harold
 
-# Clone repo if not present
-git clone <repo-url> ~/harold-repo
-
-# Compile and upload streaming control firmware
-cd ~/harold-repo
-arduino-cli compile --fqbn esp32:esp32:esp32 firmware/StreamingControl/HaroldStreamingControl
-arduino-cli upload -p /dev/ttyUSB0 --fqbn esp32:esp32:esp32 firmware/StreamingControl/HaroldStreamingControl
+# Start experiment with metadata (hypothesis-driven workflow)
+python scripts/harold.py train --hypothesis "Lower threshold (10N) prevents elbow exploit" \
+                               --tags "body_contact,elbow_fix"
+python scripts/harold.py train --duration standard # Preset duration (see scripts/harold.py)
+python scripts/harold.py train --checkpoint path   # Resume from checkpoint
+python scripts/harold.py train --mode cpg          # CPG residual mode
+python scripts/harold.py train --mode scripted     # Scripted gait (policy ignored)
+python scripts/harold.py train --task rough        # Rough terrain task
 ```
 
-Required ESP32 Firmware
+### Autonomous Loop (Interactive for Hours)
 
-The ESP32 must run `HaroldStreamingControl` firmware for the Pi to communicate with it:
+Use this loop for long sessions so you keep control without flooding logs:
 
-| Firmware | Purpose | Location |
-|----------|---------|----------|
-| HaroldStreamingControl | Serial streaming control (REQUIRED) | `firmware/StreamingControl/HaroldStreamingControl/` |
-| scripted_gait_test_1 | Standalone scripted gait (no Pi needed) | `firmware/scripted_gait_test_1/` |
-
-Hardware Connections on Pi 5
-
-| Component | Connection | Device Path |
-|-----------|------------|-------------|
-| ESP32 | USB (CP2102 adapter) | `/dev/ttyUSB0` |
-| IMU (MPU6050) | I2C (GPIO 2=SDA, GPIO 3=SCL) | Bus 1, Address 0x68 |
-
-Troubleshooting
-
-**ESP32 not detected:**
 ```bash
-lsusb                          # Should show "Silicon Labs CP210x"
-ls /dev/ttyUSB*                # Should show /dev/ttyUSB0
-dmesg | tail -20               # Check kernel messages
+# Start a run (defaults handle envs/headless/video)
+python scripts/harold.py train --hypothesis "…" --tags "…"
+
+# Sleep 15-30 minutes
+sleep 1200
+
+# Check status + metrics
+python scripts/harold.py status
+
+# If clearly failing, stop early and validate
+python scripts/harold.py stop
+python scripts/harold.py validate
 ```
 
-**Permission denied on /dev/ttyUSB0:**
+**Early stop rules** (after 10-15 min of data):
+- SANITY fails → stop
+- Height/contact failing AND vx negative → stop
+- Standing passes but vx low → keep running
+- If vx is noisy, use `x_displacement` to confirm real forward progress
+
+**Scripted gait runs**: stop once the first video exists and metrics are clearly failing; additional time won’t improve a scripted trajectory.
+
+### Monitoring & Analysis
+
 ```bash
-sudo usermod -a -G dialout pi  # Add pi to dialout group
-# Then logout/login or reboot
+# Check status (state-only reporting, no prescriptive suggestions)
+python scripts/harold.py status                     # Current run with metrics
+python scripts/harold.py status --json              # Machine-readable output
+
+# Validate a run (by alias, directory name, or path)
+python scripts/harold.py validate                   # Latest run
+python scripts/harold.py validate EXP-034           # By experiment alias
+python scripts/harold.py validate <run_id>          # By directory name
+
+# List recent runs
+python scripts/harold.py runs                       # Last 10 with status
+python scripts/harold.py runs --hypothesis          # Include hypothesis for each
+
+# Compare experiments side-by-side (essential for hypothesis-driven work)
+python scripts/harold.py compare EXP-034 EXP-035    # Specific experiments
+python scripts/harold.py compare                    # Last 5 experiments
+python scripts/harold.py compare --tag forward_motion  # All with tag
+
+# Add observations to experiments
+python scripts/harold.py note EXP-034 "Robot walked at 40-80% then regressed"
 ```
 
-**Handshake failed:**
-- Check ESP32 has correct firmware (HaroldStreamingControl)
-- Check USB cable has data lines (not charge-only)
-- Try: `sudo systemctl stop harold` then manual serial test
+### Video Location (Training)
 
-**Service keeps restarting:**
+Videos are saved under:
+`logs/skrl/harold_direct/<run_id>/videos/train`
+
+### Process Management
+
 ```bash
-sudo systemctl status harold   # Check exit code
-cat /home/pi/harold/logs/harold_error.log  # Check Python errors
+python scripts/harold.py ps                   # List all training processes
+python scripts/harold.py stop                 # Stop all training and cleanup
 ```
+
+### Status Output Example
+```
+RUN: 2025-12-22_14-30-00_ppo_torch (EXP-039)
+HYPOTHESIS: Lower body contact threshold prevents elbow exploit
+CONFIG: task=flat, mode=rl, duration=short
+STATUS: RUNNING (45%, 1h 23m elapsed, 6.5 it/s, 8192 envs)
+REWARD: 1234.5
+SANITY: PASS (ep_len=342)
+STANDING: PASS (height=0.72, contact=-0.02)
+WALKING: WARN (vx=0.005, need >0.01)
+DISPLACEMENT: x=0.02 (|x|=0.02)
+VERDICT: STANDING
+DIAGNOSIS: Upright and stable, forward velocity 0.005 m/s
+```
+
+The STATUS line shows: progress %, elapsed time, iterations/second, and environment count.
+Example values above are illustrative; use `harold status` for current metrics.
+
+### Exit Codes
+- `0` = All metrics pass (robot walking)
+- `1` = Partial (standing but not walking)
+- `2` = Failing (on elbows, fallen)
+- `3` = Sanity failure (episodes too short)
+- `4` = Not running / no data
+
+### Manifest System
+Each experiment gets a `manifest.json` with:
+- `alias`: EXP-NNN identifier
+- `hypothesis`: What you're testing
+- `tags`: For filtering in `harold compare --tag`
+- `training_config`: `{task, mode, duration, num_envs, iterations, gait_scale}` for status display
+- `summary.final`: Cached final metrics
+- `summary.verdict`: WALKING/STANDING/FAILING/etc.
+- `notes`: Timestamped observations
+
+Global index at `logs/skrl/harold_direct/experiments_index.json` maps EXP-NNN aliases to directories.
+
+### JSON Output (`harold status --json`)
+Machine-readable output includes:
+- `running`, `pid`, `elapsed_seconds`: Process state
+- `progress`, `current_iteration`, `total_iterations`: Training progress
+- `iterations_per_second`: Current training rate
+- `training_config`: `{task, mode, duration, num_envs, iterations, gait_scale}` from manifest
+- `metrics`: All TensorBoard metrics
+- `status`, `diagnosis`, `exit_code`: Validation result
+- `killed_by_watchdog`: Memory watchdog kill info (if applicable)
+
+---
+
+## Low-Level Commands (manual/legacy, avoid for agents)
+
+```bash
+# Direct training (verbose output - avoid in agents)
+# NOTE: --video is MANDATORY, never omit it
+python harold_isaac_lab/scripts/skrl/train.py \
+  --task=Template-Harold-Direct-flat-terrain-v0 \
+  --num_envs <num_envs> --headless --video --video_length <frames> --video_interval <steps>
+
+# Play/evaluate a checkpoint
+python harold_isaac_lab/scripts/skrl/play.py \
+  --task=Template-Harold-Direct-flat-terrain-v0 \
+  --checkpoint=<path_to_checkpoint.pt>
+
+# TensorBoard monitoring
+python3 -m tensorboard.main --logdir logs/skrl/harold_direct/ --bind_all
+```
+
+---
+
+## 5-Metric Validation Protocol
+
+Use `docs/memory/OBSERVABILITY.md` for current thresholds and failure signatures.
+
+Check metrics in order:
+- `episode_length` (sanity)
+- `upright_mean`
+- `height_reward`
+- `body_contact_penalty`
+- `vx_w_mean`
+
+If sanity fails, ignore the rest.
+
+Per-foot gait diagnostics are logged under `Episode_Metric/*` (contact ratio, peak force, air time, slip, x displacement).
+
+---
+
+## Code Architecture
+
+### Isaac Lab Extension (`harold_isaac_lab/`)
+
+The core training environment is an Isaac Lab extension:
+
+```
+harold_isaac_lab/
+├── scripts/skrl/
+│   ├── train.py         # Main training entry point
+│   └── play.py          # Policy evaluation/playback
+└── source/harold_isaac_lab/harold_isaac_lab/
+    └── tasks/direct/
+        ├── harold_flat/     # Flat terrain RL (primary task)
+        │   ├── harold_isaac_lab_env.py      # Environment class
+        │   ├── harold_isaac_lab_env_cfg.py  # Config (rewards, termination)
+        │   ├── harold.py                    # Robot asset definition
+        │   └── agents/skrl_ppo_cfg.yaml     # PPO hyperparameters
+        ├── harold_rough/    # Rough terrain with curriculum
+        └── harold_pushup/   # Scripted playback (no RL)
+```
+
+### Gym Task IDs
+- `Template-Harold-Direct-flat-terrain-v0` - Primary training task
+- `Template-Harold-Direct-rough-terrain-v0` - Rough terrain variant
+- `Template-Harold-Direct-pushup-v0` - Scripted playback
+
+### Key Configuration Files
+| Purpose | Path |
+|---------|------|
+| Flat env config (rewards, termination) | `.../harold_flat/harold_isaac_lab_env_cfg.py` |
+| PPO hyperparameters | `.../harold_flat/agents/skrl_ppo_cfg.yaml` |
+| Robot asset (joints, actuators) | `.../harold_flat/harold.py` |
+| USD model | `part_files/V4/harold_8.usd` |
+
+### Robot Specifications
+- **12 DOF**: 4 legs × (shoulder, thigh, calf)
+- **Joint order**: [shoulders FL, FR, BL, BR] → [thighs ...] → [calves ...]
+- **Control/sim rates**: Defined in env config (`*_env_cfg.py`); do not assume fixed values.
+- **Observation**: Contents and size vary by mode; see env config.
+- **Action**: Joint position deltas; scaling/clamps defined in env config.
+- **Actuators**: Implicit PD with gains/limits defined per task (`*/harold.py`).
+
+### Deployment Artifacts
+```
+deployment_artifacts/     # Exported ONNX policies for hardware
+policy/                   # Hardware inference code
+├── robot_controller.py   # Live IMU control loop
+└── harold_policy.onnx    # Deployed neural network
+```
+
+---
+
+## Known Failure Modes
+
+### "On Elbows" Exploit
+Robot falls forward onto elbows with back elevated. Passes `upright_mean > 0.9` but fails `height_reward < 0.5`. **Always check height_reward.**
+
+### Height Termination Bug
+If using height-based termination, check height above terrain, NOT world Z coordinate. Spawn pose must be above threshold.
+
+### Context Overflow
+Long training runs flood context with tqdm output. Always use `python scripts/harold.py train` which runs training in background.
+
+---
+
+## Simulation Settings & Memory Safety
+
+Defaults for env count, headless/video, and duration presets live in `scripts/harold.py`. Use the CLI and avoid hard-coded overrides unless debugging.
+
+### Memory Watchdog
+Training starts a watchdog to prevent OOM-induced system hangs. Thresholds and behavior are defined in `scripts/memory_watchdog.py` and surfaced in `harold status`.
+
+### Training Duration Presets
+Use `python scripts/harold.py train --duration <preset>`; presets are defined in `scripts/harold.py`.
+
+### Actuator Overrides (Diagnostics)
+
+```bash
+HAROLD_ACTUATOR_STIFFNESS=<stiffness> HAROLD_ACTUATOR_DAMPING=<damping> HAROLD_ACTUATOR_EFFORT_LIMIT=<limit> \
+python scripts/harold.py train --hypothesis "…" --tags "actuator_sweep"
+```
+
+Use overrides for responsiveness tests; keep within `docs/memory/HARDWARE_CONSTRAINTS.md`.
+
+### Gait Overrides (Diagnostics)
+
+```bash
+python scripts/harold.py train --mode scripted --gait-scale <scale> --hypothesis "…" --tags "gait_scale"
+```
+
+Only use for diagnostics; keep defaults aligned to hardware.
+
+---
+
+## Hardware Constraints (Sim-to-Real)
+
+Use `docs/memory/HARDWARE_CONSTRAINTS.md` as the source of truth for safe ranges, must-preserve values, and hardware specs.
+
+---
+
+## Hardware Session Logs (RPi Telemetry)
+
+Telemetry logging details and analysis tips live in `docs/memory/OBSERVATIONS.md` (Hardware Session Logs section).
+
+---
+
+## Technical Reference
+
+Full technical references live in:
+- `docs/reference/sim_reference.md`
+- `docs/reference/hardware_reference.md`

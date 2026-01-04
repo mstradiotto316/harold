@@ -37,10 +37,11 @@ const float JOINT_SIGN[12] = {
 };
 
 // --- Control parameters -----------------------------------------------------
+// Ready stance (sync from deployment/config/stance.yaml)
 const float DEFAULT_POSE[12] = {
   0.0f, 0.0f, 0.0f, 0.0f,
-  0.40f, 0.40f, 0.40f, 0.40f,
- -1.05f,-1.05f,-1.05f,-1.05f
+  0.65f, 0.65f, 0.65f, 0.65f,
+ -1.13f,-1.13f,-1.13f,-1.13f
 };
 
 // Collision-safe limits (based on actual robot geometry, not servo limits)

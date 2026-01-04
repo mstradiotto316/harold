@@ -31,12 +31,12 @@ Robot Assets and Actuators
 
 - Flat (tasks/direct/harold_flat/harold.py)
   - USD: part_files/V4/harold_8.usd
-  - Init pose: body z=0.30; thighs 0.70 rad; calves -1.39 rad
+  - Init pose: body z=0.30; joint pose from `deployment/config/stance.yaml`
   - Actuators: Implicit PD, stiffness=400, damping=150, effort_limit_sim=2.8
 
 - Rough (tasks/direct/harold_rough/harold.py)
   - USD: part_files/V4/harold_8.usd
-  - Init pose: body z=0.20; thighs 0.30 rad; calves -0.75 rad
+  - Init pose: body z=0.20; joint pose from `deployment/config/stance.yaml`
   - Actuators: Implicit PD, stiffness=400, damping=150, effort_limit_sim=2.8
 
 - Pushup (tasks/direct/harold_pushup/harold.py)
@@ -120,7 +120,7 @@ File: harold_pushup/harold_isaac_lab_env.py with config *_env_cfg.py.
 
 - Single-environment playback (scene configured with num_envs=1).
 - Ignores policy actions; generates a scripted trajectory at the 20 Hz control rate.
-- Phases: neutral settle (~1.5 s), athletic stance (~0.8 s), then 5 pushup cycles; then holds athletic stance.
+- Phases: neutral settle (~1.5 s), pushup start pose (~0.8 s), then 5 pushup cycles; then holds pushup start pose.
 - Joint limits for pushup: shoulders ±30°, thighs/calves ±90° (from config).
 - Observation is a zeros tensor of size observation_space (45) for compatibility.
 

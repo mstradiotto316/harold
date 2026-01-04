@@ -15,6 +15,7 @@ from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.math import quat_from_angle_axis, sample_uniform
 from isaaclab.utils.noise import gaussian_noise, uniform_noise
+from harold_isaac_lab.common.stance import load_rl_default_pose
 
 
 class HaroldIsaacLabEnv(DirectRLEnv):
@@ -231,12 +232,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # CPG phase tracks position in the gait cycle (0 to 1, repeating)
         self._cpg_phase = torch.zeros(self.num_envs, device=self.device)
 
-        # Athletic pose values (center of CPG oscillation)
-        # NOTE: Calf adjusted from -1.40 to -1.00 to give room for foot lift
-        # With calf at -1.40, calf_amplitude > 0.17 would hit the -1.57 joint limit
-        # With calf at -1.00, we have ±0.57 rad of room for oscillation
-        self._athletic_thigh = 0.70   # Default thigh angle
-        self._athletic_calf = -1.00   # Less bent to allow foot lift during swing
+        # Ready stance (canonical default pose) loaded from config/stance.yaml
+        self._ready_pose = torch.tensor(load_rl_default_pose(), device=self.device)
         self._decimation_counter = 0
 
         # --- Optional policy logging for sim-to-real dataset capture ---
@@ -1222,13 +1219,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._previous_actions[env_ids].zero_()
 
         # Reset backlash hysteresis state (Session 37)
-        # Set engaged position to athletic pose so policy starts fresh
+        # Set engaged position to ready pose so policy starts fresh
         if self._backlash_enabled and self._engaged_position is not None:
-            athletic_pose = torch.tensor(
-                [0.20, -0.20, 0.20, -0.20, 0.70, 0.70, 0.70, 0.70, -1.40, -1.40, -1.40, -1.40],
-                device=self.device,
-            )
-            self._engaged_position[env_ids] = athletic_pose.unsqueeze(0).expand(len(env_ids), -1)
+            ready_pose = self._ready_pose.to(dtype=self._engaged_position.dtype)
+            self._engaged_position[env_ids] = ready_pose.unsqueeze(0).expand(len(env_ids), -1)
 
         num = len(env_ids)
         sampled_commands = torch.zeros_like(self._commands[env_ids])
@@ -1273,26 +1267,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         num_reset_envs = len(env_ids)
         if num_reset_envs > 0:
-            athletic_pose = torch.tensor(
-                [
-                    0.20,
-                    -0.20,
-                    0.20,
-                    -0.20,
-                    0.70,
-                    0.70,
-                    0.70,
-                    0.70,
-                    -1.40,
-                    -1.40,
-                    -1.40,
-                    -1.40,
-                ],
-                device=self.device,
-                dtype=joint_pos.dtype,
-            ).unsqueeze(0).repeat(num_reset_envs, 1)
-            joint_pos = athletic_pose
-            self._robot.data.default_joint_pos[env_ids] = athletic_pose
+            ready_pose = self._ready_pose.to(dtype=joint_pos.dtype).unsqueeze(0).repeat(num_reset_envs, 1)
+            joint_pos = ready_pose
+            self._robot.data.default_joint_pos[env_ids] = ready_pose
 
         if hasattr(self._terrain, 'env_origins'):
             if self.cfg.terrain.terrain_type == 'generator' and hasattr(self._terrain, 'terrain_origins'):

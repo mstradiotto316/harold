@@ -1,5 +1,5 @@
-/* Push‑up with incremental steps, athletic stance, and proportional joint movement.
- * Five reps, then hold athletic stance.            */
+/* Push-up with incremental steps, pushup start pose, and proportional joint movement.
+ * Five reps, then hold the pushup start pose.       */
 #include <SCServo.h>
 #include <cmath>  // for std::lerp
 SMS_STS st;
@@ -19,10 +19,10 @@ constexpr float KGCM_TO_NM = 0.0980665f;
 constexpr float RATED_STALL_TORQUE_NM = RATED_STALL_TORQUE_KGCM * KGCM_TO_NM;
 
 // Pushup movement angles
-// THIGH_START and CALF_START define the "up" position (athletic stance)
+// THIGH_START and CALF_START define the "up" position (pushup start pose)
 // Calf range of motion is set to be twice the thigh's range of motion.
-const float THIGH_START = -10.0f;   // Thighs slightly back for athletic stance
-const float CALF_START = 20.0f;    // Calves more forward for a deeper knee bend in athletic stance
+const float THIGH_START = -10.0f;   // Thighs slightly back for pushup start pose
+const float CALF_START = 20.0f;    // Calves more forward for a deeper knee bend in pushup start pose
 const float THIGH_END = -45.0f;    // End angle for thighs (down position). Thigh movement: -35 degrees.
 const float CALF_END = 90.0f;     // End angle for calves (down position). Calf movement: +70 degrees.
 
@@ -145,9 +145,9 @@ void writeAllLegsPushup(float thigh_angle, float calf_angle) {
   }
 }
 
-// Function to set all legs to the athletic (starting/top) position for push-ups
-void setToAthleticStance() {
-  Serial.println("Setting legs to athletic stance for push-up.");
+// Function to set all legs to the pushup start position
+void setToPushupStartPose() {
+  Serial.println("Setting legs to pushup start pose.");
   writeAllLegsPushup(THIGH_START, CALF_START);
 }
 
@@ -183,15 +183,15 @@ void setup() {
   // Reset all joints to 0 degrees before starting any specific pose or movement
   resetAllJointsToZero();
 
-  Serial.println("\n== Incremental Push‑up Test (Athletic Stance, Proportional), 5 reps ==");
-  // Set legs to the defined athletic starting position for the push-up.
-  setToAthleticStance();                               
+  Serial.println("\n== Incremental Push-up Test (Pushup Start Pose, Proportional), 5 reps ==");
+  // Set legs to the defined pushup start position.
+  setToPushupStartPose();
   delay(800); // Pause after setting initial push-up pose, allowing servos to settle.
 
   // Perform 5 push-up repetitions
   for (int rep = 1; rep <= 5; ++rep) {
     Serial.printf("\nRep %d DOWN…\n", rep);
-    // Down phase: interpolate from athletic stance (THIGH_START, CALF_START) 
+    // Down phase: interpolate from pushup start pose (THIGH_START, CALF_START)
     // to bent positions (THIGH_END, CALF_END)
     for (int s=1; s<=STEPS; ++s) {
       float t = float(s) / STEPS;  // t is the interpolation factor, goes from 0.0 to 1.0
@@ -206,7 +206,7 @@ void setup() {
     dumpAllDiags();
 
     Serial.println("…UP");
-    // Up phase: interpolate from bent positions back to athletic stance
+    // Up phase: interpolate from bent positions back to pushup start pose
     for (int s=STEPS; s>=0; --s) { // Iterate downwards to reverse the motion
       float t = float(s) / STEPS;  // t goes from 1.0 down to 0.0
       float current_thigh_angle = std::lerp(THIGH_START, THIGH_END, t);
@@ -214,14 +214,14 @@ void setup() {
       writeAllLegsPushup(current_thigh_angle, current_calf_angle);
       delay(STEP_MS); // Wait for the small incremental move
     }
-    delay(300); // Pause at the top of the push-up (athletic stance)
+    delay(300); // Pause at the top of the push-up (pushup start pose)
     // Diagnostics at the top to avoid stalling motion
     dumpAllDiags();
   }
 
-  Serial.println("\nPush-up routine complete. Holding athletic stance.");
-  // Ensure legs are in the athletic stance after the routine.
-  setToAthleticStance(); 
+  Serial.println("\nPush-up routine complete. Holding pushup start pose.");
+  // Ensure legs are in the pushup start pose after the routine.
+  setToPushupStartPose();
   
   // Final diagnostic dump
   delay(100); // Let servos settle in final position

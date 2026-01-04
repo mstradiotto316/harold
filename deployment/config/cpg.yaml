@@ -29,25 +29,8 @@ joint_range:
   thigh: 0.90            # ±0.90 rad from default
   calf: 0.90             # ±0.90 rad from default
 
-# Default joint positions - TWO CONVENTIONS
-# Hardware convention: what the servo encoders read at rest
-# RL convention: what the simulation training used
-# The relationship: hw = hw_default + (rl - rl_default) * joint_sign
-
-# Hardware default pose (servo encoder readings at athletic stance)
-hw_default_pose:
-  shoulders: 0.0         # All shoulders at 0 rad
-  thighs: 0.40           # Tuned stance: foot under shoulder
-  calves: -1.05          # Tuned stance: foot under shoulder
-
-# RL default pose (simulation training convention)
-rl_default_pose:
-  shoulder_fl: 0.0       # Match sim default pose
-  shoulder_fr: 0.0
-  shoulder_bl: 0.0
-  shoulder_br: 0.0
-  thighs: 0.60           # Tuned stance: foot under shoulder
-  calves: -1.40          # Tuned stance: foot under shoulder
+# Default joint positions (ready stance) live in config/stance.yaml.
+# Do NOT duplicate them here; the runtime loads stance.yaml directly.
 
 # Joint sign for convention conversion (RL <-> Hardware)
 # Multiply relative positions by this to convert: rl_rel = hw_rel * joint_sign

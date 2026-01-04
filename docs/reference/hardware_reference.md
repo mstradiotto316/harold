@@ -66,6 +66,8 @@ sudo systemctl enable harold
 
 ## Manual controller run (RPi)
 
+Use system `python3` on the Pi (no virtualenv required).
+
 ```bash
 # Stop the service first
 sudo systemctl stop harold

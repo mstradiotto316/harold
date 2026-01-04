@@ -23,6 +23,7 @@ from .system_metrics import SystemMetricsCollector
 
 if TYPE_CHECKING:
     from drivers.esp32_serial import Telemetry
+    from drivers.imu_reader_rpi5 import IMUData
 
 
 # Joint names in RL order
@@ -180,6 +181,14 @@ class SessionLogger:
         # Controller state
         header.extend(["mode", "cpg_phase", "cmd_vx", "cmd_vy", "cmd_yaw"])
 
+        # IMU state (observation-compatible)
+        header.extend([
+            "imu_valid",
+            "imu_lin_vel_x", "imu_lin_vel_y", "imu_lin_vel_z",
+            "imu_gyro_x", "imu_gyro_y", "imu_gyro_z",
+            "imu_proj_g_x", "imu_proj_g_y", "imu_proj_g_z",
+        ])
+
         self._writer.writerow(header)
 
     def _signal_handler(self, signum, frame):
@@ -198,6 +207,7 @@ class SessionLogger:
         self,
         telemetry: "Telemetry",
         state: Optional[ControllerState] = None,
+        imu_data: Optional["IMUData"] = None,
     ) -> None:
         """Log one timestep of telemetry and system metrics.
 
@@ -219,7 +229,7 @@ class SessionLogger:
 
         try:
             # Build row
-            row = self._build_row(telemetry, state)
+            row = self._build_row(telemetry, state, imu_data)
             self._buffer.append(row)
             self._row_count += 1
 
@@ -234,6 +244,7 @@ class SessionLogger:
         self,
         telemetry: "Telemetry",
         state: Optional[ControllerState],
+        imu_data: Optional["IMUData"],
     ) -> list:
         """Build a CSV row from telemetry and state."""
         import math
@@ -282,6 +293,15 @@ class SessionLogger:
             row.append(f"{state.command_yaw:.4f}")
         else:
             row.extend(["UNKNOWN", "0.0", "0.0", "0.0", "0.0"])
+
+        if imu_data is None or not imu_data.valid:
+            row.append(0)
+            row.extend([math.nan] * 9)
+        else:
+            row.append(1)
+            row.extend([float(val) for val in imu_data.lin_vel])
+            row.extend([float(val) for val in imu_data.gyro])
+            row.extend([float(val) for val in imu_data.projected_gravity])
 
         return row
 

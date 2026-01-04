@@ -25,8 +25,10 @@ This file is a technical reference for the Isaac Lab simulation setup. Use `AGEN
 ## Robot assets and actuators
 
 - USD asset is shared across task variants.
+- USD is the only source of truth for simulation assets; URDF exports are archival and must not be used for sim parameters.
 - Default joint pose comes from `deployment/config/stance.yaml` (task-specific overrides live in each `harold.py`).
-- Actuator defaults are configured per task in each `harold.py` and can be overridden via:
+- Actuator defaults are configured per task in each `harold.py` (implicit PD actuator model).
+- Actuator defaults can be overridden via:
   - `HAROLD_ACTUATOR_STIFFNESS`
   - `HAROLD_ACTUATOR_DAMPING`
   - `HAROLD_ACTUATOR_EFFORT_LIMIT`
@@ -65,6 +67,11 @@ For validation metrics and thresholds, see `docs/memory/OBSERVABILITY.md`.
 
 - Randomization toggles and ranges (friction, observation noise, action noise, delays, mass/inertia, actuator variations, external forces) are defined in each env config.
 - Treat ranges as experiment-time parameters; refer to the config for current values.
+
+## Sim-to-real comparison tools
+
+- `harold_isaac_lab/scripts/log_gait_playback.py` logs CPG/scripted gait playback to CSV (joint positions, commanded positions, applied torques, IMU-like signals).
+- `scripts/compare_hw_sim.py` summarizes hardware vs simulation logs (phase-binned command alignment, tracking error, IMU stats).
 
 ## Scripted playback (pushup)
 

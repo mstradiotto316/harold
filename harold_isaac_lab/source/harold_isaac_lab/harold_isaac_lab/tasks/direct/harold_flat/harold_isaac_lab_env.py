@@ -626,6 +626,12 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl, cfg, leg="front")
         thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl, cfg, leg="back")
 
+        # Optional front/back thigh bias to shift weight distribution.
+        thigh_fl = thigh_fl + cfg.thigh_offset_front
+        thigh_fr = thigh_fr + cfg.thigh_offset_front
+        thigh_bl = thigh_bl + cfg.thigh_offset_back
+        thigh_br = thigh_br + cfg.thigh_offset_back
+
         # Shoulder oscillation for balance (hardware-aligned sin)
         shoulder_fl = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)
         shoulder_br = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)
@@ -728,10 +734,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             # Use average of stance/swing thigh and calf (matches firmware stance)
             mid_thigh = (cfg.stance_thigh + cfg.swing_thigh) / 2.0
             mid_calf = (cfg.stance_calf + cfg.swing_calf) / 2.0
+            mid_thigh_front = mid_thigh + cfg.thigh_offset_front
+            mid_thigh_back = mid_thigh + cfg.thigh_offset_back
             targets = torch.tensor(
                 [
                     0.0, 0.0, 0.0, 0.0,                             # Shoulders: neutral
-                    mid_thigh, mid_thigh, mid_thigh, mid_thigh,     # Thighs: mid-stance
+                    mid_thigh_front, mid_thigh_front,               # Thighs: front mid-stance
+                    mid_thigh_back, mid_thigh_back,                 # Thighs: back mid-stance
                     mid_calf, mid_calf, mid_calf, mid_calf          # Calves: mid-stance
                 ],
                 device=self.device,
@@ -753,6 +762,12 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             thigh_br, calf_br = self._compute_leg_trajectory(phase_fl_br, cfg, leg="back")
             thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl, cfg, leg="front")
             thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl, cfg, leg="back")
+
+            # Optional front/back thigh bias to shift weight distribution.
+            thigh_fl = thigh_fl + cfg.thigh_offset_front
+            thigh_fr = thigh_fr + cfg.thigh_offset_front
+            thigh_bl = thigh_bl + cfg.thigh_offset_back
+            thigh_br = thigh_br + cfg.thigh_offset_back
 
             # Shoulder oscillation for balance (hardware-aligned sin)
             shoulder_fl = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)

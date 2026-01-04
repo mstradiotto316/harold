@@ -22,9 +22,27 @@ pip install -r deployment/requirements.txt
 python inference/harold_controller.py
 ```
 
+## Syncing Runtime from Desktop
+
+The Pi runtime is a git checkout of this repo. Sync from the desktop before hardware tests:
+
+```bash
+# On the desktop after edits
+git add -A
+git commit -m "Describe changes"
+git push
+
+# On the Pi before tests
+git status -sb     # must be clean
+git pull --ff-only
+```
+
+Avoid editing runtime code on the Pi. If a hotfix is unavoidable, commit it on the Pi,
+push, and then pull it on the desktop to keep both repos in sync.
+
 ## Components
 
-Paths below are relative to the deployment root (typically `/home/pi/harold`).
+Paths below are relative to the deployment root (typically `<repo-root>/deployment`, e.g. `/home/pi/harold/deployment`).
 
 | Component | Description |
 |-----------|-------------|

@@ -108,6 +108,8 @@ Before touching hardware:
 - Read `docs/reference/hardware_reference.md` for the system map and ESP32 flashing.
 - Read `docs/hardware/rpi_deployment.md` for the runtime pipeline.
 - Read `docs/hardware/calibration_checklist.md` before calibration changes.
+- Sync runtime code via git: commit + push on desktop, then on the Pi run `git status -sb` (must be clean) and `git pull --ff-only`.
+- If the Pi repo is dirty, STOP and reconcile the changes on desktop before testing; do not edit code on the Pi.
 - Agents must execute the SSH/tests themselves; do not ask the operator to run these steps.
 
 ```bash

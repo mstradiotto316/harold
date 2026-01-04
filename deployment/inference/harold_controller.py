@@ -435,7 +435,8 @@ class HaroldController:
                         command_yaw=obs[35],
                         cmd_positions=hw_targets,
                     )
-                    self.logger.log(self.esp32.last_telemetry, state)
+                    imu_data = self.obs_builder.last_imu_data if self.obs_builder else None
+                    self.logger.log(self.esp32.last_telemetry, state, imu_data)
 
                 # 8. Logging (every 20 loops = 1 second)
                 self._loop_count += 1

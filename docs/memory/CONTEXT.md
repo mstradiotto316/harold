@@ -82,9 +82,10 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 - `/home/pi/harold/sessions/session_2026-01-04_05-44-24.csv`
 
 ### Sync paths (RPi)
-- Repo (firmware/scripts): `/home/pi/Desktop/harold`
-- Runtime (controller/config): `/home/pi/harold`
-- Keep `deployment/config/cpg.yaml` + `deployment/inference/cpg_generator.py` synced to runtime.
+- Repo root (git checkout): `/home/pi/harold` (adjust if different).
+- Runtime root: `<repo-root>/deployment` (this is where you `cd` for `python3 -m inference.harold_controller`).
+- Keep `deployment/config/cpg.yaml` + `deployment/inference/cpg_generator.py` synced via git pull on the Pi.
+- Workflow: edit on desktop → commit + push → `git status -sb` (clean) → `git pull --ff-only` on the Pi.
 
 ## Current State (2026-01-02, Session 39 Complete)
 

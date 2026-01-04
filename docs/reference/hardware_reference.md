@@ -14,6 +14,7 @@ For exact limits, servo specs, and safe ranges, see `docs/memory/HARDWARE_CONSTR
 ## Runtime layout (RPi)
 
 Confirm repo and runtime paths in `docs/memory/CONTEXT.md` before running commands.
+Runtime root is the repo’s `deployment/` directory (e.g. `/home/pi/harold/deployment`).
 
 - Repo path (git checkout): see `docs/memory/CONTEXT.md`
 - Runtime root: `<runtime-root>` (see `docs/memory/CONTEXT.md`)
@@ -24,8 +25,21 @@ Confirm repo and runtime paths in `docs/memory/CONTEXT.md` before running comman
 
 ## Syncing code to the Pi
 
-Use the transfer protocol in `docs/memory/CONTEXT.md` (git push/pull between desktop and Pi).
-If runtime files live outside the repo path, sync configs and policies after pulling.
+The Pi runtime is a git checkout of this repo. Sync from the desktop with:
+
+```bash
+# On the desktop after edits
+git add -A
+git commit -m "Describe changes"
+git push
+
+# On the Pi before tests
+git status -sb     # must be clean
+git pull --ff-only
+```
+
+Do not edit runtime code directly on the Pi. If a hotfix is unavoidable, commit it on the Pi,
+push, and then pull it on the desktop to keep both repos in sync.
 
 ## SSH access
 

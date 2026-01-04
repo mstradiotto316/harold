@@ -61,8 +61,8 @@
 - `scripts/harold.py`: default `num_envs` now 8192; run registration waits for new run dir.
 - `scripts/harold.py`: added `--task`, `--mode`, and `--duration` presets; status now shows config + x displacement; run listing uses robust dir pattern.
 - `harold_rough/harold.py` + `harold_pushup/harold.py`: actuator env overrides added, defaults unified (effort=2.8, stiffness=400, damping=150).
-- `CLAUDE.md` + `AGENTS.md`: updated defaults, added autonomous loop guidance, removed outdated helper-script references.
-- `.claude_memory/OBSERVATIONS.md`: updated context-management guidance to use `harold.py`.
+- `AGENTS.md` + `AGENTS.md`: updated defaults, added autonomous loop guidance, removed outdated helper-script references.
+- `docs/memory/OBSERVATIONS.md`: updated context-management guidance to use `harold.py`.
 - `harold_flat/harold_isaac_lab_env.py`: added height/contact metrics + gait amplitude scaling env var; metrics now logged.
 
 ## Open Issues

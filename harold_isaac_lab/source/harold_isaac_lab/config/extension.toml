@@ -5,7 +5,7 @@ version = "0.1.0"
 
 # Description
 category = "isaaclab"
-readme  = "README.md"
+readme  = "../../../docs/sim/isaac_lab_extension.md"
 
 title = "Extension Template"
 author = "Isaac Lab Project Developers"

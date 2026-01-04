@@ -12,7 +12,7 @@
 **NEW**: The robot now logs detailed telemetry at 5 Hz during hardware runs:
 - **Location**: `deployment/sessions/session_YYYY-MM-DD_HH-MM-SS.csv`
 - **Data**: 12 joint positions/loads/currents/temps, bus voltage, RPi metrics
-- **Documentation**: See "Hardware Session Logs" section in CLAUDE.md
+- **Documentation**: See the "Hardware Session Logs" section in `docs/memory/OBSERVATIONS.md`
 
 Use these logs to diagnose hardware issues (backlash, thermal, power problems).
 

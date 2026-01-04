@@ -79,7 +79,7 @@ When deploying to hardware:
 ## Files Modified
 
 - `harold_isaac_lab_env_cfg.py`: Tested hardware params, then reverted
-- `.claude_memory/sessions/2026-01-01_session38_desktop.md`: This log
+- `docs/memory/sessions/2026-01-01_session38_desktop.md`: This log
 
 ## Lessons Learned
 

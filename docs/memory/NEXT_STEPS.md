@@ -1,8 +1,8 @@
 # Harold Next Steps
 
-## 2026-01-04: Hardware CPG (Rear Legs Still Skimming)
-- Increase rear-only lift/stride: try `calf_lift_scale_back=1.25` and/or `stride_scale_back=1.4` while keeping front scales unchanged.
-- Optional: add a small rear-only thigh offset or shoulder bias to unload rear legs during swing.
+## 2026-01-04: Hardware CPG Baseline (Test 3)
+- Baseline confirmed: `frequency_hz=0.4`, `duty_cycle=0.5`, `stride_scale=0.35`, `calf_lift_scale=0.85`, rear boost (`stride_scale_back=1.3`, `calf_lift_scale_back=1.15`).
+- Use this baseline for sim-to-real alignment and actuator tuning comparisons.
 - Keep `SERVO_SPEED`/`SERVO_ACC` unchanged.
 - Keep `harold` service stopped during manual tests; it restarts gait if active.
 - If ESP32 handshake fails, reflash StreamingControl on the Pi before testing.

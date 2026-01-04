@@ -77,9 +77,9 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 - ESP32 handshake failures occurred after calibration firmware; resolved by re-flashing StreamingControl.
 
 ### Latest hardware session logs (RPi)
-- `/home/pi/harold/sessions/session_2026-01-04_01-51-05.csv`
-- `/home/pi/harold/sessions/session_2026-01-04_02-32-11.csv`
-- `/home/pi/harold/sessions/session_2026-01-04_05-44-24.csv`
+- `/home/pi/harold/deployment/sessions/session_2026-01-04_18-40-39.csv` (Test 1, 0.5/0.6)
+- `/home/pi/harold/deployment/sessions/session_2026-01-04_18-41-11.csv` (Test 2, 0.4/0.5 + scaling)
+- `/home/pi/harold/deployment/sessions/session_2026-01-04_18-43-41.csv` (Test 3, low-friction surface)
 
 ### Sync paths (RPi)
 - Repo root (git checkout): `/home/pi/harold` (adjust if different).

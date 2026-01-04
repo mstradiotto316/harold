@@ -14,12 +14,14 @@ RPi 5 (inference + CPG) <--USB Serial 115200--> ESP32 (servo control) <--1Mbps--
 
 ## Quick Start
 
+Use system `python3` on the Pi (no virtualenv required).
+
 ```bash
 # Install dependencies
-pip install -r deployment/requirements.txt
+python3 -m pip install -r deployment/requirements.txt
 
 # Run controller (robot must be connected)
-python inference/harold_controller.py
+python3 -m inference.harold_controller
 ```
 
 ## Syncing Runtime from Desktop

@@ -117,9 +117,9 @@ RPi layout (authoritative):
 - Runtime root used by systemd/manual runs: `/home/pi/harold/deployment`
 - Hardware logs live under `deployment/logs/` and `deployment/sessions/` (gitignored, but accessible).
 - Keep `/home/matteo/Desktop/code_projects/harold` and `/home/pi/harold` in lockstep via git push/pull (ff-only).
+- Use system `python3` on the Pi (no virtualenv).
 
 ```bash
-source ~/envs/harold/bin/activate
 cd <runtime-root>
 sudo systemctl status harold
 python3 -m inference.harold_controller   # manual run (service stopped)

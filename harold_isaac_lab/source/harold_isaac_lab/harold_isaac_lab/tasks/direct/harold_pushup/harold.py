@@ -1,11 +1,11 @@
 """Harold push-up robot asset.
 
-Training and monitoring should use `scripts/harold.py` (see `CLAUDE.md`).
+Training and monitoring should use `scripts/harold.py` (see `AGENTS.md`).
 """
 
 # Isaac Lab Imports
 import isaaclab.sim as sim_utils
-from isaaclab.actuators import DCMotorCfg, ImplicitActuatorCfg
+from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
 from isaaclab.sensors import ContactSensorCfg
 import os
@@ -91,6 +91,7 @@ HAROLD_V4_CFG = ArticulationCfg(
     actuators={
         "all_joints": ImplicitActuatorCfg(
             joint_names_expr=[".*"],
+            # FeeTech ST3215 servo: max 2.94 Nm @ 12V.
             effort_limit_sim=ACTUATOR_EFFORT_LIMIT,
             stiffness=ACTUATOR_STIFFNESS,
             damping=ACTUATOR_DAMPING,

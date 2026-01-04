@@ -1,12 +1,12 @@
 """Harold rough-terrain robot asset.
 
-Training and monitoring should use `scripts/harold.py` (see `CLAUDE.md`).
+Training and monitoring should use `scripts/harold.py` (see `AGENTS.md`).
 """
 
 
 # Isaac Lab Imports
 import isaaclab.sim as sim_utils
-from isaaclab.actuators import DCMotorCfg, ImplicitActuatorCfg
+from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets.articulation import ArticulationCfg
 from isaaclab.sensors import ContactSensorCfg
 import os

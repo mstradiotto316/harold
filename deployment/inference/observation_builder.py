@@ -131,6 +131,9 @@ class ObservationBuilder:
         # Previous targets (for observation)
         self._prev_targets = np.zeros(12, dtype=np.float32)
 
+        self.last_imu_data: Optional[IMUData] = None
+        self.last_telemetry: Optional[Telemetry] = None
+
     def build(
         self,
         time_sec: float,
@@ -157,6 +160,7 @@ class ObservationBuilder:
 
         # Read IMU data
         imu_data = self.imu.read()
+        self.last_imu_data = imu_data
 
         # [0:3] Body linear velocity (m/s)
         obs[0:3] = imu_data.lin_vel if imu_data.valid else np.zeros(3)
@@ -173,6 +177,7 @@ class ObservationBuilder:
 
         # Read servo telemetry
         telem = self.esp32.read_telemetry()
+        self.last_telemetry = telem
         positions = telem.positions if telem.valid else np.zeros(12)
 
         # Convert hardware positions to RL-convention relative positions:

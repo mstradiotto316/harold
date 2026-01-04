@@ -41,10 +41,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # --- Push-up playback parameters (match firmware timing at 20 Hz) ---
         # Replicate Arduino timing exactly:
         # 1) Neutral hold: ~1.5s (servos reach zero)
-        # 2) Athletic stance hold: ~0.8s
+        # 2) Pushup start pose hold: ~0.8s
         # 3) Reps: down 1.2s, pause 0.3s, up 1.2s, pause 0.3s, repeated 5 times
         self._neutral_settle_steps = 30      # ~1.5s at 20 Hz (1.5 * 20)
-        self._athletic_settle_steps = 16     # ~0.8s at 20 Hz (0.8 * 20)
+        self._pushup_start_settle_steps = 16     # ~0.8s at 20 Hz (0.8 * 20)
         self._pushup_steps_phase = 24        # 1.2s down or up phase at 20 Hz (1.2 * 20)
         self._pushup_pause_steps = 6         # ~0.3s pause at top/bottom at 20 Hz (0.3 * 20)
         self._pushup_reps = 5
@@ -52,7 +52,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             self._pushup_steps_phase + self._pushup_pause_steps + self._pushup_steps_phase + self._pushup_pause_steps
         )
         self._pushup_total_steps = (
-            self._neutral_settle_steps + self._athletic_settle_steps + self._pushup_reps * self._pushup_cycle_steps
+            self._neutral_settle_steps + self._pushup_start_settle_steps + self._pushup_reps * self._pushup_cycle_steps
         )
         self._pushup_step_counter = 0
         self._physics_step_count = 0
@@ -97,8 +97,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         step = int(self._pushup_step_counter)
 
         # Push-up angle keyframes (degrees) with unified +1 joint mapping.
-        # Equivalent to Arduino athletic stance but inverted signs to match +1 mapping:
-        # - Top (athletic stance): thighs +10°, calves -20°
+        # Equivalent to Arduino pushup start pose but inverted signs to match +1 mapping:
+        # - Top (pushup start pose): thighs +10°, calves -20°
         # - Bottom:               thighs +45° (delta +35°), calves -90° (delta -70°)
         # Calf moves exactly 2x the thigh delta in the opposite direction to counter thigh rotation.
         thigh_deg_top, calf_deg_top = 10.0, -20.0
@@ -113,8 +113,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 self._pushup_step_counter += 1
             return
 
-        # b) Hold athletic stance for ~0.8s
-        if step < self._neutral_settle_steps + self._athletic_settle_steps:
+        # b) Hold pushup start pose for ~0.8s
+        if step < self._neutral_settle_steps + self._pushup_start_settle_steps:
             thigh_deg = thigh_deg_top
             # Enforce calf = calf_top - 2*(thigh - thigh_top)
             calf_deg = calf_deg_top - 2.0 * (thigh_deg - thigh_deg_top)
@@ -131,7 +131,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             return
 
         # After holds, compute step within the repetition cycle
-        local = (step - self._neutral_settle_steps - self._athletic_settle_steps) % self._pushup_cycle_steps
+        local = (step - self._neutral_settle_steps - self._pushup_start_settle_steps) % self._pushup_cycle_steps
 
         # Down phase [0, steps_phase): interpolate thigh from top to bottom; derive calf as 2x compensation
         if local < self._pushup_steps_phase:
@@ -142,22 +142,22 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         elif local < self._pushup_steps_phase + self._pushup_pause_steps:
             thigh_deg = thigh_deg_bottom
             calf_deg = calf_deg_top - 2.0 * (thigh_deg - thigh_deg_top)
-        # Up phase [steps_phase+pause, 2*steps_phase+pause): interpolate back to top (athletic stance)
+        # Up phase [steps_phase+pause, 2*steps_phase+pause): interpolate back to top (pushup start pose)
         elif local < self._pushup_steps_phase + self._pushup_pause_steps + self._pushup_steps_phase:
             up_local = local - (self._pushup_steps_phase + self._pushup_pause_steps)
             t = float(up_local) / float(self._pushup_steps_phase)
             thigh_deg = thigh_deg_bottom + (thigh_deg_top - thigh_deg_bottom) * t
             calf_deg = calf_deg_top - 2.0 * (thigh_deg - thigh_deg_top)
-        # Top pause: hold athletic stance
+        # Top pause: hold pushup start pose
         else:
             thigh_deg = thigh_deg_top
             calf_deg = calf_deg_top
 
-        # Advance counter until routine completion, then hold athletic stance
+        # Advance counter until routine completion, then hold pushup start pose
         if self._pushup_step_counter < self._pushup_total_steps:
             self._pushup_step_counter += 1
         else:
-            # Hold athletic stance indefinitely after finishing reps
+            # Hold pushup start pose indefinitely after finishing reps
             thigh_deg = thigh_deg_top
             calf_deg = calf_deg_top - 2.0 * (thigh_deg - thigh_deg_top)
             deg2rad = math.pi / 180.0

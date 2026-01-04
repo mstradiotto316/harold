@@ -4,9 +4,10 @@
 This compares policy behavior with and without sign conversion.
 """
 import json
-import numpy as np
 from pathlib import Path
 import sys
+
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -40,17 +41,10 @@ def test_sign_conversion():
     policy = ort.InferenceSession(str(policy_path), providers=['CPUExecutionProvider'])
 
     # Constants from config
-    hw_default_pose = np.array([
-        0.0, 0.0, 0.0, 0.0,       # Shoulders
-        0.40, 0.40, 0.40, 0.40,       # Thighs
-        -1.05, -1.05, -1.05, -1.05  # Calves
-    ], dtype=np.float32)
-
-    joint_sign = np.array([
-        1.0, 1.0, 1.0, 1.0,       # Shoulders
-        -1.0, -1.0, -1.0, -1.0,   # Thighs (inverted)
-        -1.0, -1.0, -1.0, -1.0,   # Calves (inverted)
-    ], dtype=np.float32)
+    config_path = Path(__file__).parent / "config" / "cpg.yaml"
+    obs_config = ObservationConfig.from_yaml(config_path)
+    hw_default_pose = obs_config.hw_default_pose
+    joint_sign = obs_config.joint_sign
 
     # Test with different HW position scenarios
     test_positions = [
@@ -137,3 +131,4 @@ def test_sign_conversion():
 
 if __name__ == "__main__":
     test_sign_conversion()
+from inference.observation_builder import ObservationConfig

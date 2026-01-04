@@ -55,6 +55,9 @@ python inference/harold_controller.py
 
 - `config/hardware.yaml` - Servo IDs, signs, limits
 - `config/cpg.yaml` - CPG parameters (matches simulation)
+- `config/stance.yaml` - Canonical ready stance (shared across hardware + sim)
+
+Note: `policy/policy_metadata.json` captures training-time defaults; do not edit it for stance changes.
 
 ## Testing
 

@@ -30,9 +30,9 @@ Follow these steps *with the robot safely supported* before running the exported
 
 ## 4. Radian Command Gate (`SinglePositionTest/SinglePositionTest.ino`)
 1. Flash the single-position test sketch.
-2. With Serial Monitor open, send the default pose command to match simulation:
+2. With Serial Monitor open, send the ready-stance command from `deployment/config/stance.yaml`:
    ```
-   [0,0,0,0,0.3,0.3,0.3,0.3,-0.75,-0.75,-0.75,-0.75]
+   [0,0,0,0,0.65,0.65,0.65,0.65,-1.13,-1.13,-1.13,-1.13]
    ```
    The robot should settle into the nominal stance without visible lean.
 3. Test a few additional targets (e.g., +0.2 rad on `fl_thigh`, –0.2 rad on `fr_thigh`) and verify motion directions.

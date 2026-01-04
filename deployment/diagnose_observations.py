@@ -94,10 +94,8 @@ EXPECTED_HW_VALUES = {
     "grav_x": 0.0,
     "grav_y": 0.0,
     "grav_z": -1.0,
-    # Joint positions relative to RL default (at hw default pose)
-    # HW pose: [0, 0, 0, 0, 0.3, ..., -0.75, ...]
-    # RL pose: [0.2, -0.2, 0.2, -0.2, 0.7, ..., -1.4, ...]
-    # Relative: (hw - hw_default) * sign = 0 for all at rest
+    # Joint positions relative to RL default (at ready stance).
+    # With the canonical stance applied, rel pos should be ~0 for all joints.
     "joint_pos_rel[0] (FL_sh)": 0.0,
     "joint_pos_rel[1] (FR_sh)": 0.0,
     "joint_pos_rel[2] (BL_sh)": 0.0,

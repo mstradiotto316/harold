@@ -12,6 +12,8 @@ from isaaclab.sensors import ContactSensorCfg
 import os
 from pathlib import Path
 
+from harold_isaac_lab.common.stance import load_ready_pose_dict
+
 # Allow quick actuator sweeps without code changes.
 def _env_float(name: str, default: float) -> float:
     value = os.getenv(name)
@@ -71,22 +73,7 @@ HAROLD_V4_CFG = ArticulationCfg(
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.20),
         rot=(1.0, 0.0, 0.0, 0.0), 
-        joint_pos={
-            'fl_shoulder_joint': 0.0,
-            'fr_shoulder_joint': 0.0,
-            'bl_shoulder_joint': 0.0,
-            'br_shoulder_joint': 0.0,
-            
-            'fl_thigh_joint': 0.3,
-            'fr_thigh_joint': 0.3,
-            'bl_thigh_joint': 0.3,
-            'br_thigh_joint': 0.3,
-
-            'fl_calf_joint': -0.75,
-            'fr_calf_joint': -0.75,
-            'bl_calf_joint': -0.75,
-            'br_calf_joint': -0.75,
-        }
+        joint_pos=load_ready_pose_dict()
     ),
 
     actuators={

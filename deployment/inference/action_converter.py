@@ -19,6 +19,7 @@ from typing import Optional
 import numpy as np
 import yaml
 
+from inference.stance import load_hw_default_pose, load_rl_default_pose
 
 def _expand_joint_sign(js: dict) -> np.ndarray:
     """Expand joint_sign config into a 12D array (shoulders, thighs, calves)."""
@@ -54,10 +55,10 @@ class ActionConfig:
     # Joint action ranges (for scaling policy output)
     joint_range: dict = None
 
-    # Hardware default pose (servo encoder readings at athletic stance)
+    # Hardware default pose (ready stance in hardware convention)
     hw_default_pose: np.ndarray = None
 
-    # RL default pose (simulation training convention)
+    # RL default pose (ready stance in simulation convention)
     rl_default_pose: np.ndarray = None
 
     # Joint sign correction (RL <-> hardware)
@@ -75,21 +76,12 @@ class ActionConfig:
             }
 
         if self.hw_default_pose is None:
-            # Hardware convention - what servo encoders read at rest
-            self.hw_default_pose = np.array([
-                0.0, 0.0, 0.0, 0.0,         # Shoulders: 0 rad
-                0.40, 0.40, 0.40, 0.40,     # Thighs: tuned stance
-                -1.05, -1.05, -1.05, -1.05  # Calves: tuned stance
-            ], dtype=np.float32)
+            # Hardware convention - ready stance (from config/stance.yaml)
+            self.hw_default_pose = load_hw_default_pose()
 
         if self.rl_default_pose is None:
-            # RL convention - what simulation training used
-            # Shoulders alternate for diagonal trot gait
-            self.rl_default_pose = np.array([
-                0.20, -0.20, 0.20, -0.20,   # Shoulders: alternating
-                0.60, 0.60, 0.60, 0.60,     # Thighs: tuned stance
-                -1.40, -1.40, -1.40, -1.40  # Calves: tuned stance
-            ], dtype=np.float32)
+            # RL convention - default pose (from config/stance.yaml)
+            self.rl_default_pose = load_rl_default_pose()
 
         if self.joint_sign is None:
             # Sign conversion: hw = hw_default + (rl - rl_default) * joint_sign
@@ -131,40 +123,11 @@ class ActionConfig:
             "calf": tuple(limits.get("calf", [-5, 80])),
         }
 
-        # Get hardware default pose (servo encoder readings at athletic stance)
-        hw_pose = cpg_data.get("hw_default_pose", {})
-        hw_default_pose = np.array([
-            hw_pose.get("shoulders", 0.0),
-            hw_pose.get("shoulders", 0.0),
-            hw_pose.get("shoulders", 0.0),
-            hw_pose.get("shoulders", 0.0),
-            hw_pose.get("thighs", 0.3),
-            hw_pose.get("thighs", 0.3),
-            hw_pose.get("thighs", 0.3),
-            hw_pose.get("thighs", 0.3),
-            hw_pose.get("calves", -0.75),
-            hw_pose.get("calves", -0.75),
-            hw_pose.get("calves", -0.75),
-            hw_pose.get("calves", -0.75),
-        ], dtype=np.float32)
+        # Get hardware default pose (ready stance, from config/stance.yaml)
+        hw_default_pose = load_hw_default_pose(cpg_path)
 
-        # Get RL default pose (simulation training convention)
-        # Note: Shoulders have per-joint values for alternating gait
-        rl_pose = cpg_data.get("rl_default_pose", {})
-        rl_default_pose = np.array([
-            rl_pose.get("shoulder_fl", rl_pose.get("shoulders", 0.20)),
-            rl_pose.get("shoulder_fr", rl_pose.get("shoulders", -0.20)),
-            rl_pose.get("shoulder_bl", rl_pose.get("shoulders", 0.20)),
-            rl_pose.get("shoulder_br", rl_pose.get("shoulders", -0.20)),
-            rl_pose.get("thighs", 0.70),
-            rl_pose.get("thighs", 0.70),
-            rl_pose.get("thighs", 0.70),
-            rl_pose.get("thighs", 0.70),
-            rl_pose.get("calves", -1.40),
-            rl_pose.get("calves", -1.40),
-            rl_pose.get("calves", -1.40),
-            rl_pose.get("calves", -1.40),
-        ], dtype=np.float32)
+        # Get RL default pose (ready stance, from config/stance.yaml)
+        rl_default_pose = load_rl_default_pose(cpg_path)
 
         # Get joint sign from CPG config (supports per-shoulder overrides)
         joint_sign = _expand_joint_sign(cpg_data.get("joint_sign", {}))
@@ -272,7 +235,7 @@ class ActionConverter:
         return self.cfg.rl_default_pose.copy()
 
     def get_hw_default_pose(self) -> np.ndarray:
-        """Get the hardware default pose (matches simulation's default_joint_pos).
+        """Get the hardware default pose (ready stance).
 
         IMPORTANT: Simulation uses this for prev_target_delta computation:
             prev_target_delta = processed_actions - default_joint_pos
@@ -317,7 +280,7 @@ class ActionConverter:
         self._smooth_action = None
 
     def get_safe_stance(self) -> np.ndarray:
-        """Get safe default stance (athletic pose) in hardware convention.
+        """Get safe default stance (ready pose) in hardware convention.
 
         Returns:
             12D joint positions for safe stance (hardware convention)

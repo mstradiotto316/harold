@@ -61,6 +61,31 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 | USD model | `part_files/V4/harold_8.usd` |
 | Hardware gait script | `firmware/scripted_gait_test_1/scripted_gait_test_1.ino` |
 
+## Current State (2026-01-04, Session 41 RPi)
+
+### Hardware CPG gait tuning (RPi)
+- Implemented duty-cycle stance/swing CPG with per-leg scaling (front vs rear).
+- Runtime CPG parameters (deployment/config/cpg.yaml):
+  - frequency_hz=0.4, duty_cycle=0.5
+  - stride_scale=0.35, calf_lift_scale=0.85
+  - stride_scale_front=1.0, stride_scale_back=1.3
+  - calf_lift_scale_front=1.0, calf_lift_scale_back=1.15
+- Outcome: front impact reduced; rear legs progressed from dragging to skimming but still no clear air time.
+- **Do NOT change SERVO_SPEED/SERVO_ACC**.
+- Manual tests use: `python3 -m inference.harold_controller --cpg-only --max-seconds 10 --calibrate 0`
+- `harold` systemd service will resume walking if active; keep inactive during manual tests.
+- ESP32 handshake failures occurred after calibration firmware; resolved by re-flashing StreamingControl.
+
+### Latest hardware session logs (RPi)
+- `/home/pi/harold/sessions/session_2026-01-04_01-51-05.csv`
+- `/home/pi/harold/sessions/session_2026-01-04_02-32-11.csv`
+- `/home/pi/harold/sessions/session_2026-01-04_05-44-24.csv`
+
+### Sync paths (RPi)
+- Repo (firmware/scripts): `/home/pi/Desktop/harold`
+- Runtime (controller/config): `/home/pi/harold`
+- Keep `deployment/config/cpg.yaml` + `deployment/inference/cpg_generator.py` synced to runtime.
+
 ## Current State (2026-01-02, Session 39 Complete)
 
 ### Session 39: Hardware Telemetry Logging (RPi)

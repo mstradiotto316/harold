@@ -37,16 +37,19 @@ const uint32_t BUS_BAUD = 1000000;
 // Simulation values (radians) converted to hardware (degrees) with sign inversion:
 //   hardware_deg = -sim_rad * (180/π)
 //
-// SESSION 36 RPi: Halved stride, distributed between thigh and calf
-// Strategy: Reduce both joints proportionally, keep max calf bend for lift
-//
-// Thigh range: 7.5° (halved from 15°)
-// Calf range: 30° (50° to 80°) - reduced but keeps max bend for lift
+// Session 36 RPi base values (hardware-validated).
+// Session 38: stride scale reduces thigh swing for shorter steps.
 const float BASE_STANCE_THIGH = -38.15f;  // 7.5° range, centered at -34.4°
 const float BASE_SWING_THIGH  = -30.65f;  // 7.5° range
 const float BASE_STANCE_CALF  = 50.0f;    // shifted up (less extension)
 const float BASE_SWING_CALF   = 80.0f;    // max bend for foot lift
 const float BASE_SHOULDER_AMP = 0.55f;    // proportional to thigh
+const float STRIDE_SCALE = 0.35f;         // Shorter steps to reduce lunge/impact
+const float CALF_LIFT_SCALE = 0.85f;      // Slightly lower lift to soften touchdown
+const float STRIDE_SCALE_FRONT = 1.0f;    // Per-leg scaling (front)
+const float STRIDE_SCALE_BACK = 1.3f;     // Per-leg scaling (rear)
+const float CALF_LIFT_SCALE_FRONT = 1.0f; // Per-leg scaling (front)
+const float CALF_LIFT_SCALE_BACK = 1.15f; // Per-leg scaling (rear)
 
 // Active parameters (scaled by amplitude)
 float STANCE_THIGH, SWING_THIGH, STANCE_CALF, SWING_CALF, SHOULDER_AMPLITUDE;
@@ -55,8 +58,8 @@ float STANCE_THIGH, SWING_THIGH, STANCE_CALF, SWING_CALF, SHOULDER_AMPLITUDE;
 float gaitAmplitude = 1.0f;  // Full amplitude to match simulation
 
 // Timing
-float GAIT_FREQUENCY = 0.5f;   // Hz - slower for stability (2 second cycle)
-const float DUTY_CYCLE = 0.6f; // Stance fraction (swing is faster for clearance)
+float GAIT_FREQUENCY = 0.4f;   // Hz - softer gait (2.5s cycle)
+const float DUTY_CYCLE = 0.5f; // 50% stance / 50% swing to slow the lift/plant
 const int UPDATE_RATE_HZ = 20;
 const int STEP_MS = 1000 / UPDATE_RATE_HZ;
 
@@ -132,15 +135,11 @@ inline float smoothstep(float x) {
 
 // Apply amplitude scaling to gait parameters
 void updateGaitParameters() {
-  float center_thigh = (BASE_STANCE_THIGH + BASE_SWING_THIGH) / 2.0f;
-  float range_thigh = (BASE_SWING_THIGH - BASE_STANCE_THIGH) / 2.0f;
-  STANCE_THIGH = center_thigh - range_thigh * gaitAmplitude;
-  SWING_THIGH = center_thigh + range_thigh * gaitAmplitude;
+  STANCE_THIGH = BASE_STANCE_THIGH;
+  SWING_THIGH = BASE_STANCE_THIGH + (BASE_SWING_THIGH - BASE_STANCE_THIGH) * gaitAmplitude * STRIDE_SCALE;
 
-  float center_calf = (BASE_STANCE_CALF + BASE_SWING_CALF) / 2.0f;
-  float range_calf = (BASE_SWING_CALF - BASE_STANCE_CALF) / 2.0f;
-  STANCE_CALF = center_calf - range_calf * gaitAmplitude;
-  SWING_CALF = center_calf + range_calf * gaitAmplitude;
+  STANCE_CALF = BASE_STANCE_CALF;
+  SWING_CALF = BASE_STANCE_CALF + (BASE_SWING_CALF - BASE_STANCE_CALF) * gaitAmplitude * CALF_LIFT_SCALE;
 
   SHOULDER_AMPLITUDE = BASE_SHOULDER_AMP * gaitAmplitude;
 }
@@ -206,6 +205,35 @@ void computeLegTrajectory(float phase, float* shoulder, float* thigh, float* cal
     *thigh = STANCE_THIGH + (SWING_THIGH - STANCE_THIGH) * s;
     float lift = 0.5f - 0.5f * cosf(2.0f * M_PI * ((phase - duty) / (1.0f - duty)));
     *calf = STANCE_CALF + (SWING_CALF - STANCE_CALF) * lift;
+  }
+
+  *shoulder = SHOULDER_AMPLITUDE * sinf(phase * 2.0f * M_PI);
+}
+
+void computeLegTrajectoryScaled(float phase, bool rear_leg, float* shoulder, float* thigh, float* calf) {
+  // Apply per-leg scaling on top of global stride/lift scaling.
+  float stride_scale = rear_leg ? STRIDE_SCALE_BACK : STRIDE_SCALE_FRONT;
+  float lift_scale = rear_leg ? CALF_LIFT_SCALE_BACK : CALF_LIFT_SCALE_FRONT;
+
+  float stance_thigh = STANCE_THIGH;
+  float swing_thigh = BASE_STANCE_THIGH + (BASE_SWING_THIGH - BASE_STANCE_THIGH) * gaitAmplitude * STRIDE_SCALE * stride_scale;
+  float stance_calf = STANCE_CALF;
+  float swing_calf = BASE_STANCE_CALF + (BASE_SWING_CALF - BASE_STANCE_CALF) * gaitAmplitude * CALF_LIFT_SCALE * lift_scale;
+
+  // Duty-cycle split: stance holds calf, swing flexes knee for clearance.
+  float duty = DUTY_CYCLE;
+  if (duty < 0.05f) duty = 0.05f;
+  if (duty > 0.95f) duty = 0.95f;
+
+  if (phase < duty) {
+    float s = smoothstep(phase / duty);
+    *thigh = swing_thigh + (stance_thigh - swing_thigh) * s;
+    *calf = stance_calf;
+  } else {
+    float s = smoothstep((phase - duty) / (1.0f - duty));
+    *thigh = stance_thigh + (swing_thigh - stance_thigh) * s;
+    float lift = 0.5f - 0.5f * cosf(2.0f * M_PI * ((phase - duty) / (1.0f - duty)));
+    *calf = stance_calf + (swing_calf - stance_calf) * lift;
   }
 
   *shoulder = SHOULDER_AMPLITUDE * sinf(phase * 2.0f * M_PI);
@@ -342,14 +370,21 @@ void setup() {
     float shoulder_A, thigh_A, calf_A;
     float shoulder_B, thigh_B, calf_B;
 
-    computeLegTrajectory(phase_A, &shoulder_A, &thigh_A, &calf_A);
-    computeLegTrajectory(phase_B, &shoulder_B, &thigh_B, &calf_B);
+    float shoulder_A_front, thigh_A_front, calf_A_front;
+    float shoulder_A_back, thigh_A_back, calf_A_back;
+    float shoulder_B_front, thigh_B_front, calf_B_front;
+    float shoulder_B_back, thigh_B_back, calf_B_back;
+
+    computeLegTrajectoryScaled(phase_A, false, &shoulder_A_front, &thigh_A_front, &calf_A_front);
+    computeLegTrajectoryScaled(phase_A, true, &shoulder_A_back, &thigh_A_back, &calf_A_back);
+    computeLegTrajectoryScaled(phase_B, false, &shoulder_B_front, &thigh_B_front, &calf_B_front);
+    computeLegTrajectoryScaled(phase_B, true, &shoulder_B_back, &thigh_B_back, &calf_B_back);
 
     // Apply to diagonal pairs
-    setLegAngles(LEG_FL, shoulder_A, thigh_A, calf_A);
-    setLegAngles(LEG_BR, shoulder_A, thigh_A, calf_A);
-    setLegAngles(LEG_FR, shoulder_B, thigh_B, calf_B);
-    setLegAngles(LEG_BL, shoulder_B, thigh_B, calf_B);
+    setLegAngles(LEG_FL, shoulder_A_front, thigh_A_front, calf_A_front);
+    setLegAngles(LEG_BR, shoulder_A_back, thigh_A_back, calf_A_back);
+    setLegAngles(LEG_FR, shoulder_B_front, thigh_B_front, calf_B_front);
+    setLegAngles(LEG_BL, shoulder_B_back, thigh_B_back, calf_B_back);
 
     // Check loads every 0.5 seconds
     loadCheckCounter++;

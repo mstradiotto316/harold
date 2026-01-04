@@ -1,6 +1,6 @@
 """Harold flat-terrain robot asset.
 
-Training and monitoring should use `scripts/harold.py` (see `CLAUDE.md`).
+Training and monitoring should use `scripts/harold.py` (see `AGENTS.md`).
 """
 
 

@@ -30,17 +30,15 @@ Follow these steps *with the robot safely supported* before running the exported
 
 ## 4. Radian Command Gate (`SinglePositionTest/SinglePositionTest.ino`)
 1. Flash the single-position test sketch.
-2. With Serial Monitor open, send the ready-stance command from `deployment/config/stance.yaml`:
-   ```
-   [0,0,0,0,0.65,0.65,0.65,0.65,-1.13,-1.13,-1.13,-1.13]
-   ```
+2. With Serial Monitor open, send the ready-stance command from `deployment/config/stance.yaml`.
+   Copy the current joint targets from the YAML so the stance stays in sync.
    The robot should settle into the nominal stance without visible lean.
 3. Test a few additional targets (e.g., +0.2 rad on `fl_thigh`, –0.2 rad on `fr_thigh`) and verify motion directions.
 4. Confirm the sketch reports any clamping; repeated clamp messages mean trims or limits need adjustment.
 
 ## 5. Torque / Current Limits (optional but recommended)
 - While running Step 4, note the reported load/current in Serial Monitor (if firmware prints them) or query parameters using the SCServo PC tool.
-- Ensure torque limit registers (`SMS_STS_TORQUE_LIMIT_L`) remain near factory value (≈1023). Adjust only if you have a reason to derate.
+- Ensure torque limit registers (`SMS_STS_TORQUE_LIMIT_L`) remain near the factory value. Adjust only if you have a reason to derate.
 
 ## 6. Document Final Defaults
 Record the following for later use in runtime software:
@@ -50,5 +48,5 @@ Record the following for later use in runtime software:
 - Maximum safe range observed for thighs/calves before mechanical interference.
 
 ## When Finished
-- Re-flash the ESP32 with the latest streaming-control firmware once we develop it (later plan step).
+- Re-flash the ESP32 with `firmware/StreamingControl/HaroldStreamingControl` after calibration.
 - Keep this calibration log accessible; the host runtime will assume these trims when converting policy outputs to servo targets.

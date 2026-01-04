@@ -1,6 +1,6 @@
 # Harold Deployment - Raspberry Pi 5
 
-Real-time inference for Harold quadruped robot using CPG + residual RL policy.
+Real-time inference for Harold quadruped robot (CPG + residual policy or pure RL depending on mode).
 
 ## Architecture
 
@@ -16,7 +16,7 @@ RPi 5 (inference + CPG) <--USB Serial 115200--> ESP32 (servo control) <--1Mbps--
 
 ```bash
 # Install dependencies
-pip install -r requirements.txt
+pip install -r deployment/requirements.txt
 
 # Run controller (robot must be connected)
 python inference/harold_controller.py
@@ -24,31 +24,32 @@ python inference/harold_controller.py
 
 ## Components
 
+Paths below are relative to the deployment root (typically `/home/pi/harold`).
+
 | Component | Description |
 |-----------|-------------|
-| `policy/harold_policy.onnx` | Exported neural network (50D -> 12D) |
-| `policy/policy_metadata.json` | Normalization stats + joint config |
-| `inference/harold_controller.py` | Main 20 Hz control loop |
+| `policy/harold_policy.onnx` | Exported neural network (observation -> 12D actions) |
+| `policy/policy_metadata.json` | Normalization stats + joint config (if applicable) |
+| `inference/harold_controller.py` | Main policy-rate control loop |
 | `inference/cpg_generator.py` | CPG trajectory generator |
 | `inference/observation_builder.py` | IMU + servo -> 50D observation |
 | `inference/action_converter.py` | Policy output -> servo commands |
 | `drivers/imu_reader_rpi5.py` | MPU6050 I2C driver |
 | `drivers/esp32_serial.py` | ESP32 serial wrapper |
 
-## Control Loop (20 Hz)
+## Control Loop (policy rate)
 
-1. Compute CPG base trajectory from time
-2. Build 50D observation from IMU + servo feedback
-3. Normalize observation using running stats
-4. Run ONNX inference -> 12D action
-5. Compute final targets: CPG + residual * 0.05
-6. Send to ESP32 via serial
+1. Compute CPG base trajectory from time (if enabled)
+2. Build observation from IMU + servo feedback (size depends on mode)
+3. Run ONNX inference (normalization may be baked into the export; verify before adding preprocessing)
+4. Compute final targets: CPG + residual * residual_scale (config)
+5. Send to ESP32 via serial
 
 ## Safety Features
 
-- 250ms watchdog timeout
-- Joint angle limits (conservative)
-- Load monitoring (>90% = emergency stop)
+- Watchdog timeout (configured in firmware)
+- Joint angle limits (conservative, configured in runtime)
+- Load monitoring with emergency stop (threshold configured in runtime)
 - Keyboard interrupt = safe stance
 
 ## Configuration

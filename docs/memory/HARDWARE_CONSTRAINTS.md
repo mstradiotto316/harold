@@ -10,7 +10,7 @@ This document provides **REAL-WORLD CONSTRAINTS** that experimentation agents MU
 
 ## Servo Specifications (FeeTech ST3215)
 
-Source: `firmware/ST3215 Servo.pdf`, `firmware/docs/Communication_Protocol_User_Manual_EN.pdf`
+Source: `docs/hardware/servos/ST3215_Servo.pdf`, `docs/hardware/servos/Communication_Protocol_User_Manual_EN.pdf`
 
 ### Torque & Power
 
@@ -116,7 +116,7 @@ Source: `firmware/ST3215 Servo.pdf`, `firmware/docs/Communication_Protocol_User_
 
 ## Servo Communication Protocol
 
-From `firmware/docs/Communication_Protocol_User_Manual_EN.pdf`:
+From `docs/hardware/servos/Communication_Protocol_User_Manual_EN.pdf`:
 
 - **Packet format**: `0xFF 0xFF` + ID + Length + Instruction + Parameters + Checksum
 - **ID range**: 0-253 (Harold uses IDs 1-12)
@@ -179,8 +179,9 @@ st.WritePosEx(ID, Position, Speed, ACC);
 
 ## References
 
-- Servo datasheet: `firmware/ST3215 Servo.pdf`
-- Communication protocol: `firmware/docs/Communication_Protocol_User_Manual_EN.pdf`
-- Calibration guide: `firmware/CALIBRATION_CHECKLIST.md`
-- Deployment plan: `DEPLOYMENT_PLAN.md`
+- Servo datasheet: `docs/hardware/servos/ST3215_Servo.pdf`
+- Communication protocol: `docs/hardware/servos/Communication_Protocol_User_Manual_EN.pdf`
+- Register map: `docs/hardware/servos/ST3215_memory_register_map_EN.xls`
+- Calibration guide: `docs/hardware/calibration_checklist.md`
+- Deployment runtime: `docs/hardware/rpi_deployment.md`
 - Action config: `deployment_artifacts/terrain_62/action_config.json`

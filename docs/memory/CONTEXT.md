@@ -1,9 +1,9 @@
 # Harold Project Context
 
 ## Memory System
-This file is part of the Harold memory system. The entry point is `/CLAUDE.md` which Claude Code reads automatically at session start. That file directs agents here.
+This file is part of the Harold memory system. The entry point is `/AGENTS.md`. That file directs agents here.
 
-**Memory Protocol**: Read all `.claude_memory/` files at session start, update them at session end.
+**Memory Protocol**: Read all `docs/memory/` files at session start, update them at session end.
 
 ---
 
@@ -38,8 +38,8 @@ When ending a session and transferring to another machine:
 
 ### Current Session Files Pattern
 
-- `.claude_memory/sessions/YYYY-MM-DD_sessionNN_desktop.md` - Desktop sessions
-- `.claude_memory/sessions/YYYY-MM-DD_sessionNN_rpi.md` - RPi sessions
+- `docs/memory/sessions/YYYY-MM-DD_sessionNN_desktop.md` - Desktop sessions
+- `docs/memory/sessions/YYYY-MM-DD_sessionNN_rpi.md` - RPi sessions
 
 ---
 
@@ -94,7 +94,7 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 
 - **Location**: `deployment/sessions/session_YYYY-MM-DD_HH-MM-SS.csv`
 - **Data**: 60 columns - joint positions/loads/currents/temps, bus voltage, RPi metrics
-- **Documentation**: See "Hardware Session Logs" section in CLAUDE.md
+- **Documentation**: See the "Hardware Session Logs" section in `docs/memory/OBSERVATIONS.md`
 
 Tested end-to-end: 12.7s run logged 63 rows at 20 Hz control / 5 Hz logging.
 

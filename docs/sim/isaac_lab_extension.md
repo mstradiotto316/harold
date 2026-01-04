@@ -4,6 +4,7 @@
 
 This project/repository serves as a template for building projects or extensions based on Isaac Lab.
 It allows you to develop in an isolated environment, outside of the core Isaac Lab repository.
+For Harold workflows, prefer `AGENTS.md` and `python scripts/harold.py`.
 
 **Key Features:**
 
@@ -23,25 +24,26 @@ It allows you to develop in an isolated environment, outside of the core Isaac L
 
     ```bash
     # use 'PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-    python -m pip install -e source/harold_isaac_lab
+    python -m pip install -e harold_isaac_lab/source/harold_isaac_lab
+    ```
 
 - Verify that the extension is correctly installed by:
 
     - Listing the available tasks:
 
-        Note: It the task name changes, it may be necessary to update the search pattern `"Template-"`
+        Note: If the task name changes, it may be necessary to update the search pattern `"Template-"`
         (in the `scripts/list_envs.py` file) so that it can be listed.
 
         ```bash
         # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-        python scripts/list_envs.py
+        python harold_isaac_lab/scripts/list_envs.py
         ```
 
     - Running a task:
 
         ```bash
         # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-        python scripts/<RL_LIBRARY>/train.py --task=<TASK_NAME>
+        python harold_isaac_lab/scripts/skrl/train.py --task=<TASK_NAME>
         ```
 
     - Running a task with dummy agents:

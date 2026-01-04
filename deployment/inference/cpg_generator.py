@@ -6,8 +6,8 @@ Ported from simulation (harold_isaac_lab_env.py) for exact sim-to-real match.
 Gait Pattern:
     - Diagonal trot: FL+BR alternate with FR+BL
     - 0.5 Hz frequency (2 second cycle)
-    - Sinusoidal thigh/calf (sin/cos) matched to Session 36 hardware
-    - duty_cycle kept for config compatibility (unused in sin/cos gait)
+    - Duty-cycle aware stance/swing split (stance holds calf, swing flexes knee)
+    - Thigh and calf are phased to shorten the leg during swing for clearance
 """
 import math
 import numpy as np
@@ -138,19 +138,29 @@ class CPGGenerator:
             Tuple of (thigh_angle, calf_angle) in radians
 
         Trajectory Design (hardware-aligned):
-            - Thigh uses -sin phase (forward walking)
-            - Calf uses -cos phase (foot down at phase 0, up at phase 0.5)
+            - Duty-cycle splits stance vs swing for leg clearance.
+            - Stance: thigh moves backward, calf holds extension.
+            - Swing: thigh moves forward, calf flexes quickly (distal joint moves more).
+            - Avoids common pitfall: calf must move more than thigh since it sits at
+              the end of the thigh link.
         """
-        sin_phase = math.sin(2 * math.pi * phase)
-        cos_phase = math.cos(2 * math.pi * phase)
+        # Guard against invalid duty cycles (avoid div-by-zero).
+        duty = min(max(self.cfg.duty_cycle, 0.05), 0.95)
 
-        thigh_mid = (self.cfg.stance_thigh + self.cfg.swing_thigh) / 2.0
-        thigh_amp = (self.cfg.swing_thigh - self.cfg.stance_thigh) / 2.0
-        thigh = thigh_mid - thigh_amp * sin_phase
+        def smoothstep(x: float) -> float:
+            return x * x * (3.0 - 2.0 * x)
 
-        calf_mid = (self.cfg.stance_calf + self.cfg.swing_calf) / 2.0
-        calf_amp = (self.cfg.swing_calf - self.cfg.stance_calf) / 2.0
-        calf = calf_mid - calf_amp * cos_phase
+        if phase < duty:
+            # Stance phase: thigh sweeps back, calf stays extended.
+            s = smoothstep(phase / duty)
+            thigh = self.cfg.swing_thigh + (self.cfg.stance_thigh - self.cfg.swing_thigh) * s
+            calf = self.cfg.stance_calf
+        else:
+            # Swing phase: thigh moves forward, calf flexes for clearance.
+            s = smoothstep((phase - duty) / (1.0 - duty))
+            thigh = self.cfg.stance_thigh + (self.cfg.swing_thigh - self.cfg.stance_thigh) * s
+            lift = 0.5 - 0.5 * math.cos(2.0 * math.pi * ((phase - duty) / (1.0 - duty)))
+            calf = self.cfg.stance_calf + (self.cfg.swing_calf - self.cfg.stance_calf) * lift
 
         return thigh, calf
 

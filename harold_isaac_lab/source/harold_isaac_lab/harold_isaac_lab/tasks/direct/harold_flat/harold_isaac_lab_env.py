@@ -663,7 +663,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         Gait Pattern:
             - Diagonal trot: FL+BR alternate with FR+BL
-            - Sinusoidal phase (sin/cos) matched to hardware script
+            - Duty-cycle swing/stance split for clearance (hardware-aligned)
             - Configurable frequency and amplitude
 
         Joint Order: [shoulders(4), thighs(4), calves(4)]
@@ -803,19 +803,36 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             Tuple of (thigh_angle, calf_angle) tensors
 
         Trajectory Design (hardware-aligned):
-            - Thigh uses -sin phase (forward walking)
-            - Calf uses -cos phase (foot down at phase 0, up at phase 0.5)
+            - Duty-cycle splits stance vs swing for leg clearance.
+            - Stance: thigh sweeps back, calf holds extension.
+            - Swing: thigh moves forward, calf flexes quickly (distal joint moves more).
+            - Avoids common pitfall: calf must move more than thigh since it sits at
+              the end of the thigh link.
         """
-        sin_phase = torch.sin(2 * math.pi * phase)
-        cos_phase = torch.cos(2 * math.pi * phase)
+        # Guard against invalid duty cycles (avoid div-by-zero).
+        duty = min(max(float(cfg.duty_cycle), 0.05), 0.95)
+        duty_t = torch.tensor(duty, device=phase.device, dtype=phase.dtype)
 
-        thigh_mid = (cfg.stance_thigh + cfg.swing_thigh) / 2.0
-        thigh_amp = (cfg.swing_thigh - cfg.stance_thigh) / 2.0
-        thigh = thigh_mid - thigh_amp * sin_phase
+        def smoothstep(x: torch.Tensor) -> torch.Tensor:
+            return x * x * (3.0 - 2.0 * x)
 
-        calf_mid = (cfg.stance_calf + cfg.swing_calf) / 2.0
-        calf_amp = (cfg.swing_calf - cfg.stance_calf) / 2.0
-        calf = calf_mid - calf_amp * cos_phase
+        stance_mask = phase < duty_t
+        stance_phase = torch.where(stance_mask, phase / duty_t, torch.zeros_like(phase))
+        swing_phase = torch.where(
+            stance_mask, torch.zeros_like(phase), (phase - duty_t) / (1.0 - duty_t)
+        )
+
+        stance_blend = smoothstep(stance_phase)
+        swing_blend = smoothstep(swing_phase)
+
+        thigh_stance = cfg.swing_thigh + (cfg.stance_thigh - cfg.swing_thigh) * stance_blend
+        thigh_swing = cfg.stance_thigh + (cfg.swing_thigh - cfg.stance_thigh) * swing_blend
+        thigh = torch.where(stance_mask, thigh_stance, thigh_swing)
+
+        calf_stance = torch.full_like(phase, cfg.stance_calf)
+        lift = 0.5 - 0.5 * torch.cos(2.0 * math.pi * swing_phase)
+        calf_swing = cfg.stance_calf + (cfg.swing_calf - cfg.stance_calf) * lift
+        calf = torch.where(stance_mask, calf_stance, calf_swing)
 
         return thigh, calf
 

@@ -1,4 +1,6 @@
 logs/
+deployment/logs/
+deployment/sessions/
 outputs/
 __pycache__/
 *.py[cod]

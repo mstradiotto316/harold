@@ -108,6 +108,7 @@ Before touching hardware:
 - Read `docs/reference/hardware_reference.md` for the system map and ESP32 flashing.
 - Read `docs/hardware/rpi_deployment.md` for the runtime pipeline.
 - Read `docs/hardware/calibration_checklist.md` before calibration changes.
+- Agents must execute the SSH/tests themselves; do not ask the operator to run these steps.
 
 ```bash
 source ~/envs/harold/bin/activate
@@ -119,7 +120,7 @@ python3 -m inference.harold_controller --cpg-only --max-seconds 60   # scripted/
 
 Hardware logs:
 - Runtime logs: `<runtime-root>/logs/harold.log`
-- Telemetry CSVs: `<runtime-root>/deployment/sessions/session_YYYY-MM-DD_HH-MM-SS.csv`
+- Telemetry CSVs: `<runtime-root>/sessions/session_YYYY-MM-DD_HH-MM-SS.csv`
 
 ---
 

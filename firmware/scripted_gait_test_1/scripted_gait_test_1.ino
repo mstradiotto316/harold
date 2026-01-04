@@ -56,6 +56,7 @@ float gaitAmplitude = 1.0f;  // Full amplitude to match simulation
 
 // Timing
 float GAIT_FREQUENCY = 0.5f;   // Hz - slower for stability (2 second cycle)
+const float DUTY_CYCLE = 0.6f; // Stance fraction (swing is faster for clearance)
 const int UPDATE_RATE_HZ = 20;
 const int STEP_MS = 1000 / UPDATE_RATE_HZ;
 
@@ -125,6 +126,10 @@ inline int degToPos(uint8_t id, float deg, int mid = 2047) {
   return mid + int(DIR[id] * deg * U + 0.5f);
 }
 
+inline float smoothstep(float x) {
+  return x * x * (3.0f - 2.0f * x);
+}
+
 // Apply amplitude scaling to gait parameters
 void updateGaitParameters() {
   float center_thigh = (BASE_STANCE_THIGH + BASE_SWING_THIGH) / 2.0f;
@@ -185,24 +190,25 @@ void setLegAnglesTransition(int leg, float shoulder, float thigh, float calf) {
 }
 
 void computeLegTrajectory(float phase, float* shoulder, float* thigh, float* calf) {
-  float sin_phase = sinf(phase * 2.0f * M_PI);
-  float cos_phase = cosf(phase * 2.0f * M_PI);
+  // Duty-cycle split: stance holds calf, swing flexes knee for clearance.
+  // Avoid pitfall: calf must move more than thigh since it sits at the end of
+  // the thigh link (shorter radius -> higher angular motion).
+  float duty = DUTY_CYCLE;
+  if (duty < 0.05f) duty = 0.05f;
+  if (duty > 0.95f) duty = 0.95f;
 
-  // Thigh trajectory: use -SIN to match simulation's forward walking
-  // The key is that thigh should move BACKWARD (toward STANCE) during ground contact
-  // Calf uses: calf = mid - amp*cos, so foot DOWN at phase 0, UP at phase 0.5
-  // Thigh needs: start at SWING (forward) when foot touches, end at STANCE (back) at liftoff
-  // Using -SIN: at phase 0 -> mid, phase 0.25 -> STANCE (back), phase 0.5 -> mid
-  // This puts the backward motion during the first half of stance
-  float thigh_mid = (STANCE_THIGH + SWING_THIGH) / 2.0f;
-  float thigh_amp = (SWING_THIGH - STANCE_THIGH) / 2.0f;
-  *thigh = thigh_mid - thigh_amp * sin_phase;  // -SIN for forward walking
+  if (phase < duty) {
+    float s = smoothstep(phase / duty);
+    *thigh = SWING_THIGH + (STANCE_THIGH - SWING_THIGH) * s;
+    *calf = STANCE_CALF;
+  } else {
+    float s = smoothstep((phase - duty) / (1.0f - duty));
+    *thigh = STANCE_THIGH + (SWING_THIGH - STANCE_THIGH) * s;
+    float lift = 0.5f - 0.5f * cosf(2.0f * M_PI * ((phase - duty) / (1.0f - duty)));
+    *calf = STANCE_CALF + (SWING_CALF - STANCE_CALF) * lift;
+  }
 
-  float calf_mid = (STANCE_CALF + SWING_CALF) / 2.0f;
-  float calf_amp = (SWING_CALF - STANCE_CALF) / 2.0f;
-  *calf = calf_mid - calf_amp * cos_phase;
-
-  *shoulder = SHOULDER_AMPLITUDE * sin_phase;
+  *shoulder = SHOULDER_AMPLITUDE * sinf(phase * 2.0f * M_PI);
 }
 
 void setGaitMidStance() {

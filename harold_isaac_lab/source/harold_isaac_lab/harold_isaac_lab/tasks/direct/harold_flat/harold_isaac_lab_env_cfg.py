@@ -154,7 +154,7 @@ class ScriptedGaitCfg:
     stance_calf: float = -0.87   # 50° → -50° in sim coords (extended)
     swing_calf: float = -1.3963  # 80° → -80° in sim coords (flexed)
     shoulder_amplitude: float = 0.0096  # 0.55 deg in hardware
-    duty_cycle: float = 0.6
+    duty_cycle: float = 0.6  # Stance fraction (swing is faster for clearance)
 
 
 @configclass
@@ -182,7 +182,7 @@ class CPGCfg:
 
     # Base gait parameters - HARDWARE-VALIDATED
     base_frequency: float = 0.5  # Hz - Hardware-validated (2 second cycle)
-    duty_cycle: float = 0.6      # 60% stance, 40% swing
+    duty_cycle: float = 0.6      # 60% stance, 40% swing (used by trajectory)
 
     # Trajectory parameters - HARDWARE-VALIDATED from Session 36 RPi
     # Source: firmware/scripted_gait_test_1/scripted_gait_test_1.ino

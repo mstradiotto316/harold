@@ -3,7 +3,7 @@
 
 # Gait timing
 frequency_hz: 0.5        # Session 36: hardware-validated frequency
-duty_cycle: 0.6          # Kept for compatibility (sin/cos gait ignores duty cycle)
+duty_cycle: 0.6          # Stance fraction (swing is faster for clearance)
 
 # Leg trajectory angles (radians)
 trajectory:

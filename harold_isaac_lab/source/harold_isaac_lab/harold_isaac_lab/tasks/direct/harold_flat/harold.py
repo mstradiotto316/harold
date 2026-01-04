@@ -12,6 +12,8 @@ from isaaclab.sensors import ContactSensorCfg
 import os
 from pathlib import Path
 
+from harold_isaac_lab.common.stance import load_ready_pose_dict
+
 # Allow quick actuator sweeps without code changes.
 def _env_float(name: str, default: float) -> float:
     value = os.getenv(name)
@@ -72,24 +74,7 @@ HAROLD_V4_CFG = ArticulationCfg(
         # Spawn height slightly above target standing height
         pos=(0.0, 0.0, 0.30),
         rot=(1.0, 0.0, 0.0, 0.0),
-        joint_pos={
-            # Neutral shoulders (RL training uses neutral spawn, athletic in reset)
-            'fl_shoulder_joint': 0.0,
-            'fr_shoulder_joint': 0.0,
-            'bl_shoulder_joint': 0.0,
-            'br_shoulder_joint': 0.0,
-
-            'fl_thigh_joint': 0.70,
-            'fr_thigh_joint': 0.70,
-            'bl_thigh_joint': 0.70,
-            'br_thigh_joint': 0.70,
-
-            # Session 35: Fixed calf spawn to be within limit (-1.3963)
-            'fl_calf_joint': -1.39,
-            'fr_calf_joint': -1.39,
-            'bl_calf_joint': -1.39,
-            'br_calf_joint': -1.39,
-        }
+        joint_pos=load_ready_pose_dict()
     ),
 
     actuators={

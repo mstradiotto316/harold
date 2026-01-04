@@ -25,6 +25,7 @@ import yaml
 
 from drivers.imu_reader_rpi5 import IMUReaderRPi5, IMUData
 from drivers.esp32_serial import ESP32Interface, Telemetry
+from inference.stance import load_hw_default_pose
 
 
 def _expand_joint_sign(js: dict) -> np.ndarray:
@@ -55,7 +56,7 @@ def _expand_joint_sign(js: dict) -> np.ndarray:
 @dataclass
 class ObservationConfig:
     """Observation builder configuration."""
-    # Hardware default pose (servo encoder readings at athletic stance)
+    # Hardware default pose (ready stance in hardware convention)
     hw_default_pose: np.ndarray = None
 
     # Joint sign for HW -> RL convention conversion
@@ -71,12 +72,8 @@ class ObservationConfig:
     def __post_init__(self):
         if self.hw_default_pose is None:
             # [shoulders(4), thighs(4), calves(4)]
-            # Hardware convention - what servo encoders read at rest
-            self.hw_default_pose = np.array([
-                0.0, 0.0, 0.0, 0.0,         # Shoulders: 0 rad
-                0.40, 0.40, 0.40, 0.40,     # Thighs: tuned stance
-                -1.05, -1.05, -1.05, -1.05  # Calves: tuned stance
-            ], dtype=np.float32)
+            # Hardware convention - ready stance (from config/stance.yaml)
+            self.hw_default_pose = load_hw_default_pose()
 
         if self.joint_sign is None:
             # Sign conversion: rl_relative = hw_relative * joint_sign
@@ -97,22 +94,8 @@ class ObservationConfig:
         with open(cpg_path) as f:
             data = yaml.safe_load(f)
 
-        # Hardware default pose (servo encoder readings at athletic stance)
-        hw_pose = data.get("hw_default_pose", {})
-        hw_default_pose = np.array([
-            hw_pose.get("shoulders", 0.0),
-            hw_pose.get("shoulders", 0.0),
-            hw_pose.get("shoulders", 0.0),
-            hw_pose.get("shoulders", 0.0),
-            hw_pose.get("thighs", 0.40),
-            hw_pose.get("thighs", 0.40),
-            hw_pose.get("thighs", 0.40),
-            hw_pose.get("thighs", 0.40),
-            hw_pose.get("calves", -1.05),
-            hw_pose.get("calves", -1.05),
-            hw_pose.get("calves", -1.05),
-            hw_pose.get("calves", -1.05),
-        ], dtype=np.float32)
+        # Hardware default pose (ready stance, from config/stance.yaml)
+        hw_default_pose = load_hw_default_pose(cpg_path)
 
         # Joint sign for HW -> RL conversion (supports per-shoulder overrides)
         joint_sign = _expand_joint_sign(data.get("joint_sign", {}))

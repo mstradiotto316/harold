@@ -205,15 +205,15 @@ void computeLegTrajectory(float phase, float* shoulder, float* thigh, float* cal
   *shoulder = SHOULDER_AMPLITUDE * sin_phase;
 }
 
-void setAthleticStance() {
-  Serial.println("Setting athletic stance (slow transition)...");
+void setGaitMidStance() {
+  Serial.println("Setting gait mid-stance (slow transition)...");
   float mid_thigh = (STANCE_THIGH + SWING_THIGH) / 2.0f;
   float mid_calf = (STANCE_CALF + SWING_CALF) / 2.0f;
 
   for (int leg = 0; leg < 4; ++leg) {
     setLegAnglesTransition(leg, 0.0f, mid_thigh, mid_calf);
   }
-  Serial.printf("Athletic stance: thigh=%.1f deg, calf=%.1f deg\n", mid_thigh, mid_calf);
+  Serial.printf("Gait mid-stance: thigh=%.1f deg, calf=%.1f deg\n", mid_thigh, mid_calf);
 }
 
 void resetAllJointsToZero() {
@@ -292,9 +292,9 @@ void setup() {
   // Initialize to zero
   resetAllJointsToZero();
 
-  // Move to athletic stance
+  // Move to gait mid-stance
   updateGaitParameters();
-  setAthleticStance();
+  setGaitMidStance();
   Serial.printf("Warming up for %d seconds...\n", WARMUP_SECONDS);
   delay(WARMUP_SECONDS * 1000);
 
@@ -370,8 +370,8 @@ void setup() {
 
   Serial.println(F("\n=== WALKING COMPLETE ==="));
 
-  // Return to athletic stance
-  setAthleticStance();
+  // Return to gait mid-stance
+  setGaitMidStance();
   Serial.printf("Cooling down for %d seconds...\n", COOLDOWN_SECONDS);
   delay(COOLDOWN_SECONDS * 1000);
 

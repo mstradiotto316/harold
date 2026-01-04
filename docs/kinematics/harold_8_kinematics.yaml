@@ -1,0 +1,177 @@
+version: 1
+source:
+  usd_flat: docs/usd_exports/harold_8_flat.usda
+  joints_csv: docs/usd_exports/harold_8_joints.csv
+  export_script: scripts/export_usd_headless.py
+  generated_on: 2026-01-03
+units:
+  length: m
+  angle: deg
+  stage_up_axis: Z
+  handedness: right-handed
+notes:
+  - Mesh extents come from node_/mesh_ under each link Xform in the flat USD export.
+  - Joint local_pos0 values are in the parent link frame; local_pos1 is zero for all joints.
+  - Stage semantics below are inferred from joint positions (front legs have +X, left legs have +Y).
+
+stage_semantics:
+  forward: +X
+  backward: -X
+  left: +Y
+  right: -Y
+  up: +Z
+  down: -Z
+  evidence:
+    - Front shoulder joints are at x=+0.1855 while back shoulders are at x=-0.2308.
+    - Left shoulder joints are at y=+0.0479 while right shoulders are at y=-0.0479.
+
+joint_order:
+  - fl_shoulder
+  - fr_shoulder
+  - bl_shoulder
+  - br_shoulder
+  - fl_thigh
+  - fr_thigh
+  - bl_thigh
+  - br_thigh
+  - fl_calf
+  - fr_calf
+  - bl_calf
+  - br_calf
+
+joint_axes:
+  shoulder: X
+  thigh: Y
+  calf: Y
+
+joints:
+  fl_shoulder_joint:
+    path: /Harold/fl_shoulder/fl_shoulder_joint
+    parent: /Harold/body
+    child: /Harold/fl_shoulder
+    axis: X
+    local_pos0: [0.1855, 0.0479, 0.01769525]
+    local_pos1: [0.0, 0.0, 0.0]
+    limits_deg: [-90.0, 90.0]
+  fr_shoulder_joint:
+    path: /Harold/fr_shoulder/fr_shoulder_joint
+    parent: /Harold/body
+    child: /Harold/fr_shoulder
+    axis: X
+    local_pos0: [0.1855, -0.0479, 0.0177]
+    local_pos1: [0.0, 0.0, 0.0]
+    limits_deg: [-90.0, 90.0]
+  bl_shoulder_joint:
+    path: /Harold/bl_shoulder/bl_shoulder_joint
+    parent: /Harold/body
+    child: /Harold/bl_shoulder
+    axis: X
+    local_pos0: [-0.2308, 0.0479, 0.0177]
+    local_pos1: [0.0, 0.0, 0.0]
+    limits_deg: [-90.0, 90.0]
+  br_shoulder_joint:
+    path: /Harold/br_shoulder/br_shoulder_joint
+    parent: /Harold/body
+    child: /Harold/br_shoulder
+    axis: X
+    local_pos0: [-0.2308, -0.0479, 0.0177]
+    local_pos1: [0.0, 0.0, 0.0]
+    limits_deg: [-90.0, 90.0]
+  fl_thigh_joint:
+    path: /Harold/fl_thigh/fl_thigh_joint
+    parent: /Harold/fl_shoulder
+    child: /Harold/fl_thigh
+    axis: Y
+    local_pos0: [0.022999998, 0.016100002, 0.011404751]
+    local_pos1: [0.0, 0.0, 0.0]
+    limits_deg: [-90.0, 90.0]
+  fr_thigh_joint:
+    path: /Harold/fr_thigh/fr_thigh_joint
+    parent: /Harold/fr_shoulder
+    child: /Harold/fr_thigh
+    axis: Y
+    local_pos0: [0.022999998, -0.016100002, 0.011400001]
+    local_pos1: [0.0, 0.0, 0.0]
+    limits_deg: [-90.0, 90.0]
+  bl_thigh_joint:
+    path: /Harold/bl_thigh/bl_thigh_joint
+    parent: /Harold/bl_shoulder
+    child: /Harold/bl_thigh
+    axis: Y
+    local_pos0: [0.022999998, 0.016100002, 0.011400001]
+    local_pos1: [0.0, 0.0, 0.0]
+    limits_deg: [-90.0, 90.0]
+  br_thigh_joint:
+    path: /Harold/br_thigh/br_thigh_joint
+    parent: /Harold/br_shoulder
+    child: /Harold/br_thigh
+    axis: Y
+    local_pos0: [0.022999998, -0.016100002, 0.011400001]
+    local_pos1: [0.0, 0.0, 0.0]
+    limits_deg: [-90.0, 90.0]
+  fl_calf_joint:
+    path: /Harold/fl_calf/fl_calf_joint
+    parent: /Harold/fl_thigh
+    child: /Harold/fl_calf
+    axis: Y
+    local_pos0: [-0.0026000014, -0.00080000306, -0.1031]
+    local_pos1: [0.0, 0.0, 0.0]
+    limits_deg: [-90.0, 90.0]
+  fr_calf_joint:
+    path: /Harold/fr_calf/fr_calf_joint
+    parent: /Harold/fr_thigh
+    child: /Harold/fr_calf
+    axis: Y
+    local_pos0: [-0.0026000014, 0.00080000306, -0.1031]
+    local_pos1: [0.0, 0.0, 0.0]
+    limits_deg: [-90.0, 90.0]
+  bl_calf_joint:
+    path: /Harold/bl_calf/bl_calf_joint
+    parent: /Harold/bl_thigh
+    child: /Harold/bl_calf
+    axis: Y
+    local_pos0: [-0.0026000002, -0.00080000306, -0.1031]
+    local_pos1: [0.0, 0.0, 0.0]
+    limits_deg: [-90.0, 90.0]
+  br_calf_joint:
+    path: /Harold/br_calf/br_calf_joint
+    parent: /Harold/br_thigh
+    child: /Harold/br_calf
+    axis: Y
+    local_pos0: [-0.0026000002, 0.00080000306, -0.1031]
+    local_pos1: [0.0, 0.0, 0.0]
+    limits_deg: [-90.0, 90.0]
+
+link_mesh_extents:
+  fl_shoulder:
+    min: [-1.5934438e-09, -0.0175, -0.014625002]
+    max: [0.0456, 0.0675, 0.047875002]
+    size: [0.0456000015934438, 0.085, 0.062500004]
+    center: [0.0227999992032781, 0.025, 0.016625]
+    assumed_identical_for: [fr_shoulder, bl_shoulder, br_shoulder]
+  fl_thigh:
+    min: [-0.017500004, -0.0058999993, -0.113125]
+    max: [0.016, 0.0511, 0.014375001]
+    size: [0.033500004, 0.0569999993, 0.127500001]
+    center: [-0.0007500019999999996, 0.02260000035, -0.0493749995]
+    assumed_identical_for: [fr_thigh, bl_thigh, br_thigh]
+  fl_calf:
+    min: [-0.016000004, -2.0305577e-09, -0.13277096]
+    max: [0.0175, 0.0456, 0.014625001]
+    size: [0.033500004, 0.0456000020305577, 0.147395961]
+    center: [0.000749998, 0.02279999898472115, -0.0590729795]
+    assumed_identical_for: [fr_calf, bl_calf, br_calf]
+
+derived:
+  shoulder_to_thigh_offset_m:
+    vector: [0.022999998, 0.016100002, 0.011404751]
+    length: 0.03030310739465524
+  thigh_to_calf_offset_m:
+    vector: [-0.0026000014, -0.00080000306, -0.1031]
+    length: 0.10313588130314304
+  calf_mesh_min_z_m: -0.13277096
+  calf_mesh_max_z_m: 0.014625001
+  foot_contact_guess_calf_frame:
+    method: center_xy_min_z
+    point: [0.000749998, 0.02279999898472115, -0.13277096]
+    note: Verify against CAD/measurements before using for control.

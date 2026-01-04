@@ -50,8 +50,16 @@ Read these files in order:
 - `AGENTS.md`: Technical reference for sim configs and code behavior.
 - `.claude_memory/`: Current state, experiments, observations, and next steps.
 - `README.md`: Repo overview and installation notes (human-facing).
+- `docs/kinematics/harold_8_kinematics.yaml`: USD-derived joint/mesh kinematics spec (review before stance or sim-to-real alignment changes).
+- `deployment/config/stance.yaml`: Canonical ready stance for hardware + simulation (single source of truth).
 
 ---
+
+## Stance Updates
+
+- Canonical ready stance lives in `deployment/config/stance.yaml`.
+- Override path with `HAROLD_STANCE_PATH=/path/to/stance.yaml` when needed.
+- After changing stance, run `python scripts/sync_stance.py` and re-flash the ESP32 firmware.
 
 ## Role Quickstart
 

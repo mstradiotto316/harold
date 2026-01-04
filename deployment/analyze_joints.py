@@ -16,8 +16,8 @@ var = np.array(metadata['running_variance'])
 std = np.sqrt(var)
 
 # Get default pose
-config = ObservationConfig.from_yaml(Path('config/cpg.yaml'))
-default_pose = config.default_pose
+config = ObservationConfig.from_yaml(Path("config/cpg.yaml"))
+default_pose = config.hw_default_pose
 joint_sign = config.joint_sign
 
 print('=== Joint Position Analysis ===')

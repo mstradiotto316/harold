@@ -1,0 +1,13 @@
+path,type,axis,localPos0,localRot0,localPos1,localRot1,body0,body1,lowerLimit,upperLimit
+/Harold/fl_shoulder/fl_shoulder_joint,PhysicsRevoluteJoint,X,"(0.1855, 0.0479, 0.01769525)","(1, 0, 0, 0)","(0, 0, 0)","(1, 0, 0, 0)",,,-90.0,90.0
+/Harold/fl_thigh/fl_thigh_joint,PhysicsRevoluteJoint,Y,"(0.022999998, 0.016100002, 0.011404751)","(1, 0, 0, 0)","(0, 0, 0)","(1, 0, 0, 0)",,,-90.0,90.0
+/Harold/fl_calf/fl_calf_joint,PhysicsRevoluteJoint,Y,"(-0.0026000014, -0.00080000306, -0.1031)","(1, 0, 0, 0)","(0, 0, 0)","(1, 0, 0, 0)",,,-90.0,90.0
+/Harold/fr_shoulder/fr_shoulder_joint,PhysicsRevoluteJoint,X,"(0.1855, -0.0479, 0.0177)","(1, 0, 0, 0)","(0, 0, 0)","(1, 0, 0, 0)",,,-90.0,90.0
+/Harold/fr_thigh/fr_thigh_joint,PhysicsRevoluteJoint,Y,"(0.022999998, -0.016100002, 0.011400001)","(1, 0, 0, 0)","(0, 0, 0)","(1, 0, 0, 0)",,,-90.0,90.0
+/Harold/fr_calf/fr_calf_joint,PhysicsRevoluteJoint,Y,"(-0.0026000014, 0.00080000306, -0.1031)","(1, 0, 0, 0)","(0, 0, 0)","(1, 0, 0, 0)",,,-90.0,90.0
+/Harold/bl_shoulder/bl_shoulder_joint,PhysicsRevoluteJoint,X,"(-0.2308, 0.0479, 0.0177)","(1, 0, 0, 0)","(0, 0, 0)","(1, 0, 0, 0)",,,-90.0,90.0
+/Harold/bl_thigh/bl_thigh_joint,PhysicsRevoluteJoint,Y,"(0.022999998, 0.016100002, 0.011400001)","(1, 0, 0, 0)","(0, 0, 0)","(1, 0, 0, 0)",,,-90.0,90.0
+/Harold/bl_calf/bl_calf_joint,PhysicsRevoluteJoint,Y,"(-0.0026000002, -0.00080000306, -0.1031)","(1, 0, 0, 0)","(0, 0, 0)","(1, 0, 0, 0)",,,-90.0,90.0
+/Harold/br_shoulder/br_shoulder_joint,PhysicsRevoluteJoint,X,"(-0.2308, -0.0479, 0.0177)","(1, 0, 0, 0)","(0, 0, 0)","(1, 0, 0, 0)",,,-90.0,90.0
+/Harold/br_thigh/br_thigh_joint,PhysicsRevoluteJoint,Y,"(0.022999998, -0.016100002, 0.011400001)","(1, 0, 0, 0)","(0, 0, 0)","(1, 0, 0, 0)",,,-90.0,90.0
+/Harold/br_calf/br_calf_joint,PhysicsRevoluteJoint,Y,"(-0.0026000002, 0.00080000306, -0.1031)","(1, 0, 0, 0)","(0, 0, 0)","(1, 0, 0, 0)",,,-90.0,90.0

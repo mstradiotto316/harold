@@ -1,0 +1,39 @@
+# Harold canonical stance (single source of truth)
+version: 1
+units:
+  angle: rad
+
+# Joint order for 12D arrays:
+# [shoulders FL, FR, BL, BR, thighs FL, FR, BL, BR, calves FL, FR, BL, BR]
+joint_order:
+  - shoulder_fl
+  - shoulder_fr
+  - shoulder_bl
+  - shoulder_br
+  - thigh_fl
+  - thigh_fr
+  - thigh_bl
+  - thigh_br
+  - calf_fl
+  - calf_fr
+  - calf_bl
+  - calf_br
+
+# Hardware convention: servo encoder readings at ready stance.
+hw_default_pose:
+  shoulders: 0.0
+  thighs: 0.65
+  calves: -1.13
+
+# RL convention: simulation default pose (matches ready stance).
+rl_default_pose:
+  shoulder_fl: 0.0
+  shoulder_fr: 0.0
+  shoulder_bl: 0.0
+  shoulder_br: 0.0
+  thighs: 0.65
+  calves: -1.13
+
+notes:
+  - Canonical ready stance for hardware and simulation (aka athletic/crouched in older notes).
+  - Firmware DEFAULT_POSE should be kept in sync with hw_default_pose.

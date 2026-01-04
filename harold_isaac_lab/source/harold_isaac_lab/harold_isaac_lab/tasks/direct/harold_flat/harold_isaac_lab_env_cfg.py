@@ -154,6 +154,8 @@ class ScriptedGaitCfg:
     stance_calf: float = -0.87   # 50° → -50° in sim coords (extended)
     swing_calf: float = -1.3963  # 80° → -80° in sim coords (flexed)
     shoulder_amplitude: float = 0.0096  # 0.55 deg in hardware
+    thigh_offset_front: float = 0.05    # Bias front thighs forward (rad)
+    thigh_offset_back: float = -0.05    # Bias rear thighs back (rad)
     duty_cycle: float = 0.5  # 50% stance / 50% swing to slow the lift/plant
     stride_scale: float = 0.35        # Shorter steps to reduce lunge/impact
     calf_lift_scale: float = 0.85     # Slightly lower lift to soften touchdown
@@ -199,6 +201,8 @@ class CPGCfg:
     stance_calf: float = -0.87    # 50° in hardware → -50° in sim (extended)
     swing_calf: float = -1.3963   # 80° in hardware → -80° in sim (flexed)
     shoulder_amplitude: float = 0.0096  # 0.55 deg in hardware
+    thigh_offset_front: float = 0.05    # Bias front thighs forward (rad)
+    thigh_offset_back: float = -0.05    # Bias rear thighs back (rad)
     stride_scale: float = 0.35        # Shorter steps to reduce lunge/impact
     calf_lift_scale: float = 0.85     # Slightly lower lift to soften touchdown
     stride_scale_front: float = 1.0

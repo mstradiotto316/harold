@@ -28,6 +28,12 @@ class CPGConfig:
     shoulder_amplitude: float = 0.0096
     thigh_offset_front: float = 0.0
     thigh_offset_back: float = 0.0
+    stride_scale: float = 1.0
+    calf_lift_scale: float = 1.0
+    stride_scale_front: float = 1.0
+    stride_scale_back: float = 1.0
+    calf_lift_scale_front: float = 1.0
+    calf_lift_scale_back: float = 1.0
     residual_scale: float = 0.05
 
     @classmethod
@@ -46,6 +52,12 @@ class CPGConfig:
             shoulder_amplitude=traj.get("shoulder_amplitude", 0.0096),
             thigh_offset_front=traj.get("thigh_offset_front", 0.0),
             thigh_offset_back=traj.get("thigh_offset_back", 0.0),
+            stride_scale=traj.get("stride_scale", 1.0),
+            calf_lift_scale=traj.get("calf_lift_scale", 1.0),
+            stride_scale_front=traj.get("stride_scale_front", 1.0),
+            stride_scale_back=traj.get("stride_scale_back", 1.0),
+            calf_lift_scale_front=traj.get("calf_lift_scale_front", 1.0),
+            calf_lift_scale_back=traj.get("calf_lift_scale_back", 1.0),
             residual_scale=data.get("residual_scale", 0.05),
         )
 
@@ -87,10 +99,10 @@ class CPGGenerator:
         phase_fr_bl = (self._phase + 0.5) % 1.0
 
         # Compute leg trajectories
-        thigh_fl, calf_fl = self._compute_leg_trajectory(phase_fl_br)
-        thigh_br, calf_br = self._compute_leg_trajectory(phase_fl_br)
-        thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl)
-        thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl)
+        thigh_fl, calf_fl = self._compute_leg_trajectory(phase_fl_br, leg="front")
+        thigh_br, calf_br = self._compute_leg_trajectory(phase_fl_br, leg="back")
+        thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl, leg="front")
+        thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl, leg="back")
 
         # Optional front/back thigh bias to shift weight distribution.
         thigh_fl += self.cfg.thigh_offset_front
@@ -128,7 +140,7 @@ class CPGGenerator:
 
         return targets
 
-    def _compute_leg_trajectory(self, phase: float) -> tuple[float, float]:
+    def _compute_leg_trajectory(self, phase: float, leg: str = "front") -> tuple[float, float]:
         """Compute smooth leg trajectory based on gait phase.
 
         Args:
@@ -144,8 +156,20 @@ class CPGGenerator:
             - Avoids common pitfall: calf must move more than thigh since it sits at
               the end of the thigh link.
         """
-        # Guard against invalid duty cycles (avoid div-by-zero).
+        # Guard against invalid duty cycles/scales (avoid div-by-zero).
         duty = min(max(self.cfg.duty_cycle, 0.05), 0.95)
+        if leg == "back":
+            stride_scale = min(max(self.cfg.stride_scale_back, 0.0), 2.0)
+            calf_scale = min(max(self.cfg.calf_lift_scale_back, 0.0), 2.0)
+        else:
+            stride_scale = min(max(self.cfg.stride_scale_front, 0.0), 2.0)
+            calf_scale = min(max(self.cfg.calf_lift_scale_front, 0.0), 2.0)
+
+        stride_scale = min(max(stride_scale * self.cfg.stride_scale, 0.0), 2.0)
+        calf_scale = min(max(calf_scale * self.cfg.calf_lift_scale, 0.0), 2.0)
+
+        swing_thigh = self.cfg.stance_thigh + (self.cfg.swing_thigh - self.cfg.stance_thigh) * stride_scale
+        swing_calf = self.cfg.stance_calf + (self.cfg.swing_calf - self.cfg.stance_calf) * calf_scale
 
         def smoothstep(x: float) -> float:
             return x * x * (3.0 - 2.0 * x)
@@ -153,14 +177,14 @@ class CPGGenerator:
         if phase < duty:
             # Stance phase: thigh sweeps back, calf stays extended.
             s = smoothstep(phase / duty)
-            thigh = self.cfg.swing_thigh + (self.cfg.stance_thigh - self.cfg.swing_thigh) * s
+            thigh = swing_thigh + (self.cfg.stance_thigh - swing_thigh) * s
             calf = self.cfg.stance_calf
         else:
             # Swing phase: thigh moves forward, calf flexes for clearance.
             s = smoothstep((phase - duty) / (1.0 - duty))
-            thigh = self.cfg.stance_thigh + (self.cfg.swing_thigh - self.cfg.stance_thigh) * s
+            thigh = self.cfg.stance_thigh + (swing_thigh - self.cfg.stance_thigh) * s
             lift = 0.5 - 0.5 * math.cos(2.0 * math.pi * ((phase - duty) / (1.0 - duty)))
-            calf = self.cfg.stance_calf + (self.cfg.swing_calf - self.cfg.stance_calf) * lift
+            calf = self.cfg.stance_calf + (swing_calf - self.cfg.stance_calf) * lift
 
         return thigh, calf
 

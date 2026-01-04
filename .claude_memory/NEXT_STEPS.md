@@ -1,5 +1,12 @@
 # Harold Next Steps
 
+## 2026-01-04: Hardware CPG (Rear Legs Still Skimming)
+- Increase rear-only lift/stride: try `calf_lift_scale_back=1.25` and/or `stride_scale_back=1.4` while keeping front scales unchanged.
+- Optional: add a small rear-only thigh offset or shoulder bias to unload rear legs during swing.
+- Keep `SERVO_SPEED`/`SERVO_ACC` unchanged.
+- Keep `harold` service stopped during manual tests; it restarts gait if active.
+- If ESP32 handshake fails, reflash StreamingControl on the Pi before testing.
+
 ## Session 39 Complete: Hardware Telemetry Logging
 
 **NEW**: The robot now logs detailed telemetry at 5 Hz during hardware runs:

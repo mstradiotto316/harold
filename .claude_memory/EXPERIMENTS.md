@@ -14,6 +14,20 @@ Each experiment entry contains:
 
 ## Experiments
 
+### HW-CPG-2026-01-04: Rear-Leg Lift Tuning (RPi)
+- **Date**: 2026-01-04
+- **ID**: `session_2026-01-04_01-21-09.csv`, `session_2026-01-04_01-23-06.csv`, `session_2026-01-04_01-51-05.csv`, `session_2026-01-04_02-32-11.csv`, `session_2026-01-04_05-44-24.csv`
+- **Config**:
+  - duty-cycle gait (stance/swing split)
+  - `frequency_hz=0.4`, `duty_cycle=0.5`
+  - `stride_scale=0.35`, `calf_lift_scale=0.85`
+  - per-leg scales: `stride_scale_front=1.0`, `stride_scale_back=1.3`, `calf_lift_scale_front=1.0`, `calf_lift_scale_back=1.15`
+- **Duration**: multiple 10s CPG-only runs
+- **Result**: IMPROVED - smoother gait, reduced impact; rear legs still skimming (no clear air time)
+- **Notes**:
+  - ESP32 handshake failed after calibration firmware; reflash StreamingControl fixed it.
+  - Keep `harold` service stopped during manual tests to avoid auto-walking.
+
 ### EXP-001: Simulation Boot Test
 - **Date**: 2025-12-19
 - **ID**: `2025-12-19_23-03-04_ppo_torch`

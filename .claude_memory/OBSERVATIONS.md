@@ -1,5 +1,12 @@
 # Harold Observations & Insights
 
+## 2026-01-04: Hardware CPG Tuning
+- Duty-cycle stance/swing gait reduced foot drag; shorter stride reduced impact.
+- Lowering calf lift softened touchdown without reintroducing severe drag.
+- Rear legs improved from dragging to skimming but still no clear air time.
+- ESP32 handshake failed after calibration firmware; reflash StreamingControl restored comms.
+- `harold` systemd service auto-restarts gait; keep it inactive during manual observation.
+
 ## Gait Development Observations
 
 ### What Works

@@ -621,10 +621,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         # Use the PROVEN trajectory method from ScriptedGaitCfg
         # This is the exact same computation that achieves vx=+0.141 m/s
-        thigh_fl, calf_fl = self._compute_leg_trajectory(phase_fl_br, cfg)
-        thigh_br, calf_br = self._compute_leg_trajectory(phase_fl_br, cfg)
-        thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl, cfg)
-        thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl, cfg)
+        thigh_fl, calf_fl = self._compute_leg_trajectory(phase_fl_br, cfg, leg="front")
+        thigh_br, calf_br = self._compute_leg_trajectory(phase_fl_br, cfg, leg="back")
+        thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl, cfg, leg="front")
+        thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl, cfg, leg="back")
 
         # Shoulder oscillation for balance (hardware-aligned sin)
         shoulder_fl = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)
@@ -749,10 +749,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             phase_fr_bl = (phase + 0.5) % 1.0
 
             # Compute leg trajectories for each diagonal pair
-            thigh_fl, calf_fl = self._compute_leg_trajectory(phase_fl_br, cfg)
-            thigh_br, calf_br = self._compute_leg_trajectory(phase_fl_br, cfg)
-            thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl, cfg)
-            thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl, cfg)
+            thigh_fl, calf_fl = self._compute_leg_trajectory(phase_fl_br, cfg, leg="front")
+            thigh_br, calf_br = self._compute_leg_trajectory(phase_fl_br, cfg, leg="back")
+            thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl, cfg, leg="front")
+            thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl, cfg, leg="back")
 
             # Shoulder oscillation for balance (hardware-aligned sin)
             shoulder_fl = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)
@@ -792,7 +792,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Store for observation (even though we're not using policy)
         self._prev_target_delta = self._processed_actions - self._robot.data.default_joint_pos
 
-    def _compute_leg_trajectory(self, phase: torch.Tensor, cfg) -> tuple[torch.Tensor, torch.Tensor]:
+    def _compute_leg_trajectory(
+        self, phase: torch.Tensor, cfg, leg: str = "front"
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute smooth leg trajectory based on gait phase.
 
         Args:
@@ -809,8 +811,19 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             - Avoids common pitfall: calf must move more than thigh since it sits at
               the end of the thigh link.
         """
-        # Guard against invalid duty cycles (avoid div-by-zero).
+        # Guard against invalid duty cycles/scales (avoid div-by-zero).
         duty = min(max(float(cfg.duty_cycle), 0.05), 0.95)
+        if leg == "back":
+            stride_scale = min(max(float(getattr(cfg, "stride_scale_back", 1.0)), 0.0), 2.0)
+            calf_scale = min(max(float(getattr(cfg, "calf_lift_scale_back", 1.0)), 0.0), 2.0)
+        else:
+            stride_scale = min(max(float(getattr(cfg, "stride_scale_front", 1.0)), 0.0), 2.0)
+            calf_scale = min(max(float(getattr(cfg, "calf_lift_scale_front", 1.0)), 0.0), 2.0)
+
+        stride_scale = min(max(stride_scale * float(getattr(cfg, "stride_scale", 1.0)), 0.0), 2.0)
+        calf_scale = min(max(calf_scale * float(getattr(cfg, "calf_lift_scale", 1.0)), 0.0), 2.0)
+        swing_thigh = cfg.stance_thigh + (cfg.swing_thigh - cfg.stance_thigh) * stride_scale
+        swing_calf = cfg.stance_calf + (cfg.swing_calf - cfg.stance_calf) * calf_scale
         duty_t = torch.tensor(duty, device=phase.device, dtype=phase.dtype)
 
         def smoothstep(x: torch.Tensor) -> torch.Tensor:
@@ -825,13 +838,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         stance_blend = smoothstep(stance_phase)
         swing_blend = smoothstep(swing_phase)
 
-        thigh_stance = cfg.swing_thigh + (cfg.stance_thigh - cfg.swing_thigh) * stance_blend
-        thigh_swing = cfg.stance_thigh + (cfg.swing_thigh - cfg.stance_thigh) * swing_blend
+        thigh_stance = swing_thigh + (cfg.stance_thigh - swing_thigh) * stance_blend
+        thigh_swing = cfg.stance_thigh + (swing_thigh - cfg.stance_thigh) * swing_blend
         thigh = torch.where(stance_mask, thigh_stance, thigh_swing)
 
         calf_stance = torch.full_like(phase, cfg.stance_calf)
         lift = 0.5 - 0.5 * torch.cos(2.0 * math.pi * swing_phase)
-        calf_swing = cfg.stance_calf + (cfg.swing_calf - cfg.stance_calf) * lift
+        calf_swing = cfg.stance_calf + (swing_calf - cfg.stance_calf) * lift
         calf = torch.where(stance_mask, calf_stance, calf_swing)
 
         return thigh, calf

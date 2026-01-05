@@ -41,6 +41,20 @@ Each experiment entry contains:
   - ESP32 handshake failed after calibration firmware; reflash StreamingControl fixed it.
   - Keep `harold` service stopped during manual tests to avoid auto-walking.
 
+### SIM-CPG-2026-01-04: Command Alignment + Actuator Sweep
+- **Date**: 2026-01-04
+- **ID**: `deployment/validation/sim_logs/sim_cpg_test3.csv`, `deployment/validation/sim_logs/actuator_sweep_results.csv`
+- **Config**:
+  - CPG baseline from `deployment/config/cpg.yaml` (Test 3).
+  - Sim CPG leg trajectory updated to match hardware generator math (stride/lift scaling ignored).
+  - Actuator sweep (stiffness/damping) against hardware log `session_2026-01-04_18-43-41.csv`.
+- **Duration**: 10s sim log @ 5 Hz, multi-run sweep.
+- **Result**: **Aligned** command generation (sim cmd_pos matches hardware generator at logged phase).
+- **Metrics**:
+  - Best tracking match (effort=2.8): stiffness=1200, damping=75 (cost_all≈0.0044).
+- **Notes**:
+  - Added `scripts/compare_cpg_sim.py` to compare sim cmd_pos against hardware generator outputs.
+
 ### EXP-001: Simulation Boot Test
 - **Date**: 2025-12-19
 - **ID**: `2025-12-19_23-03-04_ppo_torch`

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Harold Robot Controller - Main 20 Hz Control Loop.
 
-Runs CPG + RL policy inference for quadruped walking gait.
+Runs either open-loop CPG playback or direct RL policy inference.
 
 Usage:
     python harold_controller.py [--config-dir CONFIG_DIR] [--cpg-only] [--max-seconds N]
 
 Components:
-    - CPG Generator: Base walking trajectory
-    - ONNX Policy: Residual corrections for balance
+    - CPG Generator: Base walking trajectory (CPG-only mode)
+    - ONNX Policy: Direct joint targets (policy-only mode)
     - IMU Reader: Body orientation and velocity
     - ESP32 Interface: Servo control and telemetry
 """
@@ -46,9 +46,9 @@ class HaroldController:
     """Main controller for Harold quadruped robot.
 
     Runs a 20 Hz control loop with:
-        1. CPG base trajectory generation
-        2. Observation building from IMU + servo feedback
-        3. ONNX policy inference for residual corrections
+        1. CPG base trajectory generation (CPG-only mode)
+        2. Observation building from IMU + servo feedback (policy-only mode)
+        3. ONNX policy inference (policy-only mode)
         4. Action conversion and servo command transmission
     """
 
@@ -202,7 +202,15 @@ class HaroldController:
 
         self.running_mean = np.array(metadata["running_mean"], dtype=np.float32)
         self.running_var = np.array(metadata["running_variance"], dtype=np.float32)
-        print(f"Loaded normalization stats (dim={len(self.running_mean)})")
+        obs_dim = len(self.running_mean)
+        print(f"Loaded normalization stats (dim={obs_dim})")
+        if obs_dim != ObservationBuilder.OBS_DIM:
+            print(
+                "ERROR: Policy observation dimension mismatch. "
+                f"Expected {ObservationBuilder.OBS_DIM}D, got {obs_dim}D. "
+                "Legacy 50D policies are no longer supported; export a 48D policy."
+            )
+            return False
 
         # NOTE: The ONNX model (harold_policy.onnx) already includes normalization!
         # The export script wraps the policy with NormalizedPolicy which applies
@@ -227,7 +235,7 @@ class HaroldController:
         # Initialize CPG
         cpg_config = CPGConfig.from_yaml(cpg_config_path)
         self.cpg = CPGGenerator(cpg_config)
-        print(f"CPG initialized: {cpg_config.frequency_hz} Hz, residual_scale={cpg_config.residual_scale}")
+        print(f"CPG initialized: {cpg_config.frequency_hz} Hz")
 
         # Initialize ESP32
         esp32_config = ESP32Config.from_yaml(hw_config_path)
@@ -288,34 +296,22 @@ class HaroldController:
 
     def run(
         self,
-        use_cpg: bool = True,
-        warmup_cycles: int = 3,
-        enable_policy: bool = True,
+        mode: str = "policy",
         max_seconds: float | None = None,
     ) -> None:
         """Run the main control loop.
 
         Args:
-            use_cpg: If True, use CPG + residual mode; if False, direct policy mode
-            warmup_cycles: Number of CPG cycles before enabling policy (avoids
-                          cold-start observation mismatch)
-            enable_policy: If False, run open-loop CPG only (zero policy residuals)
+            mode: "cpg" for open-loop CPG playback, "policy" for direct policy mode.
             max_seconds: Optional auto-stop after this many seconds
         """
+        if mode not in ("cpg", "policy"):
+            raise ValueError(f"Unknown mode '{mode}' (expected 'cpg' or 'policy').")
+
         print("\n" + "=" * 60)
         print("Starting Control Loop")
-        if use_cpg and enable_policy:
-            mode_label = "CPG + Residual"
-        elif use_cpg and not enable_policy:
-            mode_label = "CPG only"
-        else:
-            mode_label = "Direct Policy"
-        print(f"  Mode: {mode_label}")
+        print(f"  Mode: {'CPG only' if mode == 'cpg' else 'Direct Policy'}")
         print(f"  Rate: {self.CONTROL_RATE_HZ} Hz")
-        if enable_policy:
-            print(f"  Warmup: {warmup_cycles} CPG cycles before policy")
-        else:
-            print("  Warmup: disabled (policy off)")
         if max_seconds is not None:
             print(f"  Max runtime: {max_seconds:.0f}s")
         print("  Press Ctrl+C to stop")
@@ -332,129 +328,79 @@ class HaroldController:
         self._overrun_count = 0
 
         # Reset components
-        # Initialize prev_targets to training mean values for stability
-        # This prevents extreme normalized values at startup
-        prev_targets_init = self.running_mean[36:48].copy()  # prev_target portion of obs
-        self.obs_builder.reset(prev_targets_init=prev_targets_init)
+        if mode == "policy":
+            prev_targets_init = self.running_mean[36:48].copy()
+            self.obs_builder.reset(prev_targets_init=prev_targets_init)
         self.action_conv.reset()
-
-        # Calculate warmup duration based on CPG frequency
-        if enable_policy:
-            warmup_duration = warmup_cycles / self.cpg.cfg.frequency_hz
-            # Add extra transition period for blending (2 additional CPG cycles)
-            transition_duration = warmup_duration + (2.0 / self.cpg.cfg.frequency_hz)
-        else:
-            warmup_duration = 0.0
-            transition_duration = 0.0
-        policy_enabled = False
 
         try:
             while self._running:
                 loop_start = time.time()
                 t = loop_start - self._start_time
 
-                # 1. Compute CPG base trajectory
-                cpg_targets = self.cpg.compute(t)
-                phase_sin, phase_cos = self.cpg.get_phase_sin_cos()
-
-                # 2. Calculate joint_pos blend factor
-                # During warmup: blend=0.0 (use training mean)
-                # During transition: gradually increase to 1.0
-                # After transition: blend=1.0 (use actual values)
-                if not enable_policy:
-                    joint_pos_blend = 1.0
-                elif t < warmup_duration:
-                    joint_pos_blend = 0.3  # 30% actual during warmup
-                elif t < transition_duration:
-                    # Linear interpolation from 0.3 to 1.0 during transition
-                    progress = (t - warmup_duration) / (transition_duration - warmup_duration)
-                    joint_pos_blend = 0.3 + 0.7 * progress
+                if mode == "cpg":
+                    # Open-loop CPG playback
+                    cpg_targets = self.cpg.compute(t)
+                    rl_targets, hw_targets = self.action_conv.convert_rl_targets(cpg_targets)
+                    command_vx, command_vy, command_yaw = self.obs_builder.cfg.default_commands
+                    cpg_phase = self.cpg.phase
                 else:
-                    joint_pos_blend = 1.0  # Full actual values
-
-                # 3. Build observation (50D) with optional blending
-                obs = self.obs_builder.build(
-                    t, phase_sin, phase_cos,
-                    training_mean=self.running_mean,
-                    joint_pos_blend=joint_pos_blend
-                )
-
-                # NOTE: Do NOT normalize here! The ONNX model (harold_policy.onnx)
-                # already includes normalization internally via NormalizedPolicy wrapper.
-                # See policy/export_policy.py for details.
-
-                # Check if warmup period is complete
-                if enable_policy and not policy_enabled and t >= warmup_duration:
-                    policy_enabled = True
-                    print(f"[t={t:.1f}s] Warmup complete, enabling policy")
-
-                if enable_policy and policy_enabled:
-                    # 4. Run policy inference with RAW observations
-                    # ONNX model normalizes internally - pass raw obs!
+                    # Direct policy mode (no CPG)
+                    obs = self.obs_builder.build(
+                        t,
+                        training_mean=self.running_mean,
+                        joint_pos_blend=1.0,
+                    )
                     outputs = self.policy.run(
                         ['mean'],
                         {'obs': obs.reshape(1, -1).astype(np.float32)}
                     )
                     action = outputs[0][0]  # [12]
-                else:
-                    # During warmup: use zero action (pure CPG)
-                    action = np.zeros(12, dtype=np.float32)
+                    rl_targets, hw_targets = self.action_conv.compute_policy_targets(action)
 
-                # 5. Compute final targets (CPG + residual)
-                # Returns both RL targets (for observation) and HW targets (for ESP32)
-                rl_targets, hw_targets = self.action_conv.compute(cpg_targets, action, use_cpg=use_cpg)
+                    # Update prev_target_delta for next obs
+                    hw_default_pose = self.action_conv.get_hw_default_pose()
+                    prev_targets_training_mean = self.running_mean[36:48]
+                    self.obs_builder.update_prev_target_delta(
+                        rl_targets, hw_default_pose,
+                        training_mean=prev_targets_training_mean,
+                        blend_factor=0.1,
+                    )
+                    command_vx, command_vy, command_yaw = obs[33], obs[34], obs[35]
+                    cpg_phase = 0.0
 
-                # 6. Update observation builder state with prev_target_delta
-                # IMPORTANT: Simulation stores prev_target_delta = processed_actions - default_joint_pos
-                # where default_joint_pos is the USD model default (same as hw_default_pose)
-                # Blend with training mean to prevent feedback divergence
-                hw_default_pose = self.action_conv.get_hw_default_pose()
-                prev_targets_training_mean = self.running_mean[36:48]  # Indices 36-48 are prev_targets
-                self.obs_builder.update_prev_target_delta(
-                    rl_targets, hw_default_pose,
-                    training_mean=prev_targets_training_mean,
-                    blend_factor=0.1  # 10% actual, 90% training mean (prevents divergence)
-                )
-
-                # 7. Send HW targets to ESP32
+                # Send HW targets to ESP32
                 self.esp32.send_targets(hw_targets)
 
-                # 7.5 Log telemetry at 5 Hz (every 4th cycle)
+                # Log telemetry at 5 Hz (every 4th cycle)
                 self._log_counter += 1
                 if self._log_counter >= self._LOG_DIVISOR:
                     self._log_counter = 0
-                    if enable_policy:
-                        mode = "POLICY" if policy_enabled else "WARMUP"
-                    else:
-                        mode = "CPG_ONLY" if use_cpg else "ZERO"
                     state = ControllerState(
-                        mode=mode,
-                        cpg_phase=self.cpg.phase,
-                        command_vx=obs[33],
-                        command_vy=obs[34],
-                        command_yaw=obs[35],
+                        mode="CPG_ONLY" if mode == "cpg" else "POLICY",
+                        cpg_phase=cpg_phase,
+                        command_vx=command_vx,
+                        command_vy=command_vy,
+                        command_yaw=command_yaw,
                         cmd_positions=hw_targets,
                     )
                     self.logger.log(self.esp32.last_telemetry, state)
 
-                # 8. Logging (every 20 loops = 1 second)
+                # Logging (every 20 loops = 1 second)
                 self._loop_count += 1
                 if self._loop_count % 20 == 0:
                     elapsed = time.time() - self._start_time
                     rate = self._loop_count / elapsed
                     telem = self.esp32.read_telemetry()
-                    if enable_policy:
-                        mode_str = "POLICY" if policy_enabled else "WARMUP"
-                    else:
-                        mode_str = "CPG_ONLY" if use_cpg else "ZERO"
+                    mode_str = "CPG_ONLY" if mode == "cpg" else "POLICY"
                     if telem.valid:
                         print(
                             f"t={t:.1f}s [{mode_str}] | rate={rate:.1f}Hz | "
-                            f"phase={self.cpg.phase:.2f} | "
+                            f"phase={cpg_phase:.2f} | "
                             f"pos[0:3]={telem.positions[:3]}"
                         )
 
-                # 9. Sleep to maintain control rate
+                # Sleep to maintain control rate
                 elapsed = time.time() - loop_start
                 if elapsed < self.CONTROL_PERIOD:
                     time.sleep(self.CONTROL_PERIOD - elapsed)
@@ -523,19 +469,13 @@ def main():
     mode_group.add_argument(
         "--cpg-only",
         action="store_true",
-        help="Run open-loop CPG only (no policy residuals)",
+        help="Run open-loop CPG only (no policy)",
     )
     parser.add_argument(
         "--calibrate",
         type=float,
         default=3.0,
         help="IMU calibration duration in seconds (0 to skip)",
-    )
-    parser.add_argument(
-        "--warmup-cycles",
-        type=int,
-        default=0,
-        help="CPG cycles before enabling policy (default: 0, immediate)",
     )
     parser.add_argument(
         "--max-seconds",
@@ -563,10 +503,9 @@ def main():
             controller.calibrate(duration=args.calibrate)
 
         # Run control loop
+        mode = "cpg" if args.cpg_only else "policy"
         controller.run(
-            use_cpg=not args.no_cpg,
-            warmup_cycles=args.warmup_cycles,
-            enable_policy=not args.cpg_only,
+            mode=mode,
             max_seconds=args.max_seconds,
         )
 

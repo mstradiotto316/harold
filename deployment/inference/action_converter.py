@@ -1,15 +1,9 @@
 """Action Converter for Harold Robot.
 
 Converts policy output to servo commands:
-    1. Combine CPG base trajectory with policy residual corrections
-    2. Apply safety limits
-    3. Apply sign corrections for RL -> hardware mapping
-
-Action pipeline:
-    cpg_targets = cpg.compute(time)
-    corrections = policy_output * residual_scale * joint_range
-    final_targets = cpg_targets + corrections
-    final_targets = clip(final_targets, safe_limits)
+    1. Scale policy outputs around the default pose
+    2. Apply sign corrections for RL -> hardware mapping
+    3. Apply safety limits (if enabled)
 """
 import math
 from dataclasses import dataclass
@@ -49,9 +43,6 @@ def _expand_joint_sign(js: dict) -> np.ndarray:
 @dataclass
 class ActionConfig:
     """Action converter configuration."""
-    # Residual scale (limits policy authority)
-    residual_scale: float = 0.05
-
     # Joint action ranges (for scaling policy output)
     joint_range: dict = None
 
@@ -133,7 +124,6 @@ class ActionConfig:
         joint_sign = _expand_joint_sign(cpg_data.get("joint_sign", {}))
 
         return cls(
-            residual_scale=cpg_data.get("residual_scale", 0.05),
             joint_range=joint_range,
             hw_default_pose=hw_default_pose,
             rl_default_pose=rl_default_pose,
@@ -155,7 +145,7 @@ class ActionConverter:
 
     Usage:
         converter = ActionConverter()
-        targets = converter.compute(cpg_targets, policy_output)
+        rl_targets, hw_targets = converter.compute_policy_targets(policy_output)
     """
 
     def __init__(self, config: ActionConfig | None = None):
@@ -175,18 +165,14 @@ class ActionConverter:
         self._smooth_action: Optional[np.ndarray] = None
         self._action_beta = 0.18  # Filter coefficient
 
-    def compute(
+    def compute_policy_targets(
         self,
-        cpg_targets: np.ndarray,
         policy_output: np.ndarray,
-        use_cpg: bool = True,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Compute final joint targets from CPG and policy.
+        """Compute joint targets from policy output (direct mode).
 
         Args:
-            cpg_targets: 12D CPG base trajectory (radians, RL convention)
             policy_output: 12D raw policy output (NOT clipped - matches training)
-            use_cpg: If True, use CPG + residual; if False, use policy directly
 
         Returns:
             Tuple of:
@@ -194,8 +180,7 @@ class ActionConverter:
             - hw_targets: 12D joint targets in HARDWARE convention (for ESP32)
         """
         # NOTE: Training does NOT clip policy outputs before scaling.
-        # The residual_scale * joint_range scales them down, then joint
-        # limits are applied. We must match this behavior exactly.
+        # We match training by scaling around the default pose.
         action = policy_output.astype(np.float32)
 
         # Apply action smoothing (EMA filter)
@@ -207,27 +192,27 @@ class ActionConverter:
                 self._action_beta * action
             )
 
-        if use_cpg:
-            # CPG + residual mode
-            # CPG targets are in RL convention (thigh=0.4-0.9, calf=-0.9 to -1.4)
-            # corrections = action * residual_scale * joint_range
-            corrections = (
-                self._smooth_action *
-                self.cfg.residual_scale *
-                self._joint_ranges
-            )
-            rl_targets = cpg_targets + corrections
-        else:
-            # Direct mode (no CPG)
-            # targets = rl_default + action * action_scale * joint_range
-            action_scale = 0.5  # Standard action scale
-            scaled = self._smooth_action * action_scale * self._joint_ranges
-            rl_targets = self.cfg.rl_default_pose + scaled
+        # targets = rl_default + action * action_scale * joint_range
+        action_scale = 0.5  # Standard action scale
+        scaled = self._smooth_action * action_scale * self._joint_ranges
+        rl_targets = self.cfg.rl_default_pose + scaled
 
         # Convert from RL convention to hardware convention
         # Formula: hw = hw_default + (rl - rl_default) * joint_sign
         hw_targets = self.rl_to_hardware(rl_targets)
 
+        return rl_targets.astype(np.float32), hw_targets.astype(np.float32)
+
+    def convert_rl_targets(self, rl_targets: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Convert RL-convention targets to hardware convention.
+
+        Args:
+            rl_targets: 12D joint targets in RL convention
+
+        Returns:
+            Tuple of RL targets (float32) and hardware targets (float32).
+        """
+        hw_targets = self.rl_to_hardware(rl_targets)
         return rl_targets.astype(np.float32), hw_targets.astype(np.float32)
 
     def get_rl_default_pose(self) -> np.ndarray:
@@ -295,25 +280,18 @@ if __name__ == "__main__":
 
     converter = ActionConverter()
 
-    # Test with zero policy output (should get CPG targets)
-    cpg_targets = np.array([
-        0.05, -0.05, 0.05, -0.05,   # Shoulders
-        0.6, 0.6, 0.6, 0.6,         # Thighs
-        -1.0, -1.0, -1.0, -1.0,     # Calves
-    ], dtype=np.float32)
-
+    # Test with zero policy output
     policy_output = np.zeros(12, dtype=np.float32)
-
-    targets = converter.compute(cpg_targets, policy_output)
-    print(f"CPG targets: {cpg_targets}")
+    rl_targets, hw_targets = converter.compute_policy_targets(policy_output)
     print(f"Policy output: {policy_output}")
-    print(f"Final targets: {targets}")
+    print(f"RL targets: {rl_targets}")
+    print(f"HW targets: {hw_targets}")
     print()
 
     # Test with non-zero policy output
     policy_output = np.ones(12, dtype=np.float32) * 0.5
 
-    targets = converter.compute(cpg_targets, policy_output)
+    rl_targets, hw_targets = converter.compute_policy_targets(policy_output)
     print(f"Policy output (0.5): {policy_output}")
-    print(f"Final targets: {targets}")
-    print(f"Residual added: {targets - cpg_targets}")
+    print(f"RL targets: {rl_targets}")
+    print(f"HW targets: {hw_targets}")

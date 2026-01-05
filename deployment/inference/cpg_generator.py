@@ -28,7 +28,6 @@ class CPGConfig:
     shoulder_amplitude: float = 0.0096
     thigh_offset_front: float = 0.0
     thigh_offset_back: float = 0.0
-    residual_scale: float = 0.05
 
     @classmethod
     def from_yaml(cls, path: Path) -> "CPGConfig":
@@ -46,7 +45,6 @@ class CPGConfig:
             shoulder_amplitude=traj.get("shoulder_amplitude", 0.0096),
             thigh_offset_front=traj.get("thigh_offset_front", 0.0),
             thigh_offset_back=traj.get("thigh_offset_back", 0.0),
-            residual_scale=data.get("residual_scale", 0.05),
         )
 
 

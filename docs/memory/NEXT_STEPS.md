@@ -1,17 +1,20 @@
 # Harold Next Steps
 
 ## 2026-01-04: Sim-to-Real Alignment Using Test 3 Baseline
-- Baseline confirmed (Test 3): `frequency_hz=0.4`, `duty_cycle=0.5`, `stride_scale=0.35`, `calf_lift_scale=0.85`, rear boost (`stride_scale_back=1.3`, `calf_lift_scale_back=1.15`).
+- Baseline confirmed (Test 3): `frequency_hz=0.4`, `duty_cycle=0.5`.
 - Hardware log to use: `logs/hardware_sessions/session_2026-01-04_18-43-41.csv`.
-- Step 1: Confirm sim scripted/CPG config matches `deployment/config/cpg.yaml` (ScriptedGaitCfg + CPGCfg values).
-- Step 2: Generate sim log with the same CPG params and commands:
+- Step 1: Confirm sim scripted/CPG config matches `deployment/config/cpg.yaml` (ScriptedGaitCfg + CPGCfg values). **DONE**
+- Step 2: Generate sim log with the same CPG params and commands: **DONE**
   - `python harold_isaac_lab/scripts/log_gait_playback.py --mode cpg --duration 10 --log-rate-hz 5 --cmd-vx 0.3 --cmd-vy 0 --cmd-yaw 0 --cpg-yaml deployment/config/cpg.yaml --output deployment/validation/sim_logs/sim_cpg_test3.csv`
-- Step 3: Compare commanded values (`cmd_pos_*`) first:
+- Step 3: Compare commanded values (`cmd_pos_*`) first: **DONE**
   - `python scripts/compare_hw_sim.py --hw logs/hardware_sessions/session_2026-01-04_18-43-41.csv --sim deployment/validation/sim_logs/sim_cpg_test3.csv --cpg-yaml deployment/config/cpg.yaml --stance deployment/config/stance.yaml`
-  - Goal: RMS cmd_pos diff near zero (phase-aligned). If not, re-check sign conventions, stance, and CPG yaml.
-- Step 4: Compare tracking (cmd_pos vs pos). If hardware tracks worse than sim, tune sim actuator stiffness/damping:
+  - Goal: RMS cmd_pos diff near zero (phase-aligned).
+- Step 4: Compare tracking (cmd_pos vs pos). If hardware tracks worse than sim, tune sim actuator stiffness/damping: **DONE**
   - Use `scripts/sweep_actuators.py --hw-log logs/hardware_sessions/session_2026-01-04_18-43-41.csv --mode cpg --duration 10 --log-rate-hz 5 --cpg-yaml deployment/config/cpg.yaml`
   - Record best stiffness/damping; update sim config or run with overrides for verification.
+- Result: Best tracking match (effort=2.8) is stiffness=1200, damping=75; defaults updated in `harold_isaac_lab/.../harold.py`.
+- Added: `scripts/compare_cpg_sim.py` to compare sim cmd_pos against hardware generator outputs.
+- Note: stride/calf scaling has been removed from `cpg.yaml`; sim and hardware use the same base trajectory.
 - Keep `SERVO_SPEED`/`SERVO_ACC` unchanged.
 - Keep `harold` service stopped during manual tests; it restarts gait if active.
 - If ESP32 handshake fails, reflash StreamingControl on the Pi before testing.
@@ -24,14 +27,6 @@
 - **Documentation**: See the "Hardware Session Logs" section in `docs/memory/OBSERVATIONS.md`
 
 Use these logs to diagnose hardware issues (backlash, thermal, power problems).
-
----
-
-## PRIORITY 0: Deploy Session 35 Policy with Amplitude Scaling
-
-**Status**: Session 38 found that hardware-validated params don't work in simulation. Use Session 35 policy (vx=0.036) with amplitude scaling at deployment.
-
----
 
 ## NEW: Scripted Gait Alignment Follow-ups
 
@@ -136,7 +131,7 @@ Keep the code for future curriculum learning experiments.
 
 ```python
 # Observation space
-observation_space = 50  # For CPG mode (48 + 2 gait phase)
+observation_space = 48  # Policy input size (CPG is open-loop)
 
 # Backlash (DISABLED)
 BacklashCfg.enable_backlash = False
@@ -153,8 +148,8 @@ lin_vel_z_weight = -0.0001
 
 ### Training Command
 ```bash
-# CPG mode (recommended)
-python scripts/harold.py train --mode cpg --duration standard \
+# Pure RL training (CPG disabled)
+python scripts/harold.py train --duration standard \
   --hypothesis "description"
 ```
 
@@ -202,38 +197,12 @@ calf_ref = 65° - 15° * cos(2π * 0.5 * t)  # 50°-80° range
 
 ---
 
-## Pure RL Status
 
-Pure RL from scratch plateaus at vx ≈ 0.01 m/s. The policy finds a standing local minimum.
+## Current Baselines
 
-### Options to Break the Plateau
-
-1. **Fine-tune from CPG checkpoint** (recommended)
-   - CPG policy already walks (vx=0.034)
-   - Challenge: Observation space mismatch (50D CPG vs 48D pure RL)
-
-2. **Curriculum learning**
-   - Start with very slow velocity commands
-   - Gradually increase target velocity
-
-3. **Use hardware-validated parameters as constraints**
-   - Add penalties for exceeding known-good joint ranges
-   - Target the 0.5 Hz gait frequency
-
-4. **Reference motion tracking**
-   - Use scripted gait trajectory as soft target
-   - Reward matching the known-working motion
-
----
-
-## Current Best Policies
-
-| Session | Configuration | vx (m/s) | Status |
-|---------|---------------|----------|--------|
-| **Session 35** | CPG, damping=150 | 0.036 | **BEST - use for hardware** |
-| Session 37 | CPG + hysteresis | 0.005 | NOT ready |
-
-**Recommendation**: Use Session 35 checkpoint for hardware deployment.
+- **Open-loop CPG**: Use for diagnostics and sim↔hardware alignment (not a deployable policy).
+- **RL policy**: No deployment candidate until alignment is verified and RL retraining resumes.
+- **Policy export**: `deployment/policy/policy_metadata.json` is still 50D; export a 48D policy before policy mode.
 
 ---
 

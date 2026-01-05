@@ -53,29 +53,18 @@ def test_action_converter():
 
     converter = ActionConverter()
 
-    # Test with zero policy output (should get CPG targets)
-    cpg_targets = np.array([
-        0.05, -0.05, 0.05, -0.05,   # Shoulders
-        0.6, 0.6, 0.6, 0.6,         # Thighs
-        -1.0, -1.0, -1.0, -1.0,     # Calves
-    ], dtype=np.float32)
-
+    # Test with zero policy output
     policy_output = np.zeros(12, dtype=np.float32)
-    targets = converter.compute(cpg_targets, policy_output)
+    rl_targets, hw_targets = converter.compute_policy_targets(policy_output)
 
-    assert targets.shape == (12,), f"Expected shape (12,), got {targets.shape}"
-    print(f"  Zero policy: max diff from CPG = {np.max(np.abs(targets - cpg_targets)):.6f}")
+    assert rl_targets.shape == (12,), f"Expected shape (12,), got {rl_targets.shape}"
+    assert hw_targets.shape == (12,), f"Expected shape (12,), got {hw_targets.shape}"
+    print(f"  Zero policy: max |rl| = {np.max(np.abs(rl_targets)):.6f}")
 
     # Test with max policy output
     policy_output = np.ones(12, dtype=np.float32)
-    targets = converter.compute(cpg_targets, policy_output)
-    residual = targets - cpg_targets
-    print(f"  Max policy: residual range = [{residual.min():.4f}, {residual.max():.4f}]")
-
-    # Test safety limits
-    extreme_targets = np.array([2.0] * 12, dtype=np.float32)  # Way out of range
-    targets = converter.compute(extreme_targets, np.zeros(12))
-    print(f"  Safety limits applied: max target = {targets.max():.4f} rad")
+    rl_targets, hw_targets = converter.compute_policy_targets(policy_output)
+    print(f"  Max policy: rl range = [{rl_targets.min():.4f}, {rl_targets.max():.4f}]")
 
     print("  PASSED")
 

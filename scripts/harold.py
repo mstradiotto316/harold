@@ -13,7 +13,7 @@ Usage:
     # Use duration presets (short/standard/long)
     harold train --duration standard
 
-    # Run scripted gait or CPG modes
+    # Run scripted gait or open-loop CPG playback (no learning)
     harold train --mode scripted
     harold train --mode cpg
 
@@ -1351,7 +1351,7 @@ def main():
     train_parser.add_argument('--tags', type=str, help='Comma-separated tags for categorization')
     train_parser.add_argument('--no-watchdog', action='store_true', help='Disable memory watchdog (not recommended)')
     train_parser.add_argument('--num-envs', type=int, default=None, help='Number of environments (advanced override; default: 8192, pushup: 1)')
-    train_parser.add_argument('--mode', choices=MODE_CHOICES, default='rl', help='Control mode: rl, cpg, scripted (default: rl)')
+    train_parser.add_argument('--mode', choices=MODE_CHOICES, default='rl', help='Control mode: rl, cpg (open-loop), scripted (default: rl)')
     train_parser.add_argument('--gait-scale', type=float, help='Scale scripted/CPG gait amplitude (diagnostic)')
 
     # status

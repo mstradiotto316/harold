@@ -30,6 +30,7 @@ python inference/harold_controller.py
 | `policy/policy_metadata.json` | Normalization stats + joint config |
 | `inference/harold_controller.py` | Main 20 Hz control loop |
 | `inference/cpg_generator.py` | CPG trajectory generator |
+| `common/cpg_math.py` | Shared CPG math kernel (sim + hardware) |
 | `inference/observation_builder.py` | IMU + servo -> 48D observation |
 | `inference/action_converter.py` | Policy output -> servo commands |
 | `drivers/imu_reader_rpi5.py` | MPU6050 I2C driver |

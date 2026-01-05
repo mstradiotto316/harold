@@ -87,10 +87,11 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 - Workflow: edit on desktop → commit + push → `git status -sb` (clean) → `git pull --ff-only` on the Pi.
 
 ## Current State (2026-01-04, Desktop Alignment)
-- Sim CPG leg trajectory now matches the hardware generator math (no stride/lift scaling in config).
+- Sim CPG leg trajectory now matches the hardware generator math via the shared kernel in `common/cpg_math.py`.
 - Default sim actuators updated to stiffness=1200, damping=75 (effort=2.8) for tracking alignment.
 - Alignment artifacts: `deployment/validation/sim_logs/sim_cpg_test3.csv` and `deployment/validation/sim_logs/actuator_sweep_results.csv`.
 - Policy metadata in `deployment/policy/policy_metadata.json` is still 50D; export a 48D policy before policy mode.
+- Sim validation logs are gitignored under `deployment/validation/sim_logs/`.
 
 ## Current State (2026-01-02, Session 39 Complete)
 

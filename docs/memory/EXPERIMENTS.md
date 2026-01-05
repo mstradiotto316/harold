@@ -53,7 +53,7 @@ Each experiment entry contains:
 - **Metrics**:
   - Best tracking match (effort=2.8): stiffness=1200, damping=75 (cost_all≈0.0044).
 - **Notes**:
-  - Added `scripts/compare_cpg_sim.py` to compare sim cmd_pos against hardware generator outputs.
+  - Shared CPG kernel lives in `common/cpg_math.py` to prevent sim/hardware drift.
 
 ### EXP-001: Simulation Boot Test
 - **Date**: 2025-12-19

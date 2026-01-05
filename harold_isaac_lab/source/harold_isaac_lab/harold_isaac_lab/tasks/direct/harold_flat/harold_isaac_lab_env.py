@@ -17,6 +17,22 @@ from isaaclab.utils.math import quat_from_angle_axis, sample_uniform
 from isaaclab.utils.noise import gaussian_noise, uniform_noise
 from harold_isaac_lab.common.stance import load_rl_default_pose
 
+_REPO_ROOT = None
+for _parent in Path(__file__).resolve().parents:
+    if (_parent / "AGENTS.md").exists():
+        _REPO_ROOT = _parent
+        break
+if _REPO_ROOT is None:
+    _parents = list(Path(__file__).resolve().parents)
+    if len(_parents) > 8:
+        _REPO_ROOT = _parents[8]
+if _REPO_ROOT and str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from common import cpg_math
+
+_CPG_OPS = cpg_math.torch_ops(torch)
+
 
 class HaroldIsaacLabEnv(DirectRLEnv):
     """Reinforcement Learning Environment for Harold Quadruped Robot.
@@ -586,64 +602,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
     def _compute_cpg_base_trajectory(self) -> torch.Tensor:
         """Compute the CPG base trajectory for all joints.
 
-        Session 24: NOW USES the same trajectory computation as ScriptedGaitCfg,
-        which has been validated to work in simulation (vx=+0.141 m/s) and on
-        real hardware (walking forward).
-
-        Generates a diagonal trot gait pattern:
-        - FL + BR are in phase (pair 0)
-        - FR + BL are 180° out of phase (pair 1)
-
-        Returns:
-            Joint targets tensor [num_envs, 12]
+        Uses the shared canonical CPG kernel (common/cpg_math.py) for sim/hardware parity.
         """
-        cfg = self.cfg.cpg
-
-        # Phase for each diagonal pair - same as scripted gait
-        phase_fl_br = self._cpg_phase  # [num_envs]
-        phase_fr_bl = (self._cpg_phase + 0.5) % 1.0  # 180° offset
-
-        # Use the PROVEN trajectory method from ScriptedGaitCfg
-        # This is the exact same computation that achieves vx=+0.141 m/s
-        thigh_fl, calf_fl = self._compute_leg_trajectory(phase_fl_br, cfg)
-        thigh_br, calf_br = self._compute_leg_trajectory(phase_fl_br, cfg)
-        thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl, cfg)
-        thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl, cfg)
-
-        # Optional front/back thigh bias to shift weight distribution.
-        thigh_fl = thigh_fl + cfg.thigh_offset_front
-        thigh_fr = thigh_fr + cfg.thigh_offset_front
-        thigh_bl = thigh_bl + cfg.thigh_offset_back
-        thigh_br = thigh_br + cfg.thigh_offset_back
-
-        # Shoulder oscillation for balance (hardware-aligned sin)
-        shoulder_fl = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)
-        shoulder_br = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)
-        shoulder_fr = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fr_bl)
-        shoulder_bl = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fr_bl)
-
-        # Assemble joint targets [shoulders(4), thighs(4), calves(4)]
-        targets = torch.zeros(self.num_envs, 12, device=self.device)
-
-        # Shoulders (indices 0-3): FL, FR, BL, BR
-        targets[:, 0] = shoulder_fl
-        targets[:, 1] = shoulder_fr
-        targets[:, 2] = shoulder_bl
-        targets[:, 3] = shoulder_br
-
-        # Thighs (indices 4-7): FL, FR, BL, BR
-        targets[:, 4] = thigh_fl
-        targets[:, 5] = thigh_fr
-        targets[:, 6] = thigh_bl
-        targets[:, 7] = thigh_br
-
-        # Calves (indices 8-11): FL, FR, BL, BR
-        targets[:, 8] = calf_fl
-        targets[:, 9] = calf_fr
-        targets[:, 10] = calf_bl
-        targets[:, 11] = calf_br
-
-        return targets
+        return cpg_math.compute_cpg_targets(self._cpg_phase, self.cfg.cpg, _CPG_OPS)
 
     def _apply_scripted_gait(self) -> None:
         """Apply scripted walking gait trajectory (Phase 1 verification).
@@ -734,52 +695,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 print(f"[DEBUG WARMUP] t={self._time[0].item():.2f}s, holding gait-matched pose (thigh={mid_thigh:.2f}, calf={mid_calf:.2f})", flush=True)
         else:
             # After warmup, apply the gait pattern
-
-            # Diagonal pair phases:
-            # Pair 0 (FL + BR): phase offset 0.0
-            # Pair 1 (FR + BL): phase offset 0.5
-            phase_fl_br = phase
-            phase_fr_bl = (phase + 0.5) % 1.0
-
-            # Compute leg trajectories for each diagonal pair
-            thigh_fl, calf_fl = self._compute_leg_trajectory(phase_fl_br, cfg)
-            thigh_br, calf_br = self._compute_leg_trajectory(phase_fl_br, cfg)
-            thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl, cfg)
-            thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl, cfg)
-
-            # Optional front/back thigh bias to shift weight distribution.
-            thigh_fl = thigh_fl + cfg.thigh_offset_front
-            thigh_fr = thigh_fr + cfg.thigh_offset_front
-            thigh_bl = thigh_bl + cfg.thigh_offset_back
-            thigh_br = thigh_br + cfg.thigh_offset_back
-
-            # Shoulder oscillation for balance (hardware-aligned sin)
-            shoulder_fl = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)
-            shoulder_br = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fl_br)
-            shoulder_fr = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fr_bl)
-            shoulder_bl = cfg.shoulder_amplitude * torch.sin(2 * math.pi * phase_fr_bl)
-
-            # Assemble joint targets
-            # Order: [shoulders(4), thighs(4), calves(4)]
-            targets = torch.zeros(self.num_envs, 12, device=self.device)
-
-            # Shoulders (indices 0-3): FL, FR, BL, BR
-            targets[:, 0] = shoulder_fl
-            targets[:, 1] = shoulder_fr
-            targets[:, 2] = shoulder_bl
-            targets[:, 3] = shoulder_br
-
-            # Thighs (indices 4-7): FL, FR, BL, BR
-            targets[:, 4] = thigh_fl
-            targets[:, 5] = thigh_fr
-            targets[:, 6] = thigh_bl
-            targets[:, 7] = thigh_br
-
-            # Calves (indices 8-11): FL, FR, BL, BR
-            targets[:, 8] = calf_fl
-            targets[:, 9] = calf_fr
-            targets[:, 10] = calf_bl
-            targets[:, 11] = calf_br
+            targets = cpg_math.compute_cpg_targets(phase, cfg, _CPG_OPS)
 
         # Clamp to joint limits
         self._processed_actions = torch.clamp(
@@ -790,52 +706,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         # Store for observation (even though we're not using policy)
         self._prev_target_delta = self._processed_actions - self._robot.data.default_joint_pos
-
-    def _compute_leg_trajectory(
-        self, phase: torch.Tensor, cfg
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute smooth leg trajectory based on gait phase.
-
-        Args:
-            phase: Gait phase for this leg [0, 1) tensor of shape [num_envs]
-            cfg: ScriptedGaitCfg with trajectory parameters
-
-        Returns:
-            Tuple of (thigh_angle, calf_angle) tensors
-
-        Trajectory Design (hardware-aligned):
-            - Duty-cycle splits stance vs swing for leg clearance.
-            - Stance: thigh sweeps back, calf holds extension.
-            - Swing: thigh moves forward, calf flexes quickly (distal joint moves more).
-            - Avoids common pitfall: calf must move more than thigh since it sits at
-              the end of the thigh link.
-        """
-        # Guard against invalid duty cycles/scales (avoid div-by-zero).
-        duty = min(max(float(cfg.duty_cycle), 0.05), 0.95)
-        duty_t = torch.tensor(duty, device=phase.device, dtype=phase.dtype)
-
-        def smoothstep(x: torch.Tensor) -> torch.Tensor:
-            return x * x * (3.0 - 2.0 * x)
-
-        stance_mask = phase < duty_t
-        stance_phase = torch.where(stance_mask, phase / duty_t, torch.zeros_like(phase))
-        swing_phase = torch.where(
-            stance_mask, torch.zeros_like(phase), (phase - duty_t) / (1.0 - duty_t)
-        )
-
-        stance_blend = smoothstep(stance_phase)
-        swing_blend = smoothstep(swing_phase)
-
-        thigh_stance = cfg.swing_thigh + (cfg.stance_thigh - cfg.swing_thigh) * stance_blend
-        thigh_swing = cfg.stance_thigh + (cfg.swing_thigh - cfg.stance_thigh) * swing_blend
-        thigh = torch.where(stance_mask, thigh_stance, thigh_swing)
-
-        calf_stance = torch.full_like(phase, cfg.stance_calf)
-        lift = 0.5 - 0.5 * torch.cos(2.0 * math.pi * swing_phase)
-        calf_swing = cfg.stance_calf + (cfg.swing_calf - cfg.stance_calf) * lift
-        calf = torch.where(stance_mask, calf_stance, calf_swing)
-
-        return thigh, calf
 
     def _apply_action(self) -> None:
         """Apply processed joint targets to robot and update visualization.

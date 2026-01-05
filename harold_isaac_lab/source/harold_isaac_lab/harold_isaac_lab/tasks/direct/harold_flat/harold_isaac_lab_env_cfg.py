@@ -144,7 +144,6 @@ class ScriptedGaitCfg:
     enabled: bool = False
 
     # Gait parameters - base values HARDWARE-VALIDATED from Session 36 RPi.
-    # stride_scale shortens step length without changing the stance endpoint.
     # Source: firmware/scripted_gait_test_1/scripted_gait_test_1.ino
     #   BASE_STANCE_THIGH = -38.15°, BASE_SWING_THIGH = -30.65° (7.5° range)
     #   BASE_STANCE_CALF = 50°, BASE_SWING_CALF = 80° (30° range)
@@ -157,35 +156,23 @@ class ScriptedGaitCfg:
     thigh_offset_front: float = 0.05    # Bias front thighs forward (rad)
     thigh_offset_back: float = -0.05    # Bias rear thighs back (rad)
     duty_cycle: float = 0.5  # 50% stance / 50% swing to slow the lift/plant
-    stride_scale: float = 0.35        # Shorter steps to reduce lunge/impact
-    calf_lift_scale: float = 0.85     # Slightly lower lift to soften touchdown
-    stride_scale_front: float = 1.0
-    stride_scale_back: float = 1.3
-    calf_lift_scale_front: float = 1.0
-    calf_lift_scale_back: float = 1.15
 
 
 @configclass
 class CPGCfg:
-    """Central Pattern Generator configuration for residual learning.
+    """Central Pattern Generator configuration (open-loop).
 
     HARDWARE-VALIDATED from Session 36 RPi - these values produce actual
     walking on the real robot with feet lifting off the ground.
 
     ALIGNMENT APPROACH (Session 36):
     - CPG base trajectory matches hardware scripted gait
-    - Low residual_scale keeps policy corrections small
+    - Open-loop in sim and deployment (policy ignored in CPG mode)
 
-    Architecture:
-        target_joints = CPG_trajectory + policy_output * residual_scale
-
-    With residual_scale=0.05, RL contributes small balance corrections
-    while preserving the hardware-validated gait structure.
-
-    Enable via: HAROLD_CPG=1
+    Enable via: HAROLD_CPG=1 (open-loop playback)
     """
 
-    # Enable CPG-based action space
+    # Enable open-loop CPG playback
     enabled: bool = False  # Set True via env var HAROLD_CPG=1
 
     # Base gait parameters - HARDWARE-VALIDATED
@@ -193,7 +180,6 @@ class CPGCfg:
     duty_cycle: float = 0.5      # 50% stance / 50% swing (used by trajectory)
 
     # Trajectory parameters - base values HARDWARE-VALIDATED from Session 36 RPi
-    # stride_scale shortens step length without changing the stance endpoint.
     # Source: firmware/scripted_gait_test_1/scripted_gait_test_1.ino
     # These produce real walking with feet actually lifting!
     swing_thigh: float = 0.54     # -30.65° in hardware → +30.65° in sim
@@ -203,16 +189,6 @@ class CPGCfg:
     shoulder_amplitude: float = 0.0096  # 0.55 deg in hardware
     thigh_offset_front: float = 0.05    # Bias front thighs forward (rad)
     thigh_offset_back: float = -0.05    # Bias rear thighs back (rad)
-    stride_scale: float = 0.35        # Shorter steps to reduce lunge/impact
-    calf_lift_scale: float = 0.85     # Slightly lower lift to soften touchdown
-    stride_scale_front: float = 1.0
-    stride_scale_back: float = 1.3
-    calf_lift_scale_front: float = 1.0
-    calf_lift_scale_back: float = 1.15
-
-    # Residual scaling - LOW to preserve hardware gait
-    # CPG provides timing/coordination, RL adds small balance corrections
-    residual_scale: float = 0.05
 
 
 @configclass
@@ -441,10 +417,8 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     action_scale = 0.5  # Session 23: 0.7 was worse (vx=0.029, contact failing)
 
     # Space definitions
-    # Session 36: Removed gait phase (no CPG), pure RL = 48D
-    # Session 37: Restored for CPG mode = 50D (adds 2D gait phase)
-    # Toggle based on HAROLD_CPG env var
-    observation_space = 48  # Pure RL mode (no gait phase); use 50 for CPG
+    # Observation space is always 48D; CPG is open-loop and does not affect policy input size.
+    observation_space = 48
     action_space = 12
     state_space = 0
 
@@ -468,7 +442,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # Scripted gait configuration (Phase 1 - FAILED, kept for reference)
     scripted_gait = ScriptedGaitCfg()
 
-    # CPG configuration (Phase 2 - structured action space)
+    # CPG configuration (open-loop playback)
     cpg = CPGCfg()
 
     # Command configuration (Phase 2 - variable velocity commands)

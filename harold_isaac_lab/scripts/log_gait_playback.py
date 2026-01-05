@@ -103,20 +103,12 @@ def _apply_cpg_yaml(env_cfg, cpg_yaml: Path) -> dict:
         _set_if_attr(cfg, "stance_calf", traj.get("stance_calf"))
         _set_if_attr(cfg, "swing_calf", traj.get("swing_calf"))
         _set_if_attr(cfg, "shoulder_amplitude", traj.get("shoulder_amplitude"))
-        _set_if_attr(cfg, "stride_scale", traj.get("stride_scale"))
-        _set_if_attr(cfg, "calf_lift_scale", traj.get("calf_lift_scale"))
-        _set_if_attr(cfg, "stride_scale_front", traj.get("stride_scale_front"))
-        _set_if_attr(cfg, "stride_scale_back", traj.get("stride_scale_back"))
-        _set_if_attr(cfg, "calf_lift_scale_front", traj.get("calf_lift_scale_front"))
-        _set_if_attr(cfg, "calf_lift_scale_back", traj.get("calf_lift_scale_back"))
         _set_if_attr(cfg, "thigh_offset_front", traj.get("thigh_offset_front"))
         _set_if_attr(cfg, "thigh_offset_back", traj.get("thigh_offset_back"))
         _set_if_attr(cfg, "duty_cycle", duty)
 
     _set_if_attr(env_cfg.cpg, "base_frequency", freq)
     _set_if_attr(env_cfg.scripted_gait, "frequency", freq)
-    _set_if_attr(env_cfg.cpg, "residual_scale", data.get("residual_scale"))
-
     control = data.get("control", {}) or {}
     _set_if_attr(env_cfg, "action_filter_beta", control.get("action_filter_beta"))
 
@@ -179,11 +171,10 @@ def main() -> None:
     if args_cli.mode == "cpg":
         env_cfg.cpg.enabled = True
         env_cfg.scripted_gait.enabled = False
-        env_cfg.observation_space = 50
     else:
         env_cfg.cpg.enabled = False
         env_cfg.scripted_gait.enabled = True
-        env_cfg.observation_space = 48
+    env_cfg.observation_space = 48
 
     _configure_commands(env_cfg, args_cli.cmd_vx, args_cli.cmd_vy, args_cli.cmd_yaw)
     cpg_yaml = _apply_cpg_yaml(env_cfg, args_cli.cpg_yaml)

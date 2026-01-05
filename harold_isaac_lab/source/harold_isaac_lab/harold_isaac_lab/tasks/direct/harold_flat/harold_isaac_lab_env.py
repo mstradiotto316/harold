@@ -80,16 +80,15 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 except ValueError:
                     print(f"WARNING: Invalid HAROLD_SCRIPTED_GAIT_FREQ='{freq_override}', using default.")
 
-        # CPG mode (Phase 2 - structured action space)
+        # CPG mode (open-loop playback)
         if os.getenv("HAROLD_CPG", "0") == "1":
             cfg.cpg.enabled = True
             print("=" * 60)
-            print("CPG MODE ENABLED (Phase 2)")
-            print("Policy outputs corrections to CPG base trajectory.")
+            print("CPG MODE ENABLED (OPEN-LOOP)")
+            print("Policy actions are ignored; CPG drives joint targets.")
             print(f"Base frequency: {cfg.cpg.base_frequency} Hz")
-            print(f"Residual scale: {cfg.cpg.residual_scale}")
             print("=" * 60)
-        cfg.observation_space = 50 if cfg.cpg.enabled else 48
+        cfg.observation_space = 48
 
         # Optional gait amplitude scaling (for sim↔hardware mismatch diagnostics)
         amp_scale_env = os.getenv("HAROLD_GAIT_AMP_SCALE")
@@ -512,7 +511,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             self._apply_scripted_gait()
             return
 
-        # --- Check for CPG mode (Phase 2 - structured action space) ---
+        # --- Check for CPG mode (open-loop playback) ---
         if self.cfg.cpg.enabled:
             self._apply_cpg_action(actions)
             return
@@ -550,13 +549,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
     def _apply_cpg_action(self, actions: torch.Tensor) -> None:
         """Apply CPG-based action processing (Phase 2).
 
-        The CPG generates a base walking trajectory. The policy's 12D output
-        is interpreted as CORRECTIONS to this trajectory, providing:
-        1. Walking structure from the CPG
-        2. Reactive balance control from the policy
-
-        Architecture:
-            target = CPG_base + policy_output * residual_scale * joint_range
+        The CPG generates a base walking trajectory. Policy actions are ignored
+        in CPG mode; this is open-loop playback only.
 
         Args:
             actions: Policy output tensor [num_envs, 12] in range [-1, 1]
@@ -573,21 +567,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Store for potential reward computation (CPG tracking reward)
         self._cpg_base_targets = cpg_targets.clone()
 
-        # --- Apply policy corrections ---
-        # Store actions for logging
+        # Store actions for logging (ignored for CPG targets)
         self._actions.copy_(actions)
 
-        # Smooth the actions
-        if not hasattr(self, "_actions_smooth"):
-            self._actions_smooth = torch.zeros_like(self._actions)
-        beta = getattr(self.cfg, "action_filter_beta", 0.2)
-        self._actions_smooth = (1.0 - beta) * self._actions_smooth + beta * self._actions
-
-        # Compute corrections: policy output scaled by residual_scale and joint_range
-        corrections = cfg.residual_scale * self._joint_range * self._actions_smooth
-
-        # Combine CPG base + policy corrections
-        target = cpg_targets + corrections
+        # Use CPG base trajectory directly (open-loop).
+        target = cpg_targets
 
         # Clamp to joint limits
         self._processed_actions = torch.clamp(
@@ -621,10 +605,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         # Use the PROVEN trajectory method from ScriptedGaitCfg
         # This is the exact same computation that achieves vx=+0.141 m/s
-        thigh_fl, calf_fl = self._compute_leg_trajectory(phase_fl_br, cfg, leg="front")
-        thigh_br, calf_br = self._compute_leg_trajectory(phase_fl_br, cfg, leg="back")
-        thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl, cfg, leg="front")
-        thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl, cfg, leg="back")
+        thigh_fl, calf_fl = self._compute_leg_trajectory(phase_fl_br, cfg)
+        thigh_br, calf_br = self._compute_leg_trajectory(phase_fl_br, cfg)
+        thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl, cfg)
+        thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl, cfg)
 
         # Optional front/back thigh bias to shift weight distribution.
         thigh_fl = thigh_fl + cfg.thigh_offset_front
@@ -758,10 +742,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             phase_fr_bl = (phase + 0.5) % 1.0
 
             # Compute leg trajectories for each diagonal pair
-            thigh_fl, calf_fl = self._compute_leg_trajectory(phase_fl_br, cfg, leg="front")
-            thigh_br, calf_br = self._compute_leg_trajectory(phase_fl_br, cfg, leg="back")
-            thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl, cfg, leg="front")
-            thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl, cfg, leg="back")
+            thigh_fl, calf_fl = self._compute_leg_trajectory(phase_fl_br, cfg)
+            thigh_br, calf_br = self._compute_leg_trajectory(phase_fl_br, cfg)
+            thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl, cfg)
+            thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl, cfg)
 
             # Optional front/back thigh bias to shift weight distribution.
             thigh_fl = thigh_fl + cfg.thigh_offset_front
@@ -808,7 +792,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._prev_target_delta = self._processed_actions - self._robot.data.default_joint_pos
 
     def _compute_leg_trajectory(
-        self, phase: torch.Tensor, cfg, leg: str = "front"
+        self, phase: torch.Tensor, cfg
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute smooth leg trajectory based on gait phase.
 
@@ -828,17 +812,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         """
         # Guard against invalid duty cycles/scales (avoid div-by-zero).
         duty = min(max(float(cfg.duty_cycle), 0.05), 0.95)
-        if leg == "back":
-            stride_scale = min(max(float(getattr(cfg, "stride_scale_back", 1.0)), 0.0), 2.0)
-            calf_scale = min(max(float(getattr(cfg, "calf_lift_scale_back", 1.0)), 0.0), 2.0)
-        else:
-            stride_scale = min(max(float(getattr(cfg, "stride_scale_front", 1.0)), 0.0), 2.0)
-            calf_scale = min(max(float(getattr(cfg, "calf_lift_scale_front", 1.0)), 0.0), 2.0)
-
-        stride_scale = min(max(stride_scale * float(getattr(cfg, "stride_scale", 1.0)), 0.0), 2.0)
-        calf_scale = min(max(calf_scale * float(getattr(cfg, "calf_lift_scale", 1.0)), 0.0), 2.0)
-        swing_thigh = cfg.stance_thigh + (cfg.swing_thigh - cfg.stance_thigh) * stride_scale
-        swing_calf = cfg.stance_calf + (cfg.swing_calf - cfg.stance_calf) * calf_scale
         duty_t = torch.tensor(duty, device=phase.device, dtype=phase.dtype)
 
         def smoothstep(x: torch.Tensor) -> torch.Tensor:
@@ -853,13 +826,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         stance_blend = smoothstep(stance_phase)
         swing_blend = smoothstep(swing_phase)
 
-        thigh_stance = swing_thigh + (cfg.stance_thigh - swing_thigh) * stance_blend
-        thigh_swing = cfg.stance_thigh + (swing_thigh - cfg.stance_thigh) * swing_blend
+        thigh_stance = cfg.swing_thigh + (cfg.stance_thigh - cfg.swing_thigh) * stance_blend
+        thigh_swing = cfg.stance_thigh + (cfg.swing_thigh - cfg.stance_thigh) * swing_blend
         thigh = torch.where(stance_mask, thigh_stance, thigh_swing)
 
         calf_stance = torch.full_like(phase, cfg.stance_calf)
         lift = 0.5 - 0.5 * torch.cos(2.0 * math.pi * swing_phase)
-        calf_swing = cfg.stance_calf + (swing_calf - cfg.stance_calf) * lift
+        calf_swing = cfg.stance_calf + (cfg.swing_calf - cfg.stance_calf) * lift
         calf = torch.where(stance_mask, calf_stance, calf_swing)
 
         return thigh, calf
@@ -960,8 +933,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
     def _get_observations(self) -> dict:
         """Construct the observation vector for policy input.
 
-        Session 36: Pure RL = 48D (no gait phase)
-        Session 37: CPG mode = 50D (adds 2D gait phase: sin/cos)
+        Observation is always 48D; CPG mode is open-loop and does not use policy input.
 
         Returns:
             Dict with 'policy' key containing observation tensor:
@@ -972,7 +944,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 - joint_vel (12): Joint angular velocities [rad/s]
                 - commands (3): Velocity commands [vx, vy, yaw_rate]
                 - prev_target_delta (12): Previous joint targets relative to neutral pose [rad]
-                - [CPG only] gait_phase (2): sin/cos of CPG phase for timing
         """
 
         # Update temporal state for time-based observations
@@ -989,16 +960,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             self._prev_target_delta,                                             # (12D) Previous target deltas
         ]
 
-        # Add gait phase for CPG mode (2D: sin/cos for continuous phase representation)
-        if self.cfg.cpg.enabled:
-            phase = self._cpg_phase.unsqueeze(-1)  # [num_envs, 1]
-            gait_phase = torch.cat([
-                torch.sin(2 * math.pi * phase),  # [num_envs, 1]
-                torch.cos(2 * math.pi * phase),  # [num_envs, 1]
-            ], dim=-1)  # [num_envs, 2]
-            base_obs.append(gait_phase)
-
-        obs = torch.cat(base_obs, dim=-1)  # [batch_size, 48 or 50]
+        obs = torch.cat(base_obs, dim=-1)  # [batch_size, 48]
 
         # Apply observation noise if domain randomization is enabled
         if self.cfg.domain_randomization.enable_randomization:

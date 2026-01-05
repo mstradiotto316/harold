@@ -1,11 +1,11 @@
 """Observation Builder for Harold Robot.
 
-Constructs the 50D observation vector from hardware sensors:
+Constructs the 48D observation vector from hardware sensors:
     - IMU: linear velocity, angular velocity, projected gravity
     - Servo feedback: joint positions, joint velocities
-    - Control state: commands, previous targets, gait phase
+    - Control state: commands, previous targets
 
-Observation layout (50D):
+Observation layout (48D):
     [0:3]   root_lin_vel_b      - Body linear velocity (m/s)
     [3:6]   root_ang_vel_b      - Body angular velocity (rad/s)
     [6:9]   projected_gravity_b - Gravity in body frame (normalized)
@@ -13,7 +13,6 @@ Observation layout (50D):
     [21:33] joint_vel           - Joint velocities (rad/s)
     [33:36] commands            - Velocity commands [vx, vy, yaw_rate]
     [36:48] prev_target_delta   - Previous policy output
-    [48:50] gait_phase          - [sin(phase), cos(phase)]
 """
 import time
 from dataclasses import dataclass
@@ -104,14 +103,14 @@ class ObservationConfig:
 
 
 class ObservationBuilder:
-    """Builds 50D observation vector from hardware sensors.
+    """Builds 48D observation vector from hardware sensors.
 
     Usage:
         obs_builder = ObservationBuilder(imu, esp32)
-        obs = obs_builder.build(time, cpg_phase, prev_targets)
+        obs = obs_builder.build(time)
     """
 
-    OBS_DIM = 50
+    OBS_DIM = 48
 
     def __init__(
         self,
@@ -137,24 +136,20 @@ class ObservationBuilder:
     def build(
         self,
         time_sec: float,
-        cpg_phase_sin: float,
-        cpg_phase_cos: float,
         commands: Optional[np.ndarray] = None,
         training_mean: Optional[np.ndarray] = None,
         joint_pos_blend: float = 1.0,
     ) -> np.ndarray:
-        """Build 50D observation vector.
+        """Build 48D observation vector.
 
         Args:
             time_sec: Current time in seconds (for velocity estimation)
-            cpg_phase_sin: sin(2*pi*phase) from CPG generator
-            cpg_phase_cos: cos(2*pi*phase) from CPG generator
             commands: Optional [vx, vy, yaw_rate] commands
-            training_mean: Optional 50D training mean for blending
+            training_mean: Optional 48D training mean for blending
             joint_pos_blend: Blend factor for joint positions (0=training mean, 1=actual)
 
         Returns:
-            50D observation vector (numpy array)
+            48D observation vector (numpy array)
         """
         obs = np.zeros(self.OBS_DIM, dtype=np.float32)
 
@@ -209,10 +204,6 @@ class ObservationBuilder:
         # [36:48] Previous target deltas
         obs[36:48] = self._prev_targets
 
-        # [48:50] Gait phase (sin, cos)
-        obs[48] = cpg_phase_sin
-        obs[49] = cpg_phase_cos
-
         return obs
 
     def update_prev_target_delta(
@@ -230,7 +221,7 @@ class ObservationBuilder:
         To prevent feedback divergence, we blend actual values with training mean.
 
         Args:
-            rl_targets: 12D final joint targets in RL convention (CPG + residual)
+            rl_targets: 12D final joint targets in RL convention
             default_pose: 12D default pose (hw_default_pose, matches simulation)
             training_mean: 12D training mean for prev_targets (optional, for blending)
             blend_factor: How much to trust actual values vs training mean (0=all training, 1=all actual)
@@ -311,15 +302,15 @@ def normalize_observation(
     to prevent extreme values from causing policy instability.
 
     Args:
-        obs: Raw 50D observation
-        running_mean: 50D running mean from training
-        running_var: 50D running variance from training
+        obs: Raw 48D observation
+        running_mean: 48D running mean from training
+        running_var: 48D running variance from training
         eps: Small value to avoid division by zero
         clip_obs: Clip normalized observations to [-clip_obs, clip_obs]
                   (matches rl_games clip_observations: 5.0)
 
-    Returns:
-        Normalized and clipped observation
+        Returns:
+            Normalized and clipped observation
     """
     normalized = (obs - running_mean) / np.sqrt(running_var + eps)
     return np.clip(normalized, -clip_obs, clip_obs)

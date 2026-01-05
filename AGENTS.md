@@ -183,7 +183,7 @@ python scripts/harold.py train --hypothesis "Lower threshold (10N) prevents elbo
                                --tags "body_contact,elbow_fix"
 python scripts/harold.py train --duration standard # Preset duration (see scripts/harold.py)
 python scripts/harold.py train --checkpoint path   # Resume from checkpoint
-python scripts/harold.py train --mode cpg          # CPG residual mode
+python scripts/harold.py train --mode cpg          # CPG open-loop mode
 python scripts/harold.py train --mode scripted     # Scripted gait (policy ignored)
 python scripts/harold.py train --task rough        # Rough terrain task
 ```

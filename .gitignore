@@ -1,6 +1,7 @@
 logs/
 deployment/logs/
 deployment/sessions/
+deployment/validation/sim_logs/
 outputs/
 __pycache__/
 *.py[cod]

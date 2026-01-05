@@ -64,12 +64,9 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 ## Current State (2026-01-04, Session 41 RPi)
 
 ### Hardware CPG gait tuning (RPi)
-- Implemented duty-cycle stance/swing CPG with per-leg scaling (front vs rear).
+- Implemented duty-cycle stance/swing CPG.
 - Runtime CPG parameters (deployment/config/cpg.yaml):
   - frequency_hz=0.4, duty_cycle=0.5
-  - stride_scale=0.35, calf_lift_scale=0.85
-  - stride_scale_front=1.0, stride_scale_back=1.3
-  - calf_lift_scale_front=1.0, calf_lift_scale_back=1.15
 - Outcome: front impact reduced; rear legs progressed from dragging to skimming but still no clear air time.
 - Test 3 on a lower-friction surface looked best; this is now the baseline for sim-to-real alignment.
 - **Do NOT change SERVO_SPEED/SERVO_ACC**.
@@ -79,7 +76,7 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 
 ### Latest hardware session logs (RPi)
 - `/home/pi/harold/deployment/sessions/session_2026-01-04_18-40-39.csv` (Test 1, 0.5/0.6)
-- `/home/pi/harold/deployment/sessions/session_2026-01-04_18-41-11.csv` (Test 2, 0.4/0.5 + scaling)
+- `/home/pi/harold/deployment/sessions/session_2026-01-04_18-41-11.csv` (Test 2, 0.4/0.5)
 - `/home/pi/harold/deployment/sessions/session_2026-01-04_18-43-41.csv` (Test 3, low-friction surface)
 - Local copies: `logs/hardware_sessions/` on the desktop repo.
 
@@ -88,6 +85,12 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 - Runtime root: `<repo-root>/deployment` (this is where you `cd` for `python3 -m inference.harold_controller`).
 - Keep `deployment/config/cpg.yaml` + `deployment/inference/cpg_generator.py` synced via git pull on the Pi.
 - Workflow: edit on desktop → commit + push → `git status -sb` (clean) → `git pull --ff-only` on the Pi.
+
+## Current State (2026-01-04, Desktop Alignment)
+- Sim CPG leg trajectory now matches the hardware generator math (no stride/lift scaling in config).
+- Default sim actuators updated to stiffness=1200, damping=75 (effort=2.8) for tracking alignment.
+- Alignment artifacts: `deployment/validation/sim_logs/sim_cpg_test3.csv` and `deployment/validation/sim_logs/actuator_sweep_results.csv`.
+- Policy metadata in `deployment/policy/policy_metadata.json` is still 50D; export a 48D policy before policy mode.
 
 ## Current State (2026-01-02, Session 39 Complete)
 
@@ -234,24 +237,12 @@ Fixed critical bug where observations were normalized twice.
 | Change | Effect |
 |--------|--------|
 | External perturbations | FAILED - causes falling |
-| residual_scale 0.08 | STANDING - too much authority |
 | swing_calf -1.35 | Works - safety margin from limit |
 
 ### Previous: Session 29 - Domain Randomization
 
 - Action noise/delays HURT training
 - Lin_vel noise + obs clipping implemented (neutral effect)
-
-### Architecture: CPG + Residual Learning
-
-The motion is a **combination** of scripted and learned:
-```
-target_joints = CPG_base_trajectory + policy_output * residual_scale
-```
-
-- **CPG (scripted)**: Provides timing, gait coordination, base trajectory
-- **Policy (learned)**: Provides balance corrections, velocity tracking, adaptation
-- **residual_scale=0.05**: Policy can only fine-tune, not override CPG
 
 ### Best Configuration (Session 35)
 
@@ -267,7 +258,6 @@ target_joints = CPG_base_trajectory + policy_output * residual_scale
 | Command tracking | ENABLED | `HAROLD_CMD_TRACK=1` |
 | Dynamic commands | ENABLED | `HAROLD_DYN_CMD=1` |
 | vx_range | 0.10-0.45 | Optimal range |
-| residual_scale | 0.05 | 0.08 causes regression |
 | swing_calf | -1.38 | Session 34 large amplitude |
 | stance_calf | -0.50 | Session 34 large amplitude |
 | calf_spawn | -1.39 | Fixed to be within limit (-1.3963) |
@@ -296,7 +286,7 @@ target_joints = CPG_base_trajectory + policy_output * residual_scale
 
 | Approach | Status |
 |----------|--------|
-| **CPG + Residual Learning** | ✅ **WALKING** |
+| **CPG (open-loop)** | ✅ **WALKING** |
 | **Command Tracking (vx)** | ✅ **WORKING** |
 | **Command Tracking (vy)** | ✅ **WORKING** (Session 27) |
 | **Command Tracking (yaw)** | ✅ **WORKING** (standalone & curriculum) |
@@ -314,7 +304,7 @@ target_joints = CPG_base_trajectory + policy_output * residual_scale
 
 | Variable | Effect |
 |----------|--------|
-| `HAROLD_CPG=1` | Enable CPG base trajectory |
+| `HAROLD_CPG=1` | Enable open-loop CPG playback (policy ignored) |
 | `HAROLD_CMD_TRACK=1` | Enable command tracking reward |
 | `HAROLD_VAR_CMD=1` | Enable variable command sampling |
 | `HAROLD_DYN_CMD=1` | Enable dynamic command changes (implies VAR_CMD) |
@@ -328,11 +318,11 @@ Prefer CLI flags (`--mode`, `--duration`, `--task`) for experiments; use env var
 
 ```
 deployment/
-├── policy/harold_policy.onnx   # Exported CPG policy (50D -> 12D)
+├── policy/harold_policy.onnx   # Exported policy (48D -> 12D)
 ├── inference/
 │   ├── harold_controller.py    # Main 20 Hz control loop
 │   ├── cpg_generator.py        # CPG trajectory (port from sim)
-│   ├── observation_builder.py  # IMU + servo -> 50D obs
+│   ├── observation_builder.py  # IMU + servo -> 48D obs
 │   └── action_converter.py     # Policy -> servo commands
 ├── drivers/
 │   ├── imu_reader_rpi5.py      # MPU6050 I2C driver
@@ -351,8 +341,8 @@ deployment/
 python scripts/harold.py ps
 python scripts/harold.py stop  # if needed
 
-# Run with controllability + backlash robustness
-python scripts/harold.py train --mode cpg --duration short \
+# Run pure RL training (CPG disabled)
+python scripts/harold.py train --duration short \
   --hypothesis "..."
 
 # Monitor

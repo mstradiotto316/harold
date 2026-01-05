@@ -14,15 +14,6 @@ trajectory:
   shoulder_amplitude: 0.0096  # Session 36: 0.55 deg hardware -> 0.0096 rad sim
   thigh_offset_front: 0.05    # Bias front thighs forward (rad)
   thigh_offset_back: -0.05    # Bias rear thighs back (rad)
-  stride_scale: 0.35          # Shorter steps to reduce lunge/impact
-  calf_lift_scale: 0.85       # Slightly lower lift to soften touchdown
-  stride_scale_front: 1.0     # Per-leg scaling (front)
-  stride_scale_back: 1.3      # Per-leg scaling (rear)
-  calf_lift_scale_front: 1.0  # Per-leg scaling (front)
-  calf_lift_scale_back: 1.15  # Per-leg scaling (rear)
-
-# Residual learning
-residual_scale: 0.05     # Low residual to preserve hardware gait
 
 # Control loop
 control:

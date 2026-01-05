@@ -1,8 +1,17 @@
 # Harold Next Steps
 
-## 2026-01-04: Hardware CPG Baseline (Test 3)
-- Baseline confirmed: `frequency_hz=0.4`, `duty_cycle=0.5`, `stride_scale=0.35`, `calf_lift_scale=0.85`, rear boost (`stride_scale_back=1.3`, `calf_lift_scale_back=1.15`).
-- Use this baseline for sim-to-real alignment and actuator tuning comparisons.
+## 2026-01-04: Sim-to-Real Alignment Using Test 3 Baseline
+- Baseline confirmed (Test 3): `frequency_hz=0.4`, `duty_cycle=0.5`, `stride_scale=0.35`, `calf_lift_scale=0.85`, rear boost (`stride_scale_back=1.3`, `calf_lift_scale_back=1.15`).
+- Hardware log to use: `logs/hardware_sessions/session_2026-01-04_18-43-41.csv`.
+- Step 1: Confirm sim scripted/CPG config matches `deployment/config/cpg.yaml` (ScriptedGaitCfg + CPGCfg values).
+- Step 2: Generate sim log with the same CPG params and commands:
+  - `python harold_isaac_lab/scripts/log_gait_playback.py --mode cpg --duration 10 --log-rate-hz 5 --cmd-vx 0.3 --cmd-vy 0 --cmd-yaw 0 --cpg-yaml deployment/config/cpg.yaml --output deployment/validation/sim_logs/sim_cpg_test3.csv`
+- Step 3: Compare commanded values (`cmd_pos_*`) first:
+  - `python scripts/compare_hw_sim.py --hw logs/hardware_sessions/session_2026-01-04_18-43-41.csv --sim deployment/validation/sim_logs/sim_cpg_test3.csv --cpg-yaml deployment/config/cpg.yaml --stance deployment/config/stance.yaml`
+  - Goal: RMS cmd_pos diff near zero (phase-aligned). If not, re-check sign conventions, stance, and CPG yaml.
+- Step 4: Compare tracking (cmd_pos vs pos). If hardware tracks worse than sim, tune sim actuator stiffness/damping:
+  - Use `scripts/sweep_actuators.py --hw-log logs/hardware_sessions/session_2026-01-04_18-43-41.csv --mode cpg --duration 10 --log-rate-hz 5 --cpg-yaml deployment/config/cpg.yaml`
+  - Record best stiffness/damping; update sim config or run with overrides for verification.
 - Keep `SERVO_SPEED`/`SERVO_ACC` unchanged.
 - Keep `harold` service stopped during manual tests; it restarts gait if active.
 - If ESP32 handshake fails, reflash StreamingControl on the Pi before testing.

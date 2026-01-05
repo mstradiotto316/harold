@@ -34,8 +34,9 @@ Read these files in order:
 1. `docs/memory/CONTEXT.md` - Current project state and goals
 2. `docs/memory/NEXT_STEPS.md` - Priority queue and pending tasks
 3. `docs/memory/EXPERIMENTS.md` - Recent experiment history
-4. `docs/memory/OBSERVATIONS.md` - Accumulated insights
+4. `docs/memory/OBSERVATIONS.md` - Curated, current insights (kept short)
 5. `docs/memory/HARDWARE_CONSTRAINTS.md` - Real-world limits for sim-to-real
+Historical observations live in `docs/memory/archives/index.md` - read only if you need older context.
 
 ### Session End (ALWAYS DO THIS BEFORE FINISHING)
 1. Update `EXPERIMENTS.md` with any experiments run
@@ -48,7 +49,7 @@ Read these files in order:
 
 ## Documentation Map (Role-Based)
 
-Start with `docs/index.md` for the full map, then use the role-specific lists below.
+Start with `docs/index.md` for the full map, then use the role-specific lists below. Historical observations are archived in `docs/memory/archives/index.md`.
 
 ### Desktop Isaac Lab experiments (training/analysis)
 - `AGENTS.md`: Primary agent quickstart and experiment workflow.

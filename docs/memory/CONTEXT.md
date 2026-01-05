@@ -3,7 +3,7 @@
 ## Memory System
 This file is part of the Harold memory system. The entry point is `/AGENTS.md`. That file directs agents here.
 
-**Memory Protocol**: Read all `docs/memory/` files at session start, update them at session end.
+**Memory Protocol**: Read core memory files at session start (CONTEXT, NEXT_STEPS, EXPERIMENTS, OBSERVATIONS, HARDWARE_CONSTRAINTS). Read archives only if needed.
 
 ---
 
@@ -71,6 +71,7 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
   - stride_scale_front=1.0, stride_scale_back=1.3
   - calf_lift_scale_front=1.0, calf_lift_scale_back=1.15
 - Outcome: front impact reduced; rear legs progressed from dragging to skimming but still no clear air time.
+- Test 3 on a lower-friction surface looked best; this is now the baseline for sim-to-real alignment.
 - **Do NOT change SERVO_SPEED/SERVO_ACC**.
 - Manual tests use: `python3 -m inference.harold_controller --cpg-only --max-seconds 10 --calibrate 0`
 - `harold` systemd service will resume walking if active; keep inactive during manual tests.
@@ -80,6 +81,7 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 - `/home/pi/harold/deployment/sessions/session_2026-01-04_18-40-39.csv` (Test 1, 0.5/0.6)
 - `/home/pi/harold/deployment/sessions/session_2026-01-04_18-41-11.csv` (Test 2, 0.4/0.5 + scaling)
 - `/home/pi/harold/deployment/sessions/session_2026-01-04_18-43-41.csv` (Test 3, low-friction surface)
+- Local copies: `logs/hardware_sessions/` on the desktop repo.
 
 ### Sync paths (RPi)
 - Repo root (git checkout): `/home/pi/harold` (adjust if different).

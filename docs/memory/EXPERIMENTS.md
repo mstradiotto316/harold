@@ -14,6 +14,19 @@ Each experiment entry contains:
 
 ## Experiments
 
+### HW-CPG-2026-01-04: Baseline Comparison (Test 1-3)
+- **Date**: 2026-01-04
+- **ID**: `session_2026-01-04_18-40-39.csv`, `session_2026-01-04_18-41-11.csv`, `session_2026-01-04_18-43-41.csv`
+- **Config**:
+  - Test 1: `frequency_hz=0.5`, `duty_cycle=0.6` (CPG-only)
+  - Test 2: `frequency_hz=0.4`, `duty_cycle=0.5`, `stride_scale=0.35`, `calf_lift_scale=0.85`, rear boost
+  - Test 3: Test 2 on lower-friction surface
+- **Duration**: 3 × 10s CPG-only runs
+- **Result**: **Test 3 best** (selected as baseline for sim-to-real alignment)
+- **Notes**:
+  - Logs on Pi: `/home/pi/harold/deployment/sessions/`
+  - Local copies: `logs/hardware_sessions/`
+
 ### HW-CPG-2026-01-04: Rear-Leg Lift Tuning (RPi)
 - **Date**: 2026-01-04
 - **ID**: `session_2026-01-04_01-21-09.csv`, `session_2026-01-04_01-23-06.csv`, `session_2026-01-04_01-51-05.csv`, `session_2026-01-04_02-32-11.csv`, `session_2026-01-04_05-44-24.csv`

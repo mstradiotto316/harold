@@ -8,7 +8,8 @@ This repository uses AGENTS.md as the primary agent quickstart. Use the role-bas
 - `docs/memory/CONTEXT.md` - Current state and goals.
 - `docs/memory/NEXT_STEPS.md` - Priority queue and pending tasks.
 - `docs/memory/EXPERIMENTS.md` - Experiment history.
-- `docs/memory/OBSERVATIONS.md` - Accumulated insights.
+- `docs/memory/OBSERVATIONS.md` - Curated, current insights.
+- `docs/memory/archives/index.md` - Historical observations archive index (read only if needed).
 - `docs/memory/OBSERVABILITY.md` - Metrics and validation protocol.
 - `docs/memory/REFERENCE_ANALYSIS.md` - Isaac Lab reference analysis.
 - `docs/reference/sim_reference.md` - Simulation task and config reference.
@@ -32,6 +33,7 @@ This repository uses AGENTS.md as the primary agent quickstart. Use the role-bas
 - `docs/reference/hardware_reference.md` - Joint order, axes, and hardware specs.
 - `docs/hardware/servos/` - Servo datasheets and protocol references.
 - `docs/memory/OBSERVATIONS.md` - Known issues and logging insights.
+- `docs/memory/archives/index.md` - Historical observations archive index.
 
 ## Shared references
 

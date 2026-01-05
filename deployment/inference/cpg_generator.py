@@ -1,7 +1,7 @@
 """CPG (Central Pattern Generator) trajectory generator.
 
 Generates the base walking trajectory for Harold robot.
-Ported from simulation (harold_isaac_lab_env.py) for exact sim-to-real match.
+Uses the shared CPG kernel in common/cpg_math.py for sim-to-real match.
 
 Gait Pattern:
     - Diagonal trot: FL+BR alternate with FR+BL
@@ -10,10 +10,18 @@ Gait Pattern:
     - Thigh and calf are phased to shorten the leg during swing for clearance
 """
 import math
-import numpy as np
+import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+import numpy as np
 import yaml
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from common import cpg_math
 
 
 @dataclass
@@ -60,6 +68,7 @@ class CPGGenerator:
     def __init__(self, config: CPGConfig | None = None):
         self.cfg = config or CPGConfig()
         self._phase = 0.0
+        self._ops = cpg_math.numpy_ops(np)
 
     @property
     def phase(self) -> float:
@@ -80,87 +89,9 @@ class CPGGenerator:
         # Compute phase from time
         self._phase = (time * self.cfg.frequency_hz) % 1.0
 
-        # Phase for each diagonal pair
-        phase_fl_br = self._phase
-        phase_fr_bl = (self._phase + 0.5) % 1.0
-
-        # Compute leg trajectories
-        thigh_fl, calf_fl = self._compute_leg_trajectory(phase_fl_br)
-        thigh_br, calf_br = self._compute_leg_trajectory(phase_fl_br)
-        thigh_fr, calf_fr = self._compute_leg_trajectory(phase_fr_bl)
-        thigh_bl, calf_bl = self._compute_leg_trajectory(phase_fr_bl)
-
-        # Optional front/back thigh bias to shift weight distribution.
-        thigh_fl += self.cfg.thigh_offset_front
-        thigh_fr += self.cfg.thigh_offset_front
-        thigh_bl += self.cfg.thigh_offset_back
-        thigh_br += self.cfg.thigh_offset_back
-
-        # Shoulder oscillation for balance (hardware-aligned sin)
-        amp = self.cfg.shoulder_amplitude
-        shoulder_fl = amp * math.sin(2 * math.pi * phase_fl_br)
-        shoulder_br = amp * math.sin(2 * math.pi * phase_fl_br)
-        shoulder_fr = amp * math.sin(2 * math.pi * phase_fr_bl)
-        shoulder_bl = amp * math.sin(2 * math.pi * phase_fr_bl)
-
-        # Assemble joint targets [shoulders(4), thighs(4), calves(4)]
-        targets = np.zeros(12, dtype=np.float32)
-
-        # Shoulders (indices 0-3): FL, FR, BL, BR
-        targets[0] = shoulder_fl
-        targets[1] = shoulder_fr
-        targets[2] = shoulder_bl
-        targets[3] = shoulder_br
-
-        # Thighs (indices 4-7): FL, FR, BL, BR
-        targets[4] = thigh_fl
-        targets[5] = thigh_fr
-        targets[6] = thigh_bl
-        targets[7] = thigh_br
-
-        # Calves (indices 8-11): FL, FR, BL, BR
-        targets[8] = calf_fl
-        targets[9] = calf_fr
-        targets[10] = calf_bl
-        targets[11] = calf_br
-
-        return targets
-
-    def _compute_leg_trajectory(self, phase: float) -> tuple[float, float]:
-        """Compute smooth leg trajectory based on gait phase.
-
-        Args:
-            phase: Gait phase for this leg [0, 1)
-
-        Returns:
-            Tuple of (thigh_angle, calf_angle) in radians
-
-        Trajectory Design (hardware-aligned):
-            - Duty-cycle splits stance vs swing for leg clearance.
-            - Stance: thigh moves backward, calf holds extension.
-            - Swing: thigh moves forward, calf flexes quickly (distal joint moves more).
-            - Avoids common pitfall: calf must move more than thigh since it sits at
-              the end of the thigh link.
-        """
-        # Guard against invalid duty cycles (avoid div-by-zero).
-        duty = min(max(self.cfg.duty_cycle, 0.05), 0.95)
-
-        def smoothstep(x: float) -> float:
-            return x * x * (3.0 - 2.0 * x)
-
-        if phase < duty:
-            # Stance phase: thigh sweeps back, calf stays extended.
-            s = smoothstep(phase / duty)
-            thigh = self.cfg.swing_thigh + (self.cfg.stance_thigh - self.cfg.swing_thigh) * s
-            calf = self.cfg.stance_calf
-        else:
-            # Swing phase: thigh moves forward, calf flexes for clearance.
-            s = smoothstep((phase - duty) / (1.0 - duty))
-            thigh = self.cfg.stance_thigh + (self.cfg.swing_thigh - self.cfg.stance_thigh) * s
-            lift = 0.5 - 0.5 * math.cos(2.0 * math.pi * ((phase - duty) / (1.0 - duty)))
-            calf = self.cfg.stance_calf + (self.cfg.swing_calf - self.cfg.stance_calf) * lift
-
-        return thigh, calf
+        phase = np.array(self._phase, dtype=np.float32)
+        targets = cpg_math.compute_cpg_targets(phase, self.cfg, self._ops)
+        return targets.astype(np.float32)
 
     def get_phase_sin_cos(self) -> tuple[float, float]:
         """Get sin/cos of current phase for observation."""

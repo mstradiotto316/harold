@@ -1,3 +1,5 @@
+> **ARCHIVED**: This file is superseded by `program.md`. Kept for historical reference.
+
 # Autoresearch Agent Protocol
 
 Step-by-step instructions for Claude Code when running autonomous experiment sessions.

@@ -19,13 +19,11 @@ Project-level instructions for Claude Code sessions in this repository.
 
 Harold has an autoresearch system for running RL experiments autonomously, inspired by Karpathy's autoresearch.
 
-- **Strategy doc** (human edits): `docs/autoresearch/strategy.md`
-- **Agent protocol** (agent follows): `docs/autoresearch/AGENT_PROTOCOL.md`
-- **Parameter registry**: `docs/autoresearch/PARAMETER_REGISTRY.md`
-- **Helper script**: `scripts/autoresearch.py` (apply/revert/score/log)
+- **Program doc** (single source of truth): `docs/autoresearch/program.md`
+- **Helper script**: `scripts/autoresearch.py` (apply/revert/score/log/backfill)
 - **Results log**: `docs/autoresearch/results.tsv` (gitignored, append-only)
 
-To start an autoresearch session, read the agent protocol and follow the loop.
+To start an autoresearch session, run `/autoresearch` or read `program.md` and follow the loop.
 
 ## Skills
 

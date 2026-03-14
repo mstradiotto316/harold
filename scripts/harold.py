@@ -87,7 +87,8 @@ TRAINING_DEFAULTS = {
     'rendering_mode': 'performance',
 }
 DURATION_PRESETS = {
-    'short': 1250,     # ~30 minutes
+    'fast': 625,       # ~15 minutes (screening)
+    'short': 1250,     # ~30 minutes (confirmation)
     'standard': 2500,  # ~60 minutes
     'long': 4167,      # ~100 minutes
 }
@@ -1349,6 +1350,25 @@ def cmd_snapshot_config(args):
     return 0
 
 
+def cmd_log(args):
+    """Show training log output for debugging."""
+    if not LOG_FILE.exists():
+        print("No training log found")
+        return 1
+
+    lines = LOG_FILE.read_text().splitlines()
+
+    if args.grep:
+        lines = [l for l in lines if re.search(args.grep, l, re.IGNORECASE)]
+
+    tail_n = args.tail or 20
+    lines = lines[-tail_n:]
+
+    for line in lines:
+        print(line)
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Harold Training CLI - Unified observability tool',
@@ -1360,7 +1380,7 @@ def main():
     # train
     train_parser = subparsers.add_parser('train', help='Start training in background')
     train_parser.add_argument('--task', choices=sorted(TASK_IDS.keys()), default=DEFAULT_TASK, help='Task to train (default: flat)')
-    train_parser.add_argument('--duration', choices=sorted(DURATION_PRESETS.keys()), help='Duration preset: short (~30m), standard (~60m), long (~100m) (default: short)')
+    train_parser.add_argument('--duration', choices=sorted(DURATION_PRESETS.keys()), help='Duration preset: fast (~15m), short (~30m), standard (~60m), long (~100m) (default: short)')
     train_parser.add_argument('--iterations', type=int, help='Max iterations (advanced override)')
     train_parser.add_argument('--checkpoint', type=str, help='Resume from checkpoint')
     train_parser.add_argument('--hypothesis', type=str, help='Hypothesis being tested (stored with experiment)')
@@ -1398,6 +1418,11 @@ def main():
     # ps
     ps_parser = subparsers.add_parser('ps', help='List all training processes (including orphans)')
 
+    # log
+    log_parser = subparsers.add_parser('log', help='Show training log output (for debugging)')
+    log_parser.add_argument('--grep', type=str, help='Filter log lines by pattern')
+    log_parser.add_argument('--tail', type=int, help='Number of lines to show (default: 20)')
+
     # snapshot-config
     subparsers.add_parser('snapshot-config', help='Dump current training config as JSON (for autoresearch)')
 
@@ -1419,6 +1444,8 @@ def main():
         return cmd_stop(args)
     elif args.command == 'ps':
         return cmd_ps(args)
+    elif args.command == 'log':
+        return cmd_log(args)
     elif args.command == 'snapshot-config':
         return cmd_snapshot_config(args)
     else:

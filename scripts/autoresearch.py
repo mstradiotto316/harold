@@ -404,60 +404,55 @@ def _validate_file(filepath: str) -> None:
 
 # ── Scoring ─────────────────────────────────────────────────────────────────
 
-DEFAULT_WEIGHTS = {
-    "episode_length": 1.0,
-    "upright": 2.0,
-    "height": 1.5,
-    "contact": 1.0,
-    "vx": 3.0,
-}
+import math
 
 
-def compute_score(metrics: dict, weights: dict = None) -> float:
-    """Compute a 0-100 quantitative score from the 5-metric protocol.
+def compute_walk_score(metrics: dict) -> float:
+    """Single scalar 0-100 for walking quality.
+
+    Designed to be:
+    - 0 if the robot is broken (sanity fail, fallen, on elbows)
+    - Monotonically increasing with forward velocity once gates pass
+    - Exploit-proof (elbow exploit, body dragging both gate to 0)
+
+    Formula:
+        walk_score = gate * tanh(vx / 0.05) * 100
 
     Args:
-        metrics: dict with keys from harold validate (episode_length, upright_mean,
-                 height_reward, body_contact, vx_w_mean)
-        weights: optional override for metric weights (from strategy.md scoring priorities)
+        metrics: dict with keys: episode_length, upright_mean, height_reward,
+                 body_contact, vx_w_mean
 
     Returns:
         float score 0-100
     """
-    if weights is None:
-        weights = DEFAULT_WEIGHTS
-
     ep_len = metrics.get("episode_length", 0)
 
-    # Sanity gate
+    # Hard gate: robot must survive
     if ep_len < 300:
         return 0.0
 
-    scores = {}
-
-    # Episode length: 300=0, 600=1
-    scores["episode_length"] = min(1.0, max(0.0, (ep_len - 300) / 300))
-
-    # Upright: 0.85=0, 0.98=1
     upright = metrics.get("upright_mean", 0)
-    scores["upright"] = min(1.0, max(0.0, (upright - 0.85) / 0.13))
-
-    # Height: 0.4=0, 0.8=1
     height = metrics.get("height_reward", 0)
-    scores["height"] = min(1.0, max(0.0, (height - 0.4) / 0.4))
-
-    # Contact: -0.5=0, 0.0=1
-    contact = metrics.get("body_contact", -1)
-    scores["contact"] = min(1.0, max(0.0, (contact + 0.5) / 0.5))
-
-    # Forward velocity: 0=0, 0.03=1
+    contact = metrics.get("body_contact", 0)
     vx = metrics.get("vx_w_mean", 0)
-    scores["vx"] = min(1.0, max(0.0, vx / 0.03))
 
-    total_weight = sum(weights.get(k, 1.0) for k in scores)
-    weighted_score = sum(scores[k] * weights.get(k, 1.0) for k in scores) / total_weight
+    # Gating factors (0-1): prevent exploit modes
+    upright_gate = min(1.0, max(0.0, (upright - 0.85) / 0.10))
+    height_gate = min(1.0, max(0.0, (height - 0.3) / 0.3))
+    contact_gate = min(1.0, max(0.0, (contact + 0.3) / 0.3))
 
-    return round(weighted_score * 100, 1)
+    gate = min(upright_gate, height_gate, contact_gate)
+
+    # Primary signal: forward velocity (tanh saturates at ~0.15 m/s)
+    vx_score = math.tanh(max(0.0, vx) / 0.05)
+
+    return round(gate * vx_score * 100.0, 1)
+
+
+# Backward compatibility alias
+def compute_score(metrics: dict, weights: dict = None) -> float:
+    """Legacy scoring function. Delegates to compute_walk_score."""
+    return compute_walk_score(metrics)
 
 
 # ── Results Logging ─────────────────────────────────────────────────────────
@@ -465,7 +460,7 @@ def compute_score(metrics: dict, weights: dict = None) -> float:
 RESULTS_COLUMNS = [
     "exp_alias", "timestamp", "hypothesis", "changed_params", "duration_min",
     "verdict", "vx", "upright", "height", "contact", "ep_len",
-    "quant_score", "qual_score", "composite", "decision", "gait_type", "video_notes",
+    "walk_score", "decision", "notes",
 ]
 
 
@@ -493,6 +488,97 @@ def load_results_history() -> list:
         return list(reader)
 
 
+# ── Backfill ───────────────────────────────────────────────────────────────
+
+def backfill_results() -> int:
+    """Scan existing experiment directories and backfill results.tsv."""
+    log_dir = PROJECT_ROOT / "logs" / "skrl" / "harold_direct"
+    if not log_dir.exists():
+        print("No logs directory found")
+        return 0
+
+    # Try to import tensorboard for metrics extraction
+    try:
+        from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+    except ImportError:
+        print("ERROR: tensorboard not installed, cannot extract metrics")
+        return 1
+
+    existing = {r.get("exp_alias") for r in load_results_history()}
+    added = 0
+
+    for run_dir in sorted(log_dir.iterdir()):
+        if not run_dir.is_dir():
+            continue
+        manifest_path = run_dir / "manifest.json"
+        if not manifest_path.exists():
+            continue
+
+        manifest = json.loads(manifest_path.read_text())
+        alias = manifest.get("alias", "")
+
+        if alias in existing:
+            continue
+
+        # Find tensorboard events
+        event_files = list(run_dir.glob("events.out.tfevents.*"))
+        if not event_files:
+            continue
+
+        # Extract metrics
+        try:
+            ea = EventAccumulator(str(run_dir))
+            ea.Reload()
+            metrics = {}
+            tag_map = {
+                "episode_length": "Episode / Total timesteps (mean)",
+                "upright_mean": "Info / Episode_Metric/upright_mean",
+                "height_reward": "Info / Episode_Metric/height_reward",
+                "body_contact": "Info / Episode_Metric/body_contact_penalty",
+                "vx_w_mean": "Info / Episode_Metric/vx_w_mean",
+            }
+            for key, tag in tag_map.items():
+                try:
+                    events = ea.Scalars(tag)
+                    if events:
+                        vals = [e.value for e in events[-10:]]
+                        metrics[key] = sum(vals) / len(vals)
+                except Exception:
+                    pass
+
+            if not metrics:
+                continue
+
+            score = compute_walk_score(metrics)
+            hypothesis = manifest.get("hypothesis", "")
+            timestamp = manifest.get("created", "")
+
+            entry = {
+                "exp_alias": alias,
+                "timestamp": timestamp,
+                "hypothesis": hypothesis,
+                "changed_params": "",
+                "duration_min": "",
+                "verdict": "backfill",
+                "vx": f"{metrics.get('vx_w_mean', 0):.4f}",
+                "upright": f"{metrics.get('upright_mean', 0):.4f}",
+                "height": f"{metrics.get('height_reward', 0):.4f}",
+                "contact": f"{metrics.get('body_contact', 0):.4f}",
+                "ep_len": f"{metrics.get('episode_length', 0):.1f}",
+                "walk_score": str(score),
+                "decision": "backfill",
+                "notes": f"backfilled from {run_dir.name}",
+            }
+            log_result(entry)
+            added += 1
+            print(f"  {alias}: walk_score={score}")
+        except Exception as e:
+            print(f"  {alias}: error - {e}")
+
+    print(f"\nBackfilled {added} experiments")
+    return 0
+
+
 # ── CLI Interface ───────────────────────────────────────────────────────────
 
 def main():
@@ -507,6 +593,7 @@ def main():
     apply_p.add_argument("delta", help="JSON dict of {param: value}")
 
     sub.add_parser("revert", help="Revert config files to git HEAD")
+    sub.add_parser("backfill", help="Backfill results.tsv from existing experiment logs")
 
     score_p = sub.add_parser("score", help="Compute quantitative score")
     score_p.add_argument("metrics", help="JSON dict of metrics")
@@ -535,12 +622,15 @@ def main():
 
     elif args.command == "score":
         metrics = json.loads(args.metrics)
-        s = compute_score(metrics)
-        print(json.dumps({"score": s}))
+        s = compute_walk_score(metrics)
+        print(json.dumps({"walk_score": s}))
 
     elif args.command == "history":
         history = load_results_history()
         print(json.dumps(history, indent=2))
+
+    elif args.command == "backfill":
+        return backfill_results()
 
     else:
         parser.print_help()

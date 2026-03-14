@@ -11,7 +11,7 @@ models:
     initial_log_std: 0.0
     network:
       - name: net
-        input: STATES
+        input: OBSERVATIONS
         layers: [512, 256, 128]
         activations: elu
     output: ACTIONS
@@ -20,7 +20,7 @@ models:
     clip_actions: False
     network:
       - name: net
-        input: STATES
+        input: OBSERVATIONS
         layers: [512, 256, 128]
         activations: elu
     output: ONE

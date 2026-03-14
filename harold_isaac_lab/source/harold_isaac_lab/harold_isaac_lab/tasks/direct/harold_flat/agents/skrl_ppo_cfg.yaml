@@ -11,7 +11,7 @@ models:
     initial_log_std: 0.0
     network:
       - name: net
-        input: STATES
+        input: OBSERVATIONS
         # EXP-092: Smaller [128,128,128] gave vx=0.039 with height=1.11 (WORSE)
         # Reverted to original
         layers: [512, 256, 128]
@@ -22,7 +22,7 @@ models:
     clip_actions: False
     network:
       - name: net
-        input: STATES
+        input: OBSERVATIONS
         layers: [512, 256, 128]
         activations: elu
     output: ONE

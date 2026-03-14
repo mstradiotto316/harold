@@ -132,15 +132,6 @@ def compute_rewards(env) -> torch.Tensor:
     # Weight 2.0 makes crouching costly relative to the ~3.0 forward_motion bonus.
     stance_height = 2.0 * height_reward
 
-    # === JOINT ACTIVITY REWARD ===
-    # Penalize frozen joints to force the policy to keep legs moving.
-    # This breaks the "tall statue" local minimum where the policy stands still
-    # and collects height/upright rewards without attempting locomotion.
-    # Mean absolute joint velocity, gated by commanded movement.
-    joint_vel_magnitude = torch.mean(torch.abs(env._robot.data.joint_vel), dim=1)
-    # Reward: tanh to cap, gated by command (only force movement when commanded to move)
-    joint_activity = 0.5 * torch.tanh(joint_vel_magnitude / 2.0) * (cmd_magnitude > 0.05).float()
-
     # === COMPUTE TOTAL ===
     rewards = {
         "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
@@ -155,7 +146,6 @@ def compute_rewards(env) -> torch.Tensor:
         "upright": cfg.upright_weight * upright,
         "forward_motion": forward_motion,
         "stance_height": stance_height,
-        "joint_activity": joint_activity,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

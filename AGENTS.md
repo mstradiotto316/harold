@@ -6,7 +6,7 @@ This file is the primary agent quickstart and coordination guide for this reposi
 
 **Video Recording is MANDATORY**: Every training run MUST include video recording (`--video` flag). Video is critical logging infrastructure for human review. Never disable it.
 
-**Observability Limitations**: You cannot reliably interpret video output. Focus on TensorBoard metrics and text-based logs. Continue generating videos for human monitoring, but base your experiment conclusions on numerical metrics only.
+**Video Analysis Capability**: With the Opus 4.6 model and 1M token context window, you can now analyze training video footage frame-by-frame using multimodal vision. Use `docs/skills/video_annotation.md` for the full workflow (frame extraction, sampling strategy, annotation schema). Combine video analysis with TensorBoard metrics for the most complete picture -- metrics tell you *that* the robot is walking, video tells you *how*.
 
 **Context Management**: Training runs may produce hours of logs that cause context overflow. Use `python scripts/harold.py train` (background) and `python scripts/harold.py status` (compact metrics). Avoid tailing logs except for brief debugging.
 
@@ -244,6 +244,37 @@ python scripts/harold.py note EXP-034 "Robot walked at 40-80% then regressed"
 
 Videos are saved under:
 `logs/skrl/harold_direct/<run_id>/videos/train`
+
+### Autoresearch (Autonomous Experimentation)
+
+For overnight autonomous experiment sessions, Harold has an autoresearch system:
+
+```bash
+# Read the strategy (human-edited goals and constraints)
+cat docs/autoresearch/strategy.md
+
+# Check what parameters can be tuned
+python scripts/autoresearch.py load-registry
+
+# Apply a config change (validates against registry)
+python scripts/autoresearch.py apply '{"forward_motion_weight": 5.0}'
+
+# Revert config to git HEAD
+python scripts/autoresearch.py revert
+
+# Compute score from metrics
+python scripts/autoresearch.py score '{"vx_w_mean": 0.02, "upright_mean": 0.96, ...}'
+
+# Log result
+python scripts/autoresearch.py log '{"exp_alias": "EXP-228", "decision": "KEEP", ...}'
+
+# Dump current config
+python scripts/harold.py snapshot-config
+```
+
+Full protocol: `docs/autoresearch/AGENT_PROTOCOL.md`
+Parameter registry: `docs/autoresearch/PARAMETER_REGISTRY.md`
+Strategy doc: `docs/autoresearch/strategy.md`
 
 ### Process Management
 

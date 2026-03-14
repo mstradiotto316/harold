@@ -1333,6 +1333,22 @@ def cmd_ps(args):
     return 0
 
 
+def cmd_snapshot_config(args):
+    """Dump current training config as JSON for autoresearch integration."""
+    try:
+        from autoresearch import load_baseline_config
+        config = load_baseline_config()
+    except ImportError:
+        # Direct import from scripts directory
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("autoresearch", Path(__file__).parent / "autoresearch.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        config = mod.load_baseline_config()
+    print(json.dumps(config, indent=2, default=str))
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Harold Training CLI - Unified observability tool',
@@ -1382,6 +1398,9 @@ def main():
     # ps
     ps_parser = subparsers.add_parser('ps', help='List all training processes (including orphans)')
 
+    # snapshot-config
+    subparsers.add_parser('snapshot-config', help='Dump current training config as JSON (for autoresearch)')
+
     args = parser.parse_args()
 
     if args.command == 'train':
@@ -1400,6 +1419,8 @@ def main():
         return cmd_stop(args)
     elif args.command == 'ps':
         return cmd_ps(args)
+    elif args.command == 'snapshot-config':
+        return cmd_snapshot_config(args)
     else:
         parser.print_help()
         return 0

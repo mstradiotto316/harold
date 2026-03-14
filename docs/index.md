@@ -35,6 +35,17 @@ This repository uses AGENTS.md as the primary agent quickstart. Use the role-bas
 - `docs/memory/OBSERVATIONS.md` - Known issues and logging insights.
 - `docs/memory/archives/index.md` - Historical observations archive index.
 
+## Autoresearch (Autonomous Experimentation)
+
+- `docs/autoresearch/AGENT_PROTOCOL.md` - Step-by-step agent loop for autonomous experiment sessions.
+- `docs/autoresearch/strategy.md` - Human-edited research goals and constraints.
+- `docs/autoresearch/PARAMETER_REGISTRY.md` - Tunable vs frozen parameters with safe ranges.
+- `scripts/autoresearch.py` - Helper functions (apply/revert/score/log).
+
+## Skills
+
+- `docs/skills/video_annotation.md` - Video annotation skill: frame-by-frame analysis of RL training footage using multimodal vision.
+
 ## Shared references
 
 - `docs/kinematics/harold_8_kinematics.yaml` - USD-derived joint/mesh kinematics spec.

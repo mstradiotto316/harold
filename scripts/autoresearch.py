@@ -625,6 +625,11 @@ def main():
         s = compute_walk_score(metrics)
         print(json.dumps({"walk_score": s}))
 
+    elif args.command == "log":
+        entry = json.loads(args.entry)
+        log_result(entry)
+        print(f"Logged {entry.get('exp_alias', 'unknown')}")
+
     elif args.command == "history":
         history = load_results_history()
         print(json.dumps(history, indent=2))

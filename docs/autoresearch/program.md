@@ -178,9 +178,10 @@ LOOP FOREVER:
      Early stop: SANITY_FAIL after 5 min -> harold stop, score=0, DISCARD
      Early stop: height FAIL + negative vx after 10 min -> harold stop, DISCARD
   6. SCORE: harold validate -> walk_score (via autoresearch.py score)
-     KEEP if walk_score > baseline + 2.0
-     DISCARD if not improved
-  7. LOG: autoresearch.py log -> results.tsv
+  7. VIDEO REVIEW: Launch video review agent (see below)
+  8. DECIDE: KEEP if walk_score > baseline + 2.0 AND video review supports it
+     DISCARD if not improved or video reveals exploit/degenerate behavior
+  9. LOG: autoresearch.py log -> results.tsv (include video_description)
      If DISCARD: revert config (autoresearch.py revert) or git checkout -- train_env.py
      Loop to step 1
 ```
@@ -189,15 +190,55 @@ LOOP FOREVER:
 
 If 3+ consecutive DISCARDs: re-read results.tsv, reconsider strategy. Try combining near-misses. Try the opposite of what failed. Try simplifying.
 
-### Video Analysis (Optional)
+### Video Review Agent (Step 7)
 
-Video analysis is available for debugging but NOT part of the standard loop. Use it when metrics are confusing or when 3+ consecutive experiments are discarded.
+After every experiment completes, launch a **fresh-context sub-agent** to analyze the latest training video. This is the most important qualitative signal in the loop -- metrics can lie, video cannot.
 
-```bash
-ffmpeg -y -i <video.mp4> \
-  -vf "fps=2,drawtext=text='%{frame_num}':x=10:y=10:fontsize=20:fontcolor=white:box=1:boxcolor=black@0.5,tile=4x4" \
-  -q:v 2 /tmp/harold_montage_%03d.jpg
+**Procedure:**
+
+1. Extract frames: `python3 scripts/harold.py frames --json`
+   This outputs the frame paths and run metadata.
+
+2. Launch a video review agent using the Agent tool:
+
 ```
+Agent(
+  description="Review training video EXP-NNN",
+  model="opus",
+  prompt="""You are a quadruped locomotion analyst reviewing training video frames from a simulated robot.
+
+The robot is Harold, a 12-DOF quadruped (4 legs x 3 joints). The frames are extracted at 2fps from a training video.
+
+EXPERIMENT: {alias} - {hypothesis}
+METRICS: walk_score={score}, vx={vx}, upright={upright}, height={height}, contact={contact}, ep_len={ep_len}
+
+Read each frame image in order from {frame_dir}/frame_0001.jpg through frame_{num_frames:04d}.jpg.
+
+Then provide a VERBOSE description covering:
+1. STABILITY: Does the robot stay upright? Any falls, stumbles, tilting?
+2. GAIT: Is it walking, standing, shuffling, fallen, or exhibiting degenerate behavior?
+   If walking: trot, walk, bound, or unclassified? Regular or chaotic?
+3. POSTURE: Body pitch, roll, height. Is it on its elbows? Dragging its body?
+4. LEGS: Front vs rear balance. Left vs right symmetry. Ground clearance. Foot dragging?
+5. PROGRESS: Does behavior improve/degrade over the clip? Episode resets visible?
+6. FAILURE MODES: Any reward hacking, exploits, or degenerate policies?
+7. VERDICT: One of WALKING / STEPPING / STANDING / FALLING / DEGENERATE
+   Plus a 1-2 sentence summary a researcher would find useful.
+
+Be specific. Reference frame numbers. Describe what you actually see, not what the metrics say."""
+)
+```
+
+3. Read the agent's response. Store it as `video_description` in results.tsv.
+
+4. If the description reveals something the metrics missed (e.g., "robot is on its side but sliding forward" explains a positive vx with low height), factor that into the keep/discard decision.
+
+5. You can **resume the agent** to ask follow-up questions:
+   - "Look at frames 15-20 more carefully -- is the front-left leg making ground contact?"
+   - "Compare the first 5 frames to the last 5 -- is there any improvement?"
+   - "Is the robot actually walking or just falling forward repeatedly?"
+
+**The video review agent is NOT optional.** It runs after every experiment. The walk_score is the quantitative signal; the video description is the qualitative signal. Both inform the keep/discard decision.
 
 ### Training Logs
 
@@ -248,6 +289,7 @@ Use `harold log` to inspect raw training output for debugging:
 | Score | `python scripts/autoresearch.py score '{"metrics": ...}'` |
 | Log result | `python scripts/autoresearch.py log '{"entry": ...}'` |
 | View history | `python scripts/autoresearch.py history` |
+| Extract video frames | `python scripts/harold.py frames --json` |
 | View training log | `python scripts/harold.py log` |
 | Stop training | `python scripts/harold.py stop` |
 

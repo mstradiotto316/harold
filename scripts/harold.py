@@ -1350,6 +1350,69 @@ def cmd_snapshot_config(args):
     return 0
 
 
+def cmd_frames(args):
+    """Extract frames from the latest training video for analysis."""
+    run_path = resolve_experiment(args.run) if args.run else get_latest_run()
+    if not run_path or not run_path.exists():
+        print("ERROR: No run found")
+        return 1
+
+    video_dir = run_path / "videos" / "train"
+    if not video_dir.exists():
+        print(f"ERROR: No videos directory at {video_dir}")
+        return 1
+
+    # Find the latest video (highest step number)
+    videos = sorted(video_dir.glob("rl-video-step-*.mp4"))
+    if not videos:
+        print("ERROR: No training videos found")
+        return 1
+
+    video = videos[-1]  # Latest by step number
+    fps = args.fps or 2
+    out_dir = Path("/tmp/harold_review_frames")
+
+    # Clean and recreate output directory
+    if out_dir.exists():
+        import shutil
+        shutil.rmtree(out_dir)
+    out_dir.mkdir(parents=True)
+
+    # Extract frames
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", str(video), "-vf", f"fps={fps}", "-q:v", "2",
+         str(out_dir / "frame_%04d.jpg")],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        print(f"ERROR: ffmpeg failed: {result.stderr[-200:]}")
+        return 1
+
+    frames = sorted(out_dir.glob("frame_*.jpg"))
+    manifest = get_or_create_manifest(run_path)
+
+    output = {
+        "run_name": run_path.name,
+        "alias": manifest.get("alias", ""),
+        "hypothesis": manifest.get("hypothesis", ""),
+        "video": str(video),
+        "video_name": video.name,
+        "fps": fps,
+        "num_frames": len(frames),
+        "frame_dir": str(out_dir),
+        "frames": [str(f) for f in frames],
+    }
+
+    if args.json:
+        print(json.dumps(output, indent=2))
+    else:
+        print(f"Extracted {len(frames)} frames at {fps}fps from {video.name}")
+        print(f"  Run: {run_path.name} ({manifest.get('alias', '')})")
+        print(f"  Frames: {out_dir}/frame_*.jpg")
+
+    return 0
+
+
 def cmd_log(args):
     """Show training log output for debugging."""
     if not LOG_FILE.exists():
@@ -1418,6 +1481,12 @@ def main():
     # ps
     ps_parser = subparsers.add_parser('ps', help='List all training processes (including orphans)')
 
+    # frames
+    frames_parser = subparsers.add_parser('frames', help='Extract frames from latest training video for review')
+    frames_parser.add_argument('run', nargs='?', help='Run name or alias (default: latest)')
+    frames_parser.add_argument('--fps', type=int, default=2, help='Frame rate for extraction (default: 2)')
+    frames_parser.add_argument('--json', action='store_true', help='Output as JSON')
+
     # log
     log_parser = subparsers.add_parser('log', help='Show training log output (for debugging)')
     log_parser.add_argument('--grep', type=str, help='Filter log lines by pattern')
@@ -1444,6 +1513,8 @@ def main():
         return cmd_stop(args)
     elif args.command == 'ps':
         return cmd_ps(args)
+    elif args.command == 'frames':
+        return cmd_frames(args)
     elif args.command == 'log':
         return cmd_log(args)
     elif args.command == 'snapshot-config':

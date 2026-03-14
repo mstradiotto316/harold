@@ -332,6 +332,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "undesired_contacts",
             "upright",
             "forward_motion",  # Session 36e: bootstrap walking
+            "stance_height",  # Added by train_env.py research surface
         ]
 
         self._metric_keys = [

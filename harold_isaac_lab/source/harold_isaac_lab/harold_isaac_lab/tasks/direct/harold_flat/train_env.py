@@ -126,6 +126,12 @@ def compute_rewards(env) -> torch.Tensor:
     # Gate by upright to avoid rewarding forward falling
     forward_motion = cfg.forward_motion_weight * vx * upright.clamp(0.5, 1.0)
 
+    # === STANCE HEIGHT REWARD ===
+    # Directly reward standing tall — attacks the crouch-and-survive local minimum.
+    # height_reward is already computed above (tanh(3 * exp(-5 * |h - target|)))
+    # Weight 2.0 makes crouching costly relative to the ~3.0 forward_motion bonus.
+    stance_height = 2.0 * height_reward
+
     # === COMPUTE TOTAL ===
     rewards = {
         "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
@@ -139,6 +145,7 @@ def compute_rewards(env) -> torch.Tensor:
         "undesired_contacts": cfg.undesired_contacts_weight * undesired_contacts,
         "upright": cfg.upright_weight * upright,
         "forward_motion": forward_motion,
+        "stance_height": stance_height,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

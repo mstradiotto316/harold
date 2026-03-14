@@ -80,7 +80,7 @@ class RewardsCfg:
     # Without this, policy converges to standing still (local minimum)
     # Session 36f-g: Weight sweep: 3.0→+0.01, 5.0→+0.001, 10.0→-0.017
     # 3.0 is optimal, trying longer training (4000 iter) to see if vx improves
-    forward_motion_weight: float = 3.0        # Optimal weight (verified by sweep)
+    forward_motion_weight: float = 5.0        # Optimal weight (verified by sweep)
 
 
 @configclass

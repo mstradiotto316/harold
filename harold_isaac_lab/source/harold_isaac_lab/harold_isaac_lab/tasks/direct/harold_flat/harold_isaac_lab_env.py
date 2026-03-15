@@ -336,6 +336,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "forward_motion",  # Session 36e: bootstrap walking
             "stance_height",  # Added by train_env.py research surface
             "all_feet_penalty",  # Added by train_env.py research surface
+            "foot_slip_penalty",  # Added by train_env.py research surface
         ]
 
         self._metric_keys = [

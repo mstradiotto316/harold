@@ -191,7 +191,7 @@ def compute_rewards(env) -> torch.Tensor:
     # Penalize feet sliding along the ground while in contact.
     # Discourages shuffle gait and encourages clean lift-and-place stepping.
     # foot_slip_speed is already computed above (per-foot XY velocity while in contact).
-    foot_slip_penalty = -0.5 * torch.sum(slip_sample, dim=1)
+    foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
 
     # === COMPUTE TOTAL ===
     rewards = {

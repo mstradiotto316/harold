@@ -195,6 +195,14 @@ def compute_rewards(env) -> torch.Tensor:
     # foot_slip_speed is already computed above (per-foot XY velocity while in contact).
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
 
+    # === STUMBLE PENALTY ===
+    # Penalize roll/pitch angular velocity when the robot is in a pre-fall state.
+    # When upright > 0.92, this penalty is zero — normal walking is unaffected.
+    # When upright drops below 0.92, penalizes the angular velocity that leads
+    # to cascading falls and early termination.
+    in_danger = (upright < 0.92).float()
+    stumble_penalty = -0.2 * in_danger * ang_vel_xy
+
     # === COMPUTE TOTAL ===
     rewards = {
         "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
@@ -210,6 +218,7 @@ def compute_rewards(env) -> torch.Tensor:
         "forward_motion": forward_motion,
         "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,
+        "stumble_penalty": stumble_penalty,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

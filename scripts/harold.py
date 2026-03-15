@@ -97,6 +97,27 @@ DEFAULT_DURATION = 'short'
 MODE_CHOICES = ('rl', 'cpg', 'scripted')
 DATA_POINTS_TAG = 'Info / Episode_Metric/vx_w_mean'
 
+# Map task keys to their env_cfg files (for reading action_scale, etc.)
+_TASK_ENV_CFG_PATHS = {
+    'flat': PROJECT_ROOT / "harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_flat/harold_isaac_lab_env_cfg.py",
+    'rough': PROJECT_ROOT / "harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_rough/harold_isaac_lab_env_cfg.py",
+    'pushup': PROJECT_ROOT / "harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_pushup/harold_isaac_lab_env_cfg.py",
+}
+_ACTION_SCALE_RE = re.compile(r'^\s*action_scale\s*=\s*([0-9.eE+-]+)', re.MULTILINE)
+
+
+def read_action_scale(task_key: str) -> float | None:
+    """Read action_scale from the env_cfg for the given task, or None if unreadable."""
+    cfg_path = _TASK_ENV_CFG_PATHS.get(task_key)
+    if cfg_path and cfg_path.exists():
+        m = _ACTION_SCALE_RE.search(cfg_path.read_text(encoding="utf-8"))
+        if m:
+            try:
+                return float(m.group(1))
+            except ValueError:
+                pass
+    return None
+
 # Memory safety (prevents OOM-induced system hangs)
 # Only intervene at truly dangerous levels to avoid interrupting legitimate training
 RAM_KILL_THRESHOLD = 95   # Kill only when RAM critically full
@@ -748,20 +769,9 @@ def start_watchdog(pid: str) -> bool:
 
 def cmd_train(args):
     """Start training in background with optional hypothesis and tags."""
-    # Auto-stop if already running (enables seamless experiment chaining)
-    train_status = is_training_running()
-    if train_status.running:
-        print(f"WARNING: Auto-stopping previous training (PID: {train_status.pid}) to start new run.")
-        cmd_stop(argparse.Namespace())
-        time.sleep(3)
-
-    existing_processes = find_training_processes()
-    if existing_processes:
-        print("Stopping orphan training processes...")
-        cmd_stop(argparse.Namespace())
-        time.sleep(3)
-
-    # Parse arguments with defaults
+    # Validate arguments BEFORE stopping any existing training.
+    # This prevents killing an in-flight experiment when the new invocation
+    # would fail validation (e.g., --iterations together with --duration).
     task_key = getattr(args, 'task', DEFAULT_TASK) or DEFAULT_TASK
     if task_key not in TASK_IDS:
         print(f"ERROR: Unknown task '{task_key}'. Valid: {', '.join(TASK_IDS.keys())}")
@@ -789,11 +799,24 @@ def cmd_train(args):
 
     mode = args.mode
 
+    # Build command (validates interpreter path, etc.)
+    cmd = build_train_command(num_envs, iterations, task_id, args.checkpoint)
+
+    # All validation passed — now safe to stop any existing training.
+    train_status = is_training_running()
+    if train_status.running:
+        print(f"WARNING: Auto-stopping previous training (PID: {train_status.pid}) to start new run.")
+        cmd_stop(argparse.Namespace())
+        time.sleep(3)
+
+    existing_processes = find_training_processes()
+    if existing_processes:
+        print("Stopping orphan training processes...")
+        cmd_stop(argparse.Namespace())
+        time.sleep(3)
+
     # Capture latest run before launch (used to detect new run directory)
     previous_run = get_latest_run()
-
-    # Build command
-    cmd = build_train_command(num_envs, iterations, task_id, args.checkpoint)
 
     # Clear old log and kill marker
     LOG_FILE.write_text('')
@@ -863,6 +886,9 @@ def cmd_train(args):
             training_config['duration'] = duration_label
         if getattr(args, 'gait_scale', None) is not None:
             training_config['gait_scale'] = args.gait_scale
+        action_scale_val = read_action_scale(task_key)
+        if action_scale_val is not None:
+            training_config['action_scale'] = action_scale_val
         alias = register_experiment(
             run_path,
             hypothesis=hypothesis,

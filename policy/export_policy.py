@@ -99,16 +99,30 @@ def load_reference_policy(checkpoint_path: Path) -> tuple[NormalizedPolicy, torc
 
 
 def _read_training_action_scale(checkpoint_path: Path) -> float:
-    """Read action_scale from the training run's manifest, falling back to the default."""
+    """Read action_scale from the training run's manifest, falling back to the default.
+
+    Checks three locations within the manifest (in priority order):
+      1. metadata.action_scale  (legacy / direct field)
+      2. training_config.action_scale  (written by harold.py since 2026-03-15)
+      3. top-level action_scale
+    """
     # Checkpoint is typically at <run_dir>/checkpoints/<file> or <run_dir>/<file>
     for parent in [checkpoint_path.parent, checkpoint_path.parent.parent]:
         manifest = parent / "manifest.json"
         if manifest.exists():
             try:
                 data = json.loads(manifest.read_text(encoding="utf-8"))
-                meta = data.get("metadata", data)
+                # Check metadata (legacy)
+                meta = data.get("metadata", {})
                 if "action_scale" in meta:
                     return float(meta["action_scale"])
+                # Check training_config (current)
+                tc = data.get("training_config", {})
+                if "action_scale" in tc:
+                    return float(tc["action_scale"])
+                # Check top-level
+                if "action_scale" in data:
+                    return float(data["action_scale"])
             except (json.JSONDecodeError, ValueError, TypeError):
                 pass
     return DEFAULT_ACTION_SCALE

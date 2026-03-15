@@ -425,7 +425,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # Action filtering (EMA low-pass)
     # Session 35: beta=0.40 is optimal (0.50 prevented walking)
     # Lower beta = more smoothing (60% carryover from previous action)
-    action_filter_beta: float = 0.40
+    action_filter_beta: float = 0.2
 
     # Observation clipping (matches deployment clip_obs=5.0)
     # Session 29: Hardware deployment clips normalized obs to ±5.0

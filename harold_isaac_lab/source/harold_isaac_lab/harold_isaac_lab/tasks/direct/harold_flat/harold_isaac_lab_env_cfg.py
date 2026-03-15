@@ -83,7 +83,7 @@ class RewardsCfg:
     # === SMOOTHNESS PENALTIES ===
     dof_torques_weight: float = -0.0001       # Smooth torques
     dof_acc_weight: float = -2.5e-7           # Smooth joint accelerations
-    action_rate_weight: float = -0.005         # Smooth actions (was -0.05, reduced to allow movement)
+    action_rate_weight: float = -0.01         # Smooth actions (was -0.05, reduced to allow movement)
 
     # === GAIT REWARDS ===
     # Session 36i: Increased 0.2 → 1.0 to force stepping behavior

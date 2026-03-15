@@ -187,6 +187,12 @@ def compute_rewards(env) -> torch.Tensor:
     # Weight 2.0 makes crouching costly relative to the ~3.0 forward_motion bonus.
     stance_height = 2.0 * height_reward
 
+    # === FOOT SLIP PENALTY ===
+    # Penalize feet sliding along the ground while in contact.
+    # Discourages shuffle gait and encourages clean lift-and-place stepping.
+    # foot_slip_speed is already computed above (per-foot XY velocity while in contact).
+    foot_slip_penalty = -0.5 * torch.sum(slip_sample, dim=1)
+
     # === COMPUTE TOTAL ===
     rewards = {
         "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
@@ -201,6 +207,7 @@ def compute_rewards(env) -> torch.Tensor:
         "upright": cfg.upright_weight * upright,
         "forward_motion": forward_motion,
         "stance_height": stance_height,
+        "foot_slip_penalty": foot_slip_penalty,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

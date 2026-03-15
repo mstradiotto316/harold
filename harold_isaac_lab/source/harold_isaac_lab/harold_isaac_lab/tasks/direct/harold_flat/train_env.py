@@ -126,6 +126,13 @@ def compute_rewards(env) -> torch.Tensor:
     # Gate by upright to avoid rewarding forward falling
     forward_motion = cfg.forward_motion_weight * vx * upright.clamp(0.5, 1.0)
 
+    # === ALL-FEET-DOWN PENALTY ===
+    # Penalize having all four feet on the ground simultaneously.
+    # Forces the policy to develop a gait where at least one foot lifts.
+    # Addresses the rear-leg passivity plateau from EXP-245/246.
+    all_feet_down = (foot_contact.float().sum(dim=1) >= 4.0).float()
+    all_feet_penalty = -1.0 * all_feet_down * (cmd_magnitude > 0.05).float()
+
     # === STANCE HEIGHT REWARD ===
     # Directly reward standing tall — attacks the crouch-and-survive local minimum.
     # height_reward is already computed above (tanh(3 * exp(-5 * |h - target|)))
@@ -146,6 +153,7 @@ def compute_rewards(env) -> torch.Tensor:
         "upright": cfg.upright_weight * upright,
         "forward_motion": forward_motion,
         "stance_height": stance_height,
+        "all_feet_penalty": all_feet_penalty,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

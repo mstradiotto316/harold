@@ -46,6 +46,12 @@ When ending a session and transferring to another machine:
 ## Goal
 Train a controllable walking gait for the Harold quadruped robot that can follow velocity commands.
 
+## Current State (2026-03-15, Desktop Audit)
+- A full simulation audit identified several blockers that should be fixed before trusting new training runs or exporting new policies.
+- Highest-priority issues: flat-task reward/telemetry frame mismatch, forward-reward leakage into fallen states, rough-task domain-randomization paths that do not actually touch simulator physics, rough-terrain sampling limited to the easiest levels, and stale 50D export tooling in a now-48D stack.
+- Formal remediation sequence lives in `PLAN.md` at the repo root.
+- Desktop environment/runtime guidance is now explicitly documented in `AGENTS.md`, `docs/index.md`, `docs/overview.md`, and `docs/sim/isaac_lab_extension.md` so agents use `~/Desktop/env_isaaclab` for desktop work and do not treat plain-shell `omni` import failures as missing dependencies.
+
 ## Project Overview
 - **Robot**: 12-DOF quadruped (4 legs × 3 joints: shoulder, thigh, calf)
 - **Framework**: Isaac Lab (NVIDIA Isaac Sim) + SKRL (PPO)

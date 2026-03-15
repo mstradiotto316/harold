@@ -2,6 +2,12 @@
 
 This repository uses AGENTS.md as the primary agent quickstart. Use the role-based sections below to find detailed references under `docs/`.
 
+## Environment Rules
+
+- Desktop simulation and training use `/home/matteo/Desktop/env_isaaclab`.
+- Raspberry Pi deployment uses system `python3` without a virtualenv.
+- A plain activated desktop shell is not enough for simulator-backed imports such as `omni.*`; use `python scripts/harold.py ...` or Isaac Lab app entrypoints when those modules are involved.
+
 ## Desktop Isaac Lab experiments (training/analysis)
 
 - `AGENTS.md` - Primary agent workflow and CLI usage.

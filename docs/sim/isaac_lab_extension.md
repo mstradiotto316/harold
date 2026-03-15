@@ -15,6 +15,20 @@ For Harold workflows, prefer `AGENTS.md` and `python scripts/harold.py`.
 
 ## Installation
 
+## Runtime context
+
+Harold desktop workflows assume the Python environment at `/home/matteo/Desktop/env_isaaclab`:
+
+```bash
+source ~/Desktop/env_isaaclab/bin/activate
+```
+
+That activation is necessary for repo Python tooling, but it is not sufficient for all Isaac Sim imports. Simulator-backed modules such as `omni.*` and some `isaacsim.*` paths require the Isaac Sim app/runtime context created by Isaac Lab launcher scripts. In practice:
+
+- Use `python scripts/harold.py ...` for normal Harold training and monitoring.
+- Use Isaac Lab app entrypoints such as `python harold_isaac_lab/scripts/skrl/train.py ...` when working directly with simulator execution.
+- Treat `omni` import failures in a plain shell as a runtime-context problem before assuming a missing library.
+
 - Install Isaac Lab by following the [installation guide](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html).
   We recommend using the conda installation as it simplifies calling Python scripts from the terminal.
 

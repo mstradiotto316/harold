@@ -25,6 +25,14 @@ This file is the primary agent quickstart and coordination guide for this reposi
 - Avoid temporal decomposition: document by role (experiment vs hardware), not by "first do X then Y" fragments.
 - Define errors out of existence: prefer tooling that handles missing/stale state without manual cleanup.
 
+## Python Environment Rules
+
+- Desktop Isaac Lab work uses `/home/matteo/Desktop/env_isaaclab`. Activate it with `source ~/Desktop/env_isaaclab/bin/activate`.
+- Raspberry Pi runtime work uses system `python3` and no virtualenv.
+- `isaaclab` being importable in the desktop venv does not mean Isaac Sim runtime modules are available.
+- Imports under `omni.*`, `isaacsim.*`, and related simulator-backed modules require the Isaac Sim app/runtime context. Use `python scripts/harold.py ...` or the Isaac Lab launcher entrypoints for those checks.
+- If `isaaclab` imports succeed but `omni` imports fail in a plain shell, treat that as a runtime-context issue, not a missing `pip` dependency.
+
 ## CRITICAL: Memory System Protocol
 
 This project uses a persistent memory system for cross-session continuity.

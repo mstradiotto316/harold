@@ -1,5 +1,20 @@
 # Harold Observations & Insights
 
+## 2026-03-15: Desktop Environment And Runtime Context
+- Desktop Isaac Lab work should use `/home/matteo/Desktop/env_isaaclab`; Raspberry Pi runtime work should use system `python3`.
+- `isaaclab` import success in the desktop venv does not imply Isaac Sim runtime modules are available.
+- `omni.*` import failures from a plain shell are usually runtime-context failures, not missing-package failures.
+- For simulator-backed checks, agents should prefer `python scripts/harold.py ...` or Isaac Lab launcher entrypoints over ad hoc import probes.
+
+## 2026-03-15: Simulation Audit Findings
+- Flat-task reward/command telemetry currently mixes world-frame velocity with body-frame observations and commands; this should be treated as a correctness bug, not tuning noise.
+- Flat-task forward reward still leaks positive reward into low-upright states, so the existing anti-fall guard is weaker than intended.
+- Rough-task domain randomization currently overstates robustness: several reset-time randomization paths sample values but do not apply them to simulator physics.
+- Rough-task terrain sampling is limited to the easiest levels under current config/use of `max_init_terrain_level`.
+- Export/deployment tooling still contains 50D policy artifacts and assumptions even though the active sim/controller stack is now 48D.
+- Optional sim policy logging breaks for multi-env runs because `_time` is serialized as if it were scalar.
+- EMA action-filter state carries across episode resets unless explicitly cleared.
+
 ## 2026-01-04: Hardware CPG Baseline (Current)
 - Duty-cycle stance/swing gait reduced foot drag; shorter stride reduced impact.
 - Lowering calf lift softened touchdown without reintroducing severe drag.

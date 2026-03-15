@@ -293,6 +293,14 @@ def process_actions(env, actions: torch.Tensor) -> None:
     if not hasattr(env, "_actions_smooth"):
         env._actions_smooth = torch.zeros_like(env._actions)
     beta = getattr(env.cfg, "action_filter_beta", 0.2)
+
+    # Warm-start EMA for envs that just reset (buffer was zeroed).
+    # Without this, the first ~5 steps have 80% attenuated actions,
+    # effectively paralyzing the robot and preventing stepping bootstrap.
+    just_reset = env._actions_smooth.abs().sum(dim=-1) < 1e-8
+    if just_reset.any():
+        env._actions_smooth[just_reset] = env._actions[just_reset]
+
     env._actions_smooth = (1.0 - beta) * env._actions_smooth + beta * env._actions
 
     # Apply action noise and delays if domain randomization is enabled

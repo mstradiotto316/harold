@@ -41,7 +41,6 @@ def healthy_forward_posture_mask(
     return (
         (upright > min_upright)
         & (current_height > target_height * min_height_ratio)
-        & (undesired_contacts == 0)
     )
 
 
@@ -52,7 +51,7 @@ def compute_forward_motion_reward(
     target_height: float,
     undesired_contacts: torch.Tensor,
     weight: float,
-    fallen_penalty_scale: float = 0.25,
+    fallen_penalty_scale: float = 0.1,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Reward forward motion only for healthy posture and penalize leaked reward otherwise."""
     healthy_mask = healthy_forward_posture_mask(

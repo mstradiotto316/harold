@@ -53,17 +53,18 @@ def compute_forward_motion_reward(
     weight: float,
     fallen_penalty_scale: float = 0.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Reward forward motion only for healthy posture and penalize leaked reward otherwise."""
-    healthy_mask = healthy_forward_posture_mask(
-        upright=upright,
-        current_height=current_height,
-        target_height=target_height,
-        undesired_contacts=undesired_contacts,
-    )
-    positive_forward = torch.relu(vx_b)
-    healthy_reward = weight * vx_b
-    fallen_penalty = weight * fallen_penalty_scale * positive_forward
-    reward = torch.where(healthy_mask, healthy_reward, -fallen_penalty)
+    """Reward forward motion scaled smoothly by posture quality.
+
+    Uses a continuous [0,1] gate instead of a binary mask so the policy always
+    receives gradient, with reward proportional to how upright and tall the robot is.
+    """
+    # Smooth posture gate: product of upright quality and height quality
+    upright_gate = upright.clamp(0.0, 1.0)
+    height_gate = (current_height / target_height).clamp(0.0, 1.0)
+    posture_quality = upright_gate * height_gate  # [0, 1]
+
+    reward = weight * vx_b * posture_quality
+    healthy_mask = posture_quality > 0.5  # informational only
     return reward, healthy_mask
 
 

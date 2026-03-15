@@ -65,5 +65,5 @@ agent:
 
 trainer:
   class: SequentialTrainer
-  timesteps: 15000           # ~15-20 min experiments
+  timesteps: 25000           # ~15-20 min experiments
   environment_info: log

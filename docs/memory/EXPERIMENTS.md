@@ -14,6 +14,19 @@ Each experiment entry contains:
 
 ## Experiments
 
+### SECURITY-2026-03-15: Public Repo Wi-Fi Secret Remediation
+- **Date**: 2026-03-15
+- **ID**: tracked root-level `.nmconnection` history scrub on `main` and `autoresearch/session-2026-03-14`
+- **Config**:
+  - Removed the tracked NetworkManager profile from git history with `git filter-repo --path <profile>.nmconnection --invert-paths`
+  - Rewrote historical SSID mentions with `git filter-repo --replace-text`
+  - Force-pushed rewritten `main` and `autoresearch/session-2026-03-14` with explicit lease checks
+- **Duration**: single maintenance pass
+- **Result**: **PASS** - public branch history no longer contains the tracked `.nmconnection` file or its Wi-Fi identifiers
+- **Notes**:
+  - The local `.nmconnection` file was left on disk as an ignored, untracked file so machine networking is not disrupted.
+  - A pre-rewrite bundle and working-tree patch were saved under `/tmp/harold-secret-cleanup.1ooni1/` during the remediation.
+
 ### AUDIT-EXPORT-2026-03-15: 48D Export And Validation
 - **Date**: 2026-03-15
 - **ID**: `deployment/policy/harold_policy.onnx`, `deployment/policy/harold_policy.ts`, `deployment/policy/policy_metadata.json`

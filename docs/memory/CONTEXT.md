@@ -48,6 +48,10 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 
 ## Current State (2026-03-15, Desktop Audit Remediation)
 - The March 2026 audit blockers have been repaired in the primary flat task, rough task, launcher, and export/deployment path.
+- Public-repo secret remediation was completed on 2026-03-15:
+  - removed the tracked root-level `.nmconnection` profile from git history
+  - rewrote historical Wi-Fi identifier strings from docs
+  - force-pushed rewritten `main` and `autoresearch/session-2026-03-14`
 - Flat task fixes now in code:
   - body-frame velocity tracking and command-error telemetry
   - forward-reward gating that blocks fallen/elbow-contact reward leakage

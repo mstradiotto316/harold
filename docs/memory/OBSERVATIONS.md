@@ -1,5 +1,10 @@
 # Harold Observations & Insights
 
+## 2026-03-15: Repo Secret Hygiene
+- A tracked `*.nmconnection` file is still a secret leak even if `.gitignore` already lists `*.nmconnection`; ignore rules do not retroactively untrack files.
+- Public-secret cleanup for git requires both steps: remove the file from `HEAD` and rewrite history. Deleting only the current file is insufficient once the repo has been pushed.
+- After a public-history rewrite, cached clones/forks may still hold the credential. Treat the credential as compromised and rotate it.
+
 ## 2026-03-15: Desktop Environment And Runtime Context
 - Desktop Isaac Lab work should use `/home/matteo/Desktop/env_isaaclab`; Raspberry Pi runtime work should use system `python3`.
 - `isaaclab` import success in the desktop venv does not imply Isaac Sim runtime modules are available.

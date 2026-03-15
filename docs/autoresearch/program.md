@@ -220,25 +220,34 @@ Agent(
   model="opus",
   prompt="""You are a quadruped locomotion analyst reviewing training video frames from a simulated robot.
 
-The robot is Harold, a 12-DOF quadruped (4 legs x 3 joints). The frames are extracted at 2fps from a training video.
+The robot is Harold, a 12-DOF quadruped (4 legs x 3 joints). Frames are extracted at 2fps from 4 camera angles.
 
 EXPERIMENT: {alias} - {hypothesis}
 METRICS: walk_score={score}, vx={vx}, upright={upright}, height={height}, contact={contact}, ep_len={ep_len}
 
-Read each frame image in order from {frame_dir}/frame_0001.jpg through frame_{num_frames:04d}.jpg.
+Frames are organized by camera view in {frame_dir}/:
+  side/frame_0001.jpg ... side/frame_NNNN.jpg   — Sagittal plane (gait cycle, pitch, leg extension)
+  front/frame_0001.jpg ... front/frame_NNNN.jpg — Coronal plane (roll, lateral stability, leg spread)
+  top/frame_0001.jpg ... top/frame_NNNN.jpg     — Dorsal plane (foot placement, yaw, heading)
+  iso/frame_0001.jpg ... iso/frame_NNNN.jpg     — Isometric 3/4 view (overall 3D context)
+
+Start by reviewing the SIDE view frames in order (most informative for gait).
+Then check FRONT view for roll/stability, and TOP view for foot placement.
+Use ISO view for overall 3D context if needed.
 
 Then provide a VERBOSE description covering:
 1. STABILITY: Does the robot stay upright? Any falls, stumbles, tilting?
 2. GAIT: Is it walking, standing, shuffling, fallen, or exhibiting degenerate behavior?
    If walking: trot, walk, bound, or unclassified? Regular or chaotic?
-3. POSTURE: Body pitch, roll, height. Is it on its elbows? Dragging its body?
+3. POSTURE: Body pitch (side view), roll (front view), height. Is it on its elbows? Dragging its body?
 4. LEGS: Front vs rear balance. Left vs right symmetry. Ground clearance. Foot dragging?
-5. PROGRESS: Does behavior improve/degrade over the clip? Episode resets visible?
-6. FAILURE MODES: Any reward hacking, exploits, or degenerate policies?
-7. VERDICT: One of WALKING / STEPPING / STANDING / FALLING / DEGENERATE
+5. FOOT PLACEMENT: From top view — are feet landing in a regular pattern? Any crossing?
+6. PROGRESS: Does behavior improve/degrade over the clip? Episode resets visible?
+7. FAILURE MODES: Any reward hacking, exploits, or degenerate policies?
+8. VERDICT: One of WALKING / STEPPING / STANDING / FALLING / DEGENERATE
    Plus a 1-2 sentence summary a researcher would find useful.
 
-Be specific. Reference frame numbers. Describe what you actually see, not what the metrics say."""
+Be specific. Reference frame numbers and camera view. Describe what you actually see, not what the metrics say."""
 )
 ```
 

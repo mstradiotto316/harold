@@ -696,7 +696,7 @@ def build_train_command(
     #  12000 envs: 10.6 it/s, 3.05M samples/s, GPU 6.4GB, RAM 10GB
     #  16384 envs:  8.7 it/s, 3.43M samples/s, GPU 7.6GB, RAM 11GB  <- MAX THROUGHPUT
     cmd = [
-        'python', str(PROJECT_ROOT / 'harold_isaac_lab' / 'scripts' / 'skrl' / 'train.py'),
+        sys.executable, str(PROJECT_ROOT / 'harold_isaac_lab' / 'scripts' / 'skrl' / 'train.py'),
         f'--task={task_id}',
         '--num_envs', str(num_envs),
         '--max_iterations', str(iterations),
@@ -720,12 +720,25 @@ def start_watchdog(pid: str) -> bool:
     if not watchdog_script.exists():
         return False
 
-    watchdog_cmd = (
-        f"python {watchdog_script} --pid {pid} "
-        f"--ram-kill {RAM_KILL_THRESHOLD} --swap-kill {SWAP_KILL_THRESHOLD} "
-        f"> {WATCHDOG_LOG_FILE} 2>&1 & echo $! > {WATCHDOG_PID_FILE}"
-    )
-    subprocess.run(['bash', '-c', watchdog_cmd])
+    with open(WATCHDOG_LOG_FILE, 'w', encoding='utf-8') as watchdog_log:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                str(watchdog_script),
+                '--pid',
+                str(pid),
+                '--ram-kill',
+                str(RAM_KILL_THRESHOLD),
+                '--swap-kill',
+                str(SWAP_KILL_THRESHOLD),
+            ],
+            cwd=PROJECT_ROOT,
+            stdout=watchdog_log,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    WATCHDOG_PID_FILE.write_text(str(process.pid))
     return True
 
 
@@ -798,7 +811,6 @@ def cmd_train(args):
         print(f"  Gait scale: {args.gait_scale}")
 
     # Launch training in background
-    # Build environment variable prefix (explicitly overrides inherited env)
     env_vars = {
         "HAROLD_CPG": "1" if mode == "cpg" else "0",
         "HAROLD_SCRIPTED_GAIT": "1" if mode == "scripted" else "0",
@@ -807,16 +819,20 @@ def cmd_train(args):
         env_vars["HAROLD_GAIT_AMP_SCALE"] = str(args.gait_scale)
     else:
         env_vars["HAROLD_GAIT_AMP_SCALE"] = ""
-    env_prefix = " ".join(f"{k}={v}" for k, v in env_vars.items())
-    if env_prefix:
-        env_prefix += " "
+    child_env = os.environ.copy()
+    child_env.update(env_vars)
 
-    shell_cmd = f"source {ENV_PATH} && cd {PROJECT_ROOT} && {env_prefix}{' '.join(cmd)} > {LOG_FILE} 2>&1 &"
-    process = subprocess.Popen(
-        ['bash', '-c', shell_cmd + f" echo $! > {PID_FILE}"],
-        cwd=PROJECT_ROOT,
-    )
-    process.wait()
+    with open(LOG_FILE, 'w', encoding='utf-8') as train_log:
+        process = subprocess.Popen(
+            cmd,
+            cwd=PROJECT_ROOT,
+            env=child_env,
+            stdout=train_log,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    PID_FILE.write_text(str(process.pid))
     time.sleep(2)
 
     if not PID_FILE.exists():
@@ -1346,8 +1362,33 @@ def cmd_snapshot_config(args):
     return 0
 
 
+def _extract_step_number(filename: str) -> int:
+    """Extract the step number from a video filename like 'rl-video-step-3200-side.mp4'."""
+    import re
+    m = re.search(r'rl-video-step-(\d+)', filename)
+    return int(m.group(1)) if m else -1
+
+
+def _extract_frames_from_video(video: Path, out_dir: Path, fps: int) -> list:
+    """Run ffmpeg to extract frames from a single video. Returns list of frame paths."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", str(video), "-vf", f"fps={fps}", "-q:v", "2",
+         str(out_dir / "frame_%04d.jpg")],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        print(f"WARNING: ffmpeg failed for {video.name}: {result.stderr[-200:]}")
+        return []
+    return sorted(out_dir.glob("frame_*.jpg"))
+
+
 def cmd_frames(args):
-    """Extract frames from the latest training video for analysis."""
+    """Extract frames from the latest training video(s) for analysis.
+
+    Supports both multi-camera videos (rl-video-step-N-{side,front,top,iso}.mp4)
+    and legacy single-camera videos (rl-video-step-N.mp4).
+    """
     run_path = resolve_experiment(args.run) if args.run else get_latest_run()
     if not run_path or not run_path.exists():
         print("ERROR: No run found")
@@ -1358,13 +1399,6 @@ def cmd_frames(args):
         print(f"ERROR: No videos directory at {video_dir}")
         return 1
 
-    # Find the latest video (highest step number)
-    videos = sorted(video_dir.glob("rl-video-step-*.mp4"))
-    if not videos:
-        print("ERROR: No training videos found")
-        return 1
-
-    video = videos[-1]  # Latest by step number
     fps = args.fps or 2
     out_dir = Path("/tmp/harold_review_frames")
 
@@ -1374,37 +1408,85 @@ def cmd_frames(args):
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True)
 
-    # Extract frames
-    result = subprocess.run(
-        ["ffmpeg", "-y", "-i", str(video), "-vf", f"fps={fps}", "-q:v", "2",
-         str(out_dir / "frame_%04d.jpg")],
-        capture_output=True, text=True
-    )
-    if result.returncode != 0:
-        print(f"ERROR: ffmpeg failed: {result.stderr[-200:]}")
-        return 1
-
-    frames = sorted(out_dir.glob("frame_*.jpg"))
     manifest = get_or_create_manifest(run_path)
+    cam_names = ["side", "front", "top", "iso"]
 
-    output = {
-        "run_name": run_path.name,
-        "alias": manifest.get("alias", ""),
-        "hypothesis": manifest.get("hypothesis", ""),
-        "video": str(video),
-        "video_name": video.name,
-        "fps": fps,
-        "num_frames": len(frames),
-        "frame_dir": str(out_dir),
-        "frames": [str(f) for f in frames],
-    }
+    # Detect multi-camera videos (look for side camera as sentinel)
+    multi_cam_videos = sorted(video_dir.glob("rl-video-step-*-side.mp4"),
+                              key=lambda p: _extract_step_number(p.name))
+    if multi_cam_videos:
+        # Multi-camera mode
+        latest = multi_cam_videos[-1]
+        step = _extract_step_number(latest.name)
 
-    if args.json:
-        print(json.dumps(output, indent=2))
+        cameras = {}
+        total_frames = 0
+        for cam in cam_names:
+            video = video_dir / f"rl-video-step-{step}-{cam}.mp4"
+            if not video.exists():
+                continue
+            cam_dir = out_dir / cam
+            frames = _extract_frames_from_video(video, cam_dir, fps)
+            cameras[cam] = {
+                "video": str(video),
+                "video_name": video.name,
+                "num_frames": len(frames),
+                "frame_dir": str(cam_dir),
+                "frames": [str(f) for f in frames],
+            }
+            total_frames += len(frames)
+
+        output = {
+            "run_name": run_path.name,
+            "alias": manifest.get("alias", ""),
+            "hypothesis": manifest.get("hypothesis", ""),
+            "step": step,
+            "fps": fps,
+            "multi_camera": True,
+            "cameras": cameras,
+            "frame_dir": str(out_dir),
+        }
+
+        if args.json:
+            print(json.dumps(output, indent=2))
+        else:
+            print(f"Extracted frames at {fps}fps from step {step} ({len(cameras)} cameras)")
+            for cam, info in cameras.items():
+                print(f"  {cam}: {info['num_frames']} frames → {info['frame_dir']}/frame_*.jpg")
+            print(f"  Run: {run_path.name} ({manifest.get('alias', '')})")
     else:
-        print(f"Extracted {len(frames)} frames at {fps}fps from {video.name}")
-        print(f"  Run: {run_path.name} ({manifest.get('alias', '')})")
-        print(f"  Frames: {out_dir}/frame_*.jpg")
+        # Legacy single-video mode
+        videos = sorted(video_dir.glob("rl-video-step-*.mp4"),
+                        key=lambda p: _extract_step_number(p.name))
+        if not videos:
+            print("ERROR: No training videos found")
+            return 1
+
+        video = videos[-1]
+        frames = _extract_frames_from_video(video, out_dir, fps)
+        if not frames:
+            return 1
+
+        output = {
+            "run_name": run_path.name,
+            "alias": manifest.get("alias", ""),
+            "hypothesis": manifest.get("hypothesis", ""),
+            "video": str(video),
+            "video_name": video.name,
+            "step": _extract_step_number(video.name),
+            "fps": fps,
+            "multi_camera": False,
+            "num_frames": len(frames),
+            "frame_dir": str(out_dir),
+            "frames": [str(f) for f in frames],
+        }
+
+        if args.json:
+            print(json.dumps(output, indent=2))
+        else:
+            print(f"Extracted {len(frames)} frames at {fps}fps from {video.name}")
+            print(f"  Run: {run_path.name} ({manifest.get('alias', '')})")
+            print(f"  Frames: {out_dir}/frame_*.jpg")
 
     return 0
 

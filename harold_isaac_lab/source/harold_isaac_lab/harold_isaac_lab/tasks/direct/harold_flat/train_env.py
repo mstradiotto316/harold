@@ -21,6 +21,60 @@ import json
 import torch
 
 
+def compute_body_frame_command_errors(root_lin_vel_b: torch.Tensor, commands: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return absolute X/Y command errors in the body frame."""
+    return (
+        torch.abs(root_lin_vel_b[:, 0] - commands[:, 0]),
+        torch.abs(root_lin_vel_b[:, 1] - commands[:, 1]),
+    )
+
+
+def healthy_forward_posture_mask(
+    upright: torch.Tensor,
+    current_height: torch.Tensor,
+    target_height: float,
+    undesired_contacts: torch.Tensor,
+    min_upright: float = 0.75,
+    min_height_ratio: float = 0.65,
+) -> torch.Tensor:
+    """Identify postures that are allowed to earn positive forward reward."""
+    return (
+        (upright > min_upright)
+        & (current_height > target_height * min_height_ratio)
+        & (undesired_contacts == 0)
+    )
+
+
+def compute_forward_motion_reward(
+    vx_b: torch.Tensor,
+    upright: torch.Tensor,
+    current_height: torch.Tensor,
+    target_height: float,
+    undesired_contacts: torch.Tensor,
+    weight: float,
+    fallen_penalty_scale: float = 0.25,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Reward forward motion only for healthy posture and penalize leaked reward otherwise."""
+    healthy_mask = healthy_forward_posture_mask(
+        upright=upright,
+        current_height=current_height,
+        target_height=target_height,
+        undesired_contacts=undesired_contacts,
+    )
+    positive_forward = torch.relu(vx_b)
+    healthy_reward = weight * vx_b
+    fallen_penalty = weight * fallen_penalty_scale * positive_forward
+    reward = torch.where(healthy_mask, healthy_reward, -fallen_penalty)
+    return reward, healthy_mask
+
+
+def extract_sim_time_scalar(time_buffer: torch.Tensor, env_index: int = 0) -> float:
+    """Serialize a single environment timestamp for JSON logging."""
+    if time_buffer.ndim == 0:
+        return float(time_buffer.item())
+    return float(time_buffer[env_index].item())
+
+
 def compute_rewards(env) -> torch.Tensor:
     """Compute per-step rewards for all environments.
 
@@ -33,15 +87,14 @@ def compute_rewards(env) -> torch.Tensor:
     cfg = env.cfg.rewards
 
     # === Extract quantities ===
-    root_lin_vel_w = env._robot.data.root_lin_vel_w
     root_lin_vel_b = env._robot.data.root_lin_vel_b
     root_ang_vel_b = env._robot.data.root_ang_vel_b
     projected_gravity = env._robot.data.projected_gravity_b
     joint_acc = env._robot.data.joint_acc
     applied_torque = env._robot.data.applied_torque
 
-    vx = root_lin_vel_w[:, 0]
-    vy = root_lin_vel_w[:, 1]
+    vx_b = root_lin_vel_b[:, 0]
+    vy_b = root_lin_vel_b[:, 1]
     vz_b = root_lin_vel_b[:, 2]
     wz = root_ang_vel_b[:, 2]
 
@@ -51,7 +104,7 @@ def compute_rewards(env) -> torch.Tensor:
 
     # === TASK REWARDS (exponential kernel) ===
     lin_vel_error = torch.sum(
-        torch.square(torch.stack([vx - cmd_vx, vy - cmd_vy], dim=1)), dim=1
+        torch.square(torch.stack([vx_b - cmd_vx, vy_b - cmd_vy], dim=1)), dim=1
     )
     track_lin_vel_xy = torch.exp(-lin_vel_error / (cfg.track_lin_vel_xy_std ** 2))
 
@@ -122,9 +175,15 @@ def compute_rewards(env) -> torch.Tensor:
     body_contact_penalty = -undesired_contacts
 
     # === FORWARD MOTION BONUS ===
-    # Direct reward for positive vx to bootstrap walking
-    # Gate by upright to avoid rewarding forward falling
-    forward_motion = cfg.forward_motion_weight * vx * upright.clamp(0.5, 1.0)
+    # Commands and observations are in the body frame, so the learning signal must match.
+    forward_motion, _ = compute_forward_motion_reward(
+        vx_b=vx_b,
+        upright=upright,
+        current_height=current_height,
+        target_height=target_height,
+        undesired_contacts=undesired_contacts,
+        weight=cfg.forward_motion_weight,
+    )
 
     # === STANCE HEIGHT REWARD ===
     # Directly reward standing tall — attacks the crouch-and-survive local minimum.
@@ -153,14 +212,15 @@ def compute_rewards(env) -> torch.Tensor:
     for key, value in rewards.items():
         env._episode_sums[key] += value
 
-    # Telemetry
-    env._episode_sums["vx_w_mean"] += vx
-    env._episode_sums["vy_w_mean"] += torch.abs(vy)
+    # Telemetry: keep world-frame speed diagnostic metrics separate from body-frame command tracking.
+    env._episode_sums["vx_w_mean"] += env._robot.data.root_lin_vel_w[:, 0]
+    env._episode_sums["vy_w_mean"] += torch.abs(env._robot.data.root_lin_vel_w[:, 1])
     env._episode_sums["upright_mean"] += upright.clamp(0.0, 1.0)
     env._episode_sums["height_reward"] += height_reward
     env._episode_sums["body_contact_penalty"] += body_contact_penalty
-    env._episode_sums["cmd_vx_error"] += torch.abs(vx - cmd_vx)
-    env._episode_sums["cmd_vy_error"] += torch.abs(vy - cmd_vy)
+    cmd_vx_error, cmd_vy_error = compute_body_frame_command_errors(root_lin_vel_b, env._commands)
+    env._episode_sums["cmd_vx_error"] += cmd_vx_error
+    env._episode_sums["cmd_vy_error"] += cmd_vy_error
     env._episode_sums["cmd_yaw_error"] += torch.abs(wz - cmd_yaw)
 
     return total_reward
@@ -195,11 +255,6 @@ def compute_observations(env) -> dict:
     if env.cfg.domain_randomization.enable_randomization:
         obs = env._add_observation_noise(obs)
 
-    # Apply observation clipping (matches deployment)
-    if getattr(env.cfg, 'clip_observations', False):
-        clip_val = getattr(env.cfg, 'clip_observations_value', 5.0)
-        obs = torch.clamp(obs, -clip_val * 10, clip_val * 10)
-
     observations = {"policy": obs}
 
     # Update previous actions
@@ -209,7 +264,7 @@ def compute_observations(env) -> dict:
     if env._policy_log_dir is not None and env.num_envs > 0:
         entry = {
             "step": int(env._policy_log_step),
-            "sim_time": float(env._time),
+            "sim_time": extract_sim_time_scalar(env._time),
             "observation": obs[0].detach().cpu().tolist(),
             "command": env._commands[0].detach().cpu().tolist(),
             "raw_action": env._actions[0].detach().cpu().tolist(),

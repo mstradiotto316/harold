@@ -12,6 +12,7 @@ This is much faster than running a full simulation (seconds vs 8+ minutes).
 Usage:
     python validate_onnx_quick.py
 """
+import json
 import sys
 from pathlib import Path
 
@@ -22,10 +23,22 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Constants
-OBS_DIM = 50
 ACTION_DIM = 12
-CHECKPOINT_PATH = Path(__file__).parent.parent.parent / "logs/skrl/harold_direct/2025-12-30_07-30-54_ppo_torch/checkpoints/best_agent.pt"
 ONNX_PATH = Path(__file__).parent.parent / "policy/harold_policy.onnx"
+METADATA_PATH = Path(__file__).parent.parent / "policy/policy_metadata.json"
+
+
+def resolve_checkpoint_path() -> Path | None:
+    """Prefer the checkpoint recorded in the exported metadata."""
+    if METADATA_PATH.exists():
+        with open(METADATA_PATH, "r", encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        checkpoint_path = metadata.get("checkpoint_path")
+        if checkpoint_path:
+            candidate = Path(checkpoint_path)
+            if candidate.exists():
+                return candidate
+    return None
 
 
 def load_pytorch_model(checkpoint_path: Path):
@@ -47,7 +60,7 @@ def load_pytorch_model(checkpoint_path: Path):
     return checkpoint, running_mean, running_var
 
 
-def create_pytorch_policy(checkpoint):
+def create_pytorch_policy(checkpoint, obs_dim: int):
     """Recreate the policy network from checkpoint.
 
     skrl uses this structure:
@@ -59,11 +72,11 @@ def create_pytorch_policy(checkpoint):
 
     # Match skrl's GaussianMixin policy structure
     class PolicyNetwork(nn.Module):
-        def __init__(self):
+        def __init__(self, obs_dim: int):
             super().__init__()
             # Hidden layers: net_container is a Sequential
             self.net_container = nn.Sequential(
-                nn.Linear(50, 512),
+                nn.Linear(obs_dim, 512),
                 nn.ELU(),
                 nn.Linear(512, 256),
                 nn.ELU(),
@@ -78,7 +91,7 @@ def create_pytorch_policy(checkpoint):
             return self.policy_layer(features)
 
     # Create model
-    model = PolicyNetwork()
+    model = PolicyNetwork(obs_dim)
 
     # Extract only the policy weights (not log_std or value)
     policy_state = checkpoint["policy"]
@@ -105,8 +118,7 @@ def create_pytorch_policy(checkpoint):
 def normalize_observation(obs: np.ndarray, mean: np.ndarray, var: np.ndarray) -> np.ndarray:
     """Apply running stats normalization."""
     eps = 1e-8
-    normalized = (obs - mean) / np.sqrt(var + eps)
-    return np.clip(normalized, -5.0, 5.0)
+    return (obs - mean) / np.sqrt(var + eps)
 
 
 def generate_test_observations(mean: np.ndarray, var: np.ndarray, n_samples: int = 10) -> np.ndarray:
@@ -122,7 +134,7 @@ def generate_test_observations(mean: np.ndarray, var: np.ndarray, n_samples: int
     std = np.sqrt(var + 1e-8)
     for _ in range(n_samples - 1):
         # Random perturbation within 2 std
-        perturbation = np.random.randn(OBS_DIM) * std * 0.5
+        perturbation = np.random.randn(mean.shape[0]) * std * 0.5
         obs = mean + perturbation
         observations.append(obs)
 
@@ -135,8 +147,9 @@ def main():
     print("=" * 70)
 
     # Check files exist
-    if not CHECKPOINT_PATH.exists():
-        print(f"ERROR: Checkpoint not found: {CHECKPOINT_PATH}")
+    checkpoint_path = resolve_checkpoint_path()
+    if checkpoint_path is None:
+        print(f"ERROR: Could not resolve checkpoint from {METADATA_PATH}")
         sys.exit(1)
 
     if not ONNX_PATH.exists():
@@ -145,12 +158,12 @@ def main():
 
     # Load PyTorch model
     print("\n1. Loading PyTorch checkpoint...")
-    checkpoint, running_mean, running_var = load_pytorch_model(CHECKPOINT_PATH)
+    checkpoint, running_mean, running_var = load_pytorch_model(checkpoint_path)
 
     # Try to create and run PyTorch model
     print("\n2. Creating PyTorch policy...")
     try:
-        pytorch_model = create_pytorch_policy(checkpoint)
+        pytorch_model = create_pytorch_policy(checkpoint, obs_dim=int(running_mean.shape[0]))
         print("  PyTorch model created successfully")
     except Exception as e:
         print(f"  WARNING: Could not create PyTorch model: {e}")
@@ -249,13 +262,14 @@ def main():
     import json
 
     test_data = {
-        "metadata": {
-            "checkpoint": str(CHECKPOINT_PATH),
-            "num_samples": len(raw_observations),
-            "obs_dim": OBS_DIM,
-            "action_dim": ACTION_DIM,
-            "running_mean": running_mean.tolist(),
-            "running_var": running_var.tolist(),
+            "metadata": {
+                "checkpoint": str(checkpoint_path),
+                "policy_metadata": str(METADATA_PATH),
+                "num_samples": len(raw_observations),
+                "obs_dim": int(running_mean.shape[0]),
+                "action_dim": ACTION_DIM,
+                "running_mean": running_mean.tolist(),
+                "running_var": running_var.tolist(),
         },
         "timesteps": [
             {

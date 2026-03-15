@@ -94,19 +94,21 @@ python scripts/autoresearch.py score '{"episode_length": 450, "upright_mean": 0.
 
 ### Step 7: Evaluate (Qualitative - Video)
 
-Find the latest training video:
+Extract frames from all camera angles using the harold CLI:
 ```bash
-ls logs/skrl/harold_direct/<run_id>/videos/train/ | sort | tail -1
+python scripts/harold.py frames --json
 ```
 
-Extract montage frames (16 frames per image at 2fps):
+This extracts frames from all 4 camera views (side, front, top, iso) into `/tmp/harold_review_frames/<camera>/frame_*.jpg`.
+
+For quick manual montage from a single view:
 ```bash
-ffmpeg -y -i <video.mp4> \
+ffmpeg -y -i rl-video-step-<N>-side.mp4 \
   -vf "fps=2,drawtext=text='%{frame_num}':x=10:y=10:fontsize=20:fontcolor=white:box=1:boxcolor=black@0.5,tile=4x4" \
   -q:v 2 /tmp/harold_montage_%03d.jpg
 ```
 
-Load 1-3 montage images and analyze per `docs/skills/video_annotation.md`.
+Load frames and analyze per `docs/skills/video_annotation.md`.
 
 Map to qualitative score (0-100):
 - 80-100: Stable trot/walk, regular stepping, good clearance

@@ -14,6 +14,54 @@ Each experiment entry contains:
 
 ## Experiments
 
+### AUDIT-EXPORT-2026-03-15: 48D Export And Validation
+- **Date**: 2026-03-15
+- **ID**: `deployment/policy/harold_policy.onnx`, `deployment/policy/harold_policy.ts`, `deployment/policy/policy_metadata.json`
+- **Config**:
+  - Exported from `logs/skrl/harold_direct/terrain_64_2/checkpoints/best_agent.pt`
+  - Metadata derived from checkpoint normalization stats and canonical stance/config
+  - Desktop venv updated with `deployment/requirements.txt` so ONNX-side validation could run locally
+- **Duration**: single export plus validation pass
+- **Result**: **PASS** - export/deployment path now agrees on 48D
+- **Metrics**:
+  - `policy/validate_export.py`: ONNX vs reference `mean.max_abs=2.15e-06`
+  - `deployment/validation/validate_onnx_quick.py`: PASS
+  - `deployment/validation/validate_onnx_vs_sim.py --data deployment/validation/sim_episode.json`: PASS (20/20 timesteps)
+- **Notes**:
+  - Controller initialization now accepts regenerated 48D metadata and reaches the hardware-connect boundary without legacy-dimension failure.
+
+### EXP-257: Audit Phase 1 Flat Smoke
+- **Date**: 2026-03-15
+- **ID**: `2026-03-15_02-00-25_ppo_torch`
+- **Config**:
+  - Flat task, RL mode
+  - `python scripts/harold.py train --duration fast --num-envs 64`
+  - `HAROLD_POLICY_LOG_DIR=tmp/audit_phase1_policy_log_64d`
+- **Duration**: ~90s before manual stop
+- **Result**: **SMOKE PASS** - launcher, mandatory video, status reporting, and multi-env policy logging all worked
+- **Metrics**:
+  - `harold status`: running at ~12.9 avg it/s with 64 envs
+  - `harold validate EXP-257`: STANDING (`episode_length=599`, `upright_mean=0.9885`, `height_reward=0.9237`, `vx_w_mean=-0.0082`)
+- **Notes**:
+  - Video files written under `logs/skrl/harold_direct/2026-03-15_02-00-25_ppo_torch/videos/train/`
+  - Policy log smoke produced `tmp/audit_phase1_policy_log_64d/policy_steps.jsonl` with 504 entries
+  - Flat termination telemetry buckets were verified separately in `2026-03-15_02-10-19_ppo_torch` after the tensor-scalar logging fix.
+
+### EXP-259: Audit Phase 2 Rough Smoke
+- **Date**: 2026-03-15
+- **ID**: `2026-03-15_02-03-30_ppo_torch`
+- **Config**:
+  - Rough task, RL mode
+  - `python scripts/harold.py train --task rough --duration fast --num-envs 64`
+- **Duration**: ~78s before manual stop
+- **Result**: **SMOKE PASS** for launcher/video/randomization telemetry, **TASK FAIL** on current policy state
+- **Metrics**:
+  - `harold status`: SANITY_FAIL (`episode_length≈5`, `height_reward≈0.13`)
+  - TensorBoard emitted `terrain_level_{min,mean,max}` and `randomized_{friction,stiffness,damping,mass_scale}_mean`
+- **Notes**:
+  - Video fallback for non-flat tasks produced `rl-video-step-0-main.mp4`
+  - Rough reset path now starts cleanly with actual property mutation and terrain-span logging enabled.
+
 ### HW-CPG-2026-01-04: Baseline Comparison (Test 1-3)
 - **Date**: 2026-01-04
 - **ID**: `session_2026-01-04_18-40-39.csv`, `session_2026-01-04_18-41-11.csv`, `session_2026-01-04_18-43-41.csv`

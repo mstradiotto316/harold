@@ -16,13 +16,27 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.math import quat_from_angle_axis, sample_uniform
 from isaaclab.utils.noise import gaussian_noise, uniform_noise
 
+_REPO_ROOT = None
+for _parent in Path(__file__).resolve().parents:
+    if (_parent / "AGENTS.md").exists():
+        _REPO_ROOT = _parent
+        break
+if _REPO_ROOT is None:
+    _parents = list(Path(__file__).resolve().parents)
+    if len(_parents) > 8:
+        _REPO_ROOT = _parents[8]
+if _REPO_ROOT and str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from common.env_state import reset_policy_state_buffers
+
 
 class HaroldIsaacLabEnv(DirectRLEnv):
     """Reinforcement Learning Environment for Harold Quadruped Robot.
     
     This class implements a sophisticated RL training environment for a 12-DOF quadruped robot
     with multi-terrain support and comprehensive reward shaping. The
-    environment features progressive terrain difficulty scaling, velocity command tracking,
+    environment samples across the generated rough-terrain span while tracking velocity commands,
     and energy-efficient locomotion rewards.
     
     Key Features:
@@ -605,7 +619,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         if self._policy_log_dir is not None and self.num_envs > 0:
             entry = {
                 "step": int(self._policy_log_step),
-                "sim_time": float(self._time),
+                "sim_time": float(self._time[0].item()),
                 "observation": obs[0].detach().cpu().tolist(),
                 "command": self._commands[0].detach().cpu().tolist(),
                 "raw_action": self._actions[0].detach().cpu().tolist(),
@@ -853,9 +867,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
     def _reset_idx(self, env_ids: Sequence[int] | None = None) -> None:
         """Reset specified environments to initial state with terrain selection.
         
-        Resets robot pose, joint states, command generation, and terrain assignment based
-        Implements sophisticated terrain system where
-        environments are assigned progressively harder terrain patches during training.
+        Resets robot pose, joint states, command generation, and terrain assignment.
+        The rough task samples from the configured terrain span on each reset rather than
+        running a progression schedule inside this Direct environment.
         
         Args:
             env_ids: Sequence of environment indices to reset. If None, resets all environments.
@@ -890,8 +904,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
            - Training progress tracking
            
         Terrain Grid Structure:
-           - Level 0: Flat terrain, Level 9: Maximum difficulty
-           - Random selection from all terrain levels
+           - Lower rows remain easier because the generator uses curriculum ordering
+           - Reset sampling spans the configured difficulty range directly
            
         Performance Optimizations:
            - Batch processing of multiple environment resets
@@ -904,9 +918,14 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._robot.reset(env_ids)
         super()._reset_idx(env_ids)
 
-        # Reset action buffers
-        self._actions[env_ids].zero_()
-        self._previous_actions[env_ids].zero_()
+        reset_policy_state_buffers(
+            env_ids=env_ids,
+            actions=self._actions,
+            previous_actions=self._previous_actions,
+            prev_target_delta=self._prev_target_delta,
+            actions_smooth=getattr(self, "_actions_smooth", None),
+            action_delay_buffer=getattr(self, "_action_delay_buffer", None),
+        )
 
         # Sample velocity commands for reset environments
         # Ensure non-trivial magnitude to avoid idle tasks: sample angle and magnitude
@@ -933,17 +952,24 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         joint_pos = self._robot.data.default_joint_pos[env_ids]
         joint_vel = self._robot.data.default_joint_vel[env_ids]
         default_root_state = self._robot.data.default_root_state[env_ids]
+        self._processed_actions[env_ids] = joint_pos
 
         # Use terrain origins if available, otherwise use scene origins
         if hasattr(self._terrain, "env_origins"):
             # Implement terrain selection
             if self.cfg.terrain.terrain_type == "generator" and hasattr(self._terrain, "terrain_origins"):
                 num_cols = self.cfg.terrain.terrain_generator.num_cols  # 20 variations per level
+                num_levels = self._terrain.terrain_origins.shape[0]
+                max_init_level_cfg = self.cfg.terrain.max_init_terrain_level
+                if max_init_level_cfg is None:
+                    max_init_level = num_levels - 1
+                else:
+                    max_init_level = min(max_init_level_cfg, num_levels - 1)
                 # For each resetting environment, assign a terrain level randomly
                 for env_id in env_ids:
                     env_idx = int(env_id)
-                    # Randomly select a terrain level from allowed initial range
-                    terrain_level = torch.randint(0, self.cfg.terrain.max_init_terrain_level, (1,), device=self.device).item()
+                    # Sample from the configured terrain span using Isaac Lab's inclusive semantics.
+                    terrain_level = torch.randint(0, max_init_level + 1, (1,), device=self.device).item()
                     # Randomly select a column within that terrain level
                     terrain_col = torch.randint(0, num_cols, (1,), device=self.device).item()
                     # Update environment's terrain level tracking
@@ -988,6 +1014,17 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             buf[env_ids] = 0.0
         self.extras["log"] = {}
         self.extras["log"].update(log)
+        self.extras["log"].update(
+            {
+                "Episode_Metric/terrain_level_mean": torch.mean(self._env_terrain_levels[env_ids].float()),
+                "Episode_Metric/terrain_level_min": torch.min(self._env_terrain_levels[env_ids]).float(),
+                "Episode_Metric/terrain_level_max": torch.max(self._env_terrain_levels[env_ids]).float(),
+                "Episode_Metric/randomized_friction_mean": torch.mean(self._randomized_friction[env_ids]),
+                "Episode_Metric/randomized_stiffness_mean": torch.mean(self._randomized_stiffness[env_ids]),
+                "Episode_Metric/randomized_damping_mean": torch.mean(self._randomized_damping[env_ids]),
+                "Episode_Metric/randomized_mass_scale_mean": torch.mean(self._randomized_mass_scale[env_ids]),
+            }
+        )
 
         # Log termination reasons
         log_terms = {}
@@ -1002,16 +1039,22 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             orientation_fallen = self._robot.data.projected_gravity_b[:, 2] > -0.5
 
             # Count different termination types
-            log_terms["Episode_Termination/contact"] = int(
-                torch.sum(body_contact[env_ids] & self.reset_terminated[env_ids]).item()
-            )
-            log_terms["Episode_Termination/orientation"] = int(
-                torch.sum(orientation_fallen[env_ids] & self.reset_terminated[env_ids]).item()
-            )
+            contact_termination = torch.sum(
+                body_contact[env_ids] & self.reset_terminated[env_ids]
+            ).float()
+            orientation_termination = torch.sum(
+                orientation_fallen[env_ids] & self.reset_terminated[env_ids]
+            ).float()
         else:
-            log_terms["Episode_Termination/contact"] = 0
-            log_terms["Episode_Termination/orientation"] = 0
-        log_terms["Episode_Termination/time_out"] = int(torch.count_nonzero(self.reset_time_outs[env_ids]).item())
+            contact_termination = torch.zeros((), device=self.device)
+            orientation_termination = torch.zeros((), device=self.device)
+        timeout_termination = torch.count_nonzero(self.reset_time_outs[env_ids]).float()
+        log_terms["Episode_Termination/contact"] = contact_termination
+        log_terms["Episode_Termination/orientation"] = orientation_termination
+        log_terms["Episode_Termination/time_out"] = timeout_termination
+        log_terms["Episode_Metric/termination_contact"] = contact_termination
+        log_terms["Episode_Metric/termination_orientation"] = orientation_termination
+        log_terms["Episode_Metric/termination_time_out"] = timeout_termination
         self.extras["log"].update(log_terms)
 
     # ==========================================
@@ -1031,16 +1074,17 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             return
             
         num_envs_to_randomize = len(env_ids)
-        
+        self._randomized_stiffness[env_ids] = self._robot.data.default_joint_stiffness[env_ids].clone()
+        self._randomized_damping[env_ids] = self._robot.data.default_joint_damping[env_ids].clone()
+        self._randomized_mass_scale[env_ids] = 1.0
+
         # Randomize joint stiffness
         if self.cfg.domain_randomization.randomize_joint_stiffness:
             stiffness_min, stiffness_max = self.cfg.domain_randomization.stiffness_range
             self._randomized_stiffness[env_ids] = sample_uniform(
                 stiffness_min, stiffness_max, (num_envs_to_randomize, 12), self.device
             )
-            # Note: In Direct workflow, actuator properties are typically set at initialization
-            # Dynamic modification would require accessing the underlying PhysX articulation
-            # For now, store the values for potential use in custom PD control
+        self._robot.write_joint_stiffness_to_sim(self._randomized_stiffness[env_ids], env_ids=env_ids)
         
         # Randomize joint damping
         if self.cfg.domain_randomization.randomize_joint_damping:
@@ -1048,9 +1092,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             self._randomized_damping[env_ids] = sample_uniform(
                 damping_min, damping_max, (num_envs_to_randomize, 12), self.device
             )
-            # Note: In Direct workflow, actuator properties are typically set at initialization
-            # Dynamic modification would require accessing the underlying PhysX articulation
-            # For now, store the values for potential use in custom PD control
+        self._robot.write_joint_damping_to_sim(self._randomized_damping[env_ids], env_ids=env_ids)
         
         # Randomize mass (scale all link masses proportionally)
         if self.cfg.domain_randomization.randomize_mass:
@@ -1058,8 +1100,18 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             self._randomized_mass_scale[env_ids] = sample_uniform(
                 mass_min, mass_max, (num_envs_to_randomize,), self.device
             )
-            # Note: Mass randomization requires modifying body properties
-            # This is more complex in Direct workflow and may require USD modifications
+        env_ids_cpu = env_ids.to(dtype=torch.long, device="cpu")
+        body_ids_cpu = torch.arange(self._robot.num_bodies, dtype=torch.int, device="cpu")
+        masses = self._robot.root_physx_view.get_masses()
+        default_masses = self._robot.data.default_mass[env_ids_cpu]
+        mass_scale = self._randomized_mass_scale[env_ids].unsqueeze(1).cpu()
+        masses[env_ids_cpu[:, None], body_ids_cpu] = default_masses * mass_scale
+        self._robot.root_physx_view.set_masses(masses, env_ids_cpu)
+
+        inertias = self._robot.root_physx_view.get_inertias()
+        default_inertia = self._robot.data.default_inertia[env_ids_cpu]
+        inertias[env_ids_cpu[:, None], body_ids_cpu] = default_inertia * mass_scale.unsqueeze(-1)
+        self._robot.root_physx_view.set_inertias(inertias, env_ids_cpu)
     
     def _randomize_physics_materials(self, env_ids: torch.Tensor) -> None:
         """Randomize physics material properties for specified environments.
@@ -1073,15 +1125,22 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             return
             
         num_envs_to_randomize = len(env_ids)
-        
+        default_friction = float(self.cfg.sim.physics_material.static_friction)
+        self._randomized_friction[env_ids] = default_friction
+
         # Randomize friction
         if self.cfg.domain_randomization.randomize_friction:
             friction_min, friction_max = self.cfg.domain_randomization.friction_range
             self._randomized_friction[env_ids] = sample_uniform(
                 friction_min, friction_max, (num_envs_to_randomize,), self.device
             )
-            # Note: In Direct workflow, material properties are typically set at scene creation
-            # Dynamic modification requires accessing PhysX APIs directly
+        env_ids_cpu = env_ids.to(dtype=torch.long, device="cpu")
+        materials = self._robot.root_physx_view.get_material_properties()
+        friction = self._randomized_friction[env_ids].cpu().unsqueeze(1)
+        friction = friction.expand(-1, materials.shape[1])
+        materials[env_ids_cpu, :, 0] = friction
+        materials[env_ids_cpu, :, 1] = friction
+        self._robot.root_physx_view.set_material_properties(materials, env_ids_cpu)
     
     def _add_observation_noise(self, observations: torch.Tensor) -> torch.Tensor:
         """Add noise to observations to simulate sensor imperfections.

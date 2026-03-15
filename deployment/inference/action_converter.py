@@ -6,6 +6,7 @@ Converts policy output to servo commands:
     3. Apply safety limits (if enabled)
 """
 import math
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -13,6 +14,11 @@ from typing import Optional
 import numpy as np
 import yaml
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from common.policy_config import DEFAULT_ACTION_SCALE, JOINT_RANGE_BY_CATEGORY, JOINT_SIGN
 from inference.stance import load_hw_default_pose, load_rl_default_pose
 
 def _expand_joint_sign(js: dict) -> np.ndarray:
@@ -55,16 +61,15 @@ class ActionConfig:
     # Joint sign correction (RL <-> hardware)
     joint_sign: np.ndarray = None
 
+    # Training-time action scale.
+    action_scale: float = DEFAULT_ACTION_SCALE
+
     # Safe joint limits (degrees, in hardware convention)
     safe_limits_deg: dict = None
 
     def __post_init__(self):
         if self.joint_range is None:
-            self.joint_range = {
-                "shoulder": 0.30,
-                "thigh": 0.90,
-                "calf": 0.90,
-            }
+            self.joint_range = dict(JOINT_RANGE_BY_CATEGORY)
 
         if self.hw_default_pose is None:
             # Hardware convention - ready stance (from config/stance.yaml)
@@ -76,11 +81,7 @@ class ActionConfig:
 
         if self.joint_sign is None:
             # Sign conversion: hw = hw_default + (rl - rl_default) * joint_sign
-            self.joint_sign = np.array([
-                1.0, 1.0, 1.0, 1.0,       # Shoulders (same)
-                -1.0, -1.0, -1.0, -1.0,   # Thighs (inverted)
-                -1.0, -1.0, -1.0, -1.0,   # Calves (inverted)
-            ], dtype=np.float32)
+            self.joint_sign = np.array(JOINT_SIGN, dtype=np.float32)
 
         if self.safe_limits_deg is None:
             self.safe_limits_deg = {
@@ -90,19 +91,20 @@ class ActionConfig:
             }
 
     @classmethod
-    def from_yaml(cls, cpg_path: Path, hw_path: Path) -> "ActionConfig":
+    def from_yaml(cls, cpg_path: Path, hw_path: Path, metadata: dict | None = None) -> "ActionConfig":
         """Load config from YAML files."""
         with open(cpg_path) as f:
             cpg_data = yaml.safe_load(f)
         with open(hw_path) as f:
             hw_data = yaml.safe_load(f)
+        metadata = metadata or {}
 
         # Get joint ranges from CPG config
-        jr = cpg_data.get("joint_range", {})
+        jr = metadata.get("joint_range", cpg_data.get("joint_range", {}))
         joint_range = {
-            "shoulder": jr.get("shoulder", 0.30),
-            "thigh": jr.get("thigh", 0.90),
-            "calf": jr.get("calf", 0.90),
+            "shoulder": jr.get("shoulder", JOINT_RANGE_BY_CATEGORY["shoulder"]),
+            "thigh": jr.get("thigh", JOINT_RANGE_BY_CATEGORY["thigh"]),
+            "calf": jr.get("calf", JOINT_RANGE_BY_CATEGORY["calf"]),
         }
 
         # Get safe limits from hardware config
@@ -121,7 +123,11 @@ class ActionConfig:
         rl_default_pose = load_rl_default_pose(cpg_path)
 
         # Get joint sign from CPG config (supports per-shoulder overrides)
-        joint_sign = _expand_joint_sign(cpg_data.get("joint_sign", {}))
+        metadata_joint_sign = metadata.get("joint_sign")
+        if isinstance(metadata_joint_sign, list) and len(metadata_joint_sign) == 12:
+            joint_sign = np.array(metadata_joint_sign, dtype=np.float32)
+        else:
+            joint_sign = _expand_joint_sign(cpg_data.get("joint_sign", {}))
 
         return cls(
             joint_range=joint_range,
@@ -129,6 +135,7 @@ class ActionConfig:
             rl_default_pose=rl_default_pose,
             joint_sign=joint_sign,
             safe_limits_deg=safe_limits_deg,
+            action_scale=float(metadata.get("action_scale", DEFAULT_ACTION_SCALE)),
         )
 
 
@@ -193,8 +200,7 @@ class ActionConverter:
             )
 
         # targets = rl_default + action * action_scale * joint_range
-        action_scale = 0.5  # Standard action scale
-        scaled = self._smooth_action * action_scale * self._joint_ranges
+        scaled = self._smooth_action * self.cfg.action_scale * self._joint_ranges
         rl_targets = self.cfg.rl_default_pose + scaled
 
         # Convert from RL convention to hardware convention

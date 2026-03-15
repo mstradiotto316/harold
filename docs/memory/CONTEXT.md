@@ -46,11 +46,36 @@ When ending a session and transferring to another machine:
 ## Goal
 Train a controllable walking gait for the Harold quadruped robot that can follow velocity commands.
 
-## Current State (2026-03-15, Desktop Audit)
-- A full simulation audit identified several blockers that should be fixed before trusting new training runs or exporting new policies.
-- Highest-priority issues: flat-task reward/telemetry frame mismatch, forward-reward leakage into fallen states, rough-task domain-randomization paths that do not actually touch simulator physics, rough-terrain sampling limited to the easiest levels, and stale 50D export tooling in a now-48D stack.
-- Formal remediation sequence lives in `PLAN.md` at the repo root.
-- Desktop environment/runtime guidance is now explicitly documented in `AGENTS.md`, `docs/index.md`, `docs/overview.md`, and `docs/sim/isaac_lab_extension.md` so agents use `~/Desktop/env_isaaclab` for desktop work and do not treat plain-shell `omni` import failures as missing dependencies.
+## Current State (2026-03-15, Desktop Audit Remediation)
+- The March 2026 audit blockers have been repaired in the primary flat task, rough task, launcher, and export/deployment path.
+- Flat task fixes now in code:
+  - body-frame velocity tracking and command-error telemetry
+  - forward-reward gating that blocks fallen/elbow-contact reward leakage
+  - env-side observation clipping removed so comments/tooling no longer claim nonexistent normalized clipping
+  - EMA/action-history buffers reset correctly across episodes
+  - multi-env policy logging fixed
+  - reset telemetry split into explicit termination buckets
+- Rough task fixes now in code:
+  - reset-time randomization mutates simulator friction/stiffness/damping/mass/inertia
+  - terrain reset sampling spans the configured terrain range
+  - terrain/randomization values are logged to TensorBoard
+  - mandatory video works via `render()` fallback when multi-camera capture is unavailable
+- Export/deployment fixes now in code:
+  - exporter/metadata/validation/controller are all 48D
+  - metadata is sourced from checkpoint stats plus canonical stance/config
+  - fresh artifacts were regenerated from `logs/skrl/harold_direct/terrain_64_2/checkpoints/best_agent.pt`
+- Verification completed this session:
+  - `py_compile` on edited modules
+  - `pytest deployment/tests/test_inference.py -q` (7 passed)
+  - `policy/validate_export.py` PASS
+  - `deployment/validation/validate_onnx_quick.py` PASS
+  - `deployment/validation/validate_onnx_vs_sim.py --data deployment/validation/sim_episode.json` PASS
+  - CLI flat smoke (`EXP-257`) PASS for launcher/video/logging
+  - CLI rough smoke (`EXP-259`) PASS for launcher/video/randomization telemetry, but still SANITY_FAIL as a learning result
+- Remaining cleanup is smaller in scope:
+  - several legacy deployment debug scripts still assume the retired 50D/phase-based observation path
+  - default 8192-env CLI launch was not re-tested after the launcher/video fixes, so the 64-env audit smoke override is not yet retired
+- Formal remediation sequence still lives in `PLAN.md`, but the repo has moved from "audit blockers unaddressed" to "core audit blockers fixed and verified."
 
 ## Project Overview
 - **Robot**: 12-DOF quadruped (4 legs × 3 joints: shoulder, thigh, calf)

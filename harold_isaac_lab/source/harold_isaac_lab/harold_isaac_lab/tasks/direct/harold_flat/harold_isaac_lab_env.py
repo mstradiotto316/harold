@@ -3,6 +3,7 @@ import sys
 import os
 import json
 from pathlib import Path
+import numpy as np
 import torch
 from isaaclab.assets import Articulation
 from isaaclab.envs import DirectRLEnv
@@ -31,6 +32,7 @@ if _REPO_ROOT and str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from common import cpg_math
+from common.env_state import reset_policy_state_buffers
 
 _CPG_OPS = cpg_math.torch_ops(torch)
 
@@ -342,13 +344,19 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "upright_mean",
             "height_reward",
             "body_contact_penalty",
-            "cmd_vx_error",
-            "cmd_vy_error",
+            "cmd_vx_error",  # Body-frame X command error.
+            "cmd_vy_error",  # Body-frame Y command error.
             "cmd_yaw_error",
         ]
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
             for key in [*self._reward_keys, *self._metric_keys]
+        }
+        self._termination_masks = {
+            "orientation": torch.zeros(self.num_envs, dtype=torch.bool, device=self.device),
+            "height": torch.zeros(self.num_envs, dtype=torch.bool, device=self.device),
+            "body_contact": torch.zeros(self.num_envs, dtype=torch.bool, device=self.device),
+            "elbow_pose": torch.zeros(self.num_envs, dtype=torch.bool, device=self.device),
         }
 
         # --- Gait Observability Buffers ---
@@ -853,6 +861,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 in_warmup = self.episode_length_buf < warmup_steps
                 elbow_pose_terminated = elbow_pose_terminated & ~in_warmup
 
+        self._termination_masks["orientation"] = orientation_terminated
+        self._termination_masks["height"] = height_terminated
+        self._termination_masks["body_contact"] = body_contact_terminated
+        self._termination_masks["elbow_pose"] = elbow_pose_terminated
+
         terminated = orientation_terminated | height_terminated | body_contact_terminated | elbow_pose_terminated
 
         return terminated, time_out
@@ -875,8 +888,14 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 self.episode_length_buf, high=int(self.max_episode_length)
             )
 
-        self._actions[env_ids].zero_()
-        self._previous_actions[env_ids].zero_()
+        reset_policy_state_buffers(
+            env_ids=env_ids,
+            actions=self._actions,
+            previous_actions=self._previous_actions,
+            prev_target_delta=self._prev_target_delta,
+            actions_smooth=getattr(self, "_actions_smooth", None),
+            action_delay_buffer=getattr(self, "_action_delay_buffer", None),
+        )
 
         # Reset backlash hysteresis state (Session 37)
         # Set engaged position to ready pose so policy starts fresh
@@ -930,6 +949,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             ready_pose = self._ready_pose.to(dtype=joint_pos.dtype).unsqueeze(0).repeat(num_reset_envs, 1)
             joint_pos = ready_pose
             self._robot.data.default_joint_pos[env_ids] = ready_pose
+            self._processed_actions[env_ids] = ready_pose
 
         if hasattr(self._terrain, 'env_origins'):
             if self.cfg.terrain.terrain_type == 'generator' and hasattr(self._terrain, 'terrain_origins'):
@@ -1030,8 +1050,22 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         self._episode_start_pos[env_ids] = default_root_state[:, :3]
 
-        log['Episode_Termination/orientation'] = int(torch.sum(self.reset_terminated[env_ids]).item())
-        log['Episode_Termination/time_out'] = int(torch.count_nonzero(self.reset_time_outs[env_ids]).item())
+        orientation_termination = torch.count_nonzero(self._termination_masks["orientation"][env_ids]).float()
+        height_termination = torch.count_nonzero(self._termination_masks["height"][env_ids]).float()
+        body_contact_termination = torch.count_nonzero(self._termination_masks["body_contact"][env_ids]).float()
+        elbow_pose_termination = torch.count_nonzero(self._termination_masks["elbow_pose"][env_ids]).float()
+        timeout_termination = torch.count_nonzero(self.reset_time_outs[env_ids]).float()
+
+        log['Episode_Termination/orientation'] = orientation_termination
+        log['Episode_Termination/height'] = height_termination
+        log['Episode_Termination/body_contact'] = body_contact_termination
+        log['Episode_Termination/elbow_pose'] = elbow_pose_termination
+        log['Episode_Termination/time_out'] = timeout_termination
+        log['Episode_Metric/termination_orientation'] = orientation_termination
+        log['Episode_Metric/termination_height'] = height_termination
+        log['Episode_Metric/termination_body_contact'] = body_contact_termination
+        log['Episode_Metric/termination_elbow_pose'] = elbow_pose_termination
+        log['Episode_Metric/termination_time_out'] = timeout_termination
 
         self.extras['log'] = log
 
@@ -1359,6 +1393,95 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             self._robot.set_external_force_and_torque(
                 forces, torques, body_ids=[self._base_id[0]]
             )
+
+    # ── Multi-camera capture ─────────────────────────────────────────────
+
+    # Camera offsets relative to robot root position.
+    # Each entry: (eye_offset, lookat_offset)
+    CAMERA_VIEWS = {
+        "side":  (np.array([0.0, -0.55, 0.15]), np.array([0.0, 0.0, 0.12])),
+        "front": (np.array([0.55, 0.0, 0.15]),  np.array([0.0, 0.0, 0.12])),
+        "top":   (np.array([0.0, 0.0, 0.7]),    np.array([0.0, 0.0, 0.0])),
+        "iso":   (np.array([0.5, -0.4, 0.35]),  np.array([0.0, 0.0, 0.12])),
+    }
+    MULTI_CAM_RESOLUTION = (960, 540)
+
+    def _setup_multi_cameras(self):
+        """Create USD camera prims, render products, and annotators for each view."""
+        import omni.replicator.core as rep
+        from pxr import UsdGeom, Gf
+
+        stage = self.sim.stage
+        self._multi_cam_info = {}
+        for name in self.CAMERA_VIEWS:
+            prim_path = f"/World/MultiCam_{name}"
+            if not stage.GetPrimAtPath(prim_path).IsValid():
+                cam_prim = UsdGeom.Camera.Define(stage, prim_path)
+                cam_prim.GetClippingRangeAttr().Set(Gf.Vec2f(0.01, 100.0))
+            rp = rep.create.render_product(prim_path, self.MULTI_CAM_RESOLUTION)
+            annotator = rep.AnnotatorRegistry.get_annotator("rgb", device="cpu")
+            annotator.attach([rp])
+            self._multi_cam_info[name] = {
+                "prim_path": prim_path,
+                "render_product": rp,
+                "annotator": annotator,
+            }
+
+    def _set_camera_transform(self, prim_path: str, eye: np.ndarray, target: np.ndarray):
+        """Set a USD camera prim's transform so it looks from *eye* toward *target*."""
+        from pxr import UsdGeom, Gf
+
+        forward = target - eye
+        forward = forward / (np.linalg.norm(forward) + 1e-8)
+        world_up = np.array([0.0, 0.0, 1.0])
+        right = np.cross(forward, world_up)
+        norm = np.linalg.norm(right)
+        if norm < 1e-6:
+            # Camera looking straight down — pick arbitrary right
+            right = np.array([1.0, 0.0, 0.0])
+        else:
+            right = right / norm
+        up = np.cross(right, forward)
+
+        # USD cameras look along -Z in local frame:
+        # local X = right, local Y = up, local Z = -forward
+        mat = Gf.Matrix4d(
+            float(right[0]), float(right[1]), float(right[2]), 0.0,
+            float(up[0]), float(up[1]), float(up[2]), 0.0,
+            float(-forward[0]), float(-forward[1]), float(-forward[2]), 0.0,
+            float(eye[0]), float(eye[1]), float(eye[2]), 1.0,
+        )
+        prim = self.sim.stage.GetPrimAtPath(prim_path)
+        UsdGeom.Xformable(prim).ClearXformOpOrder()
+        UsdGeom.Xformable(prim).AddTransformOp().Set(mat)
+
+    def capture_multi_cameras(self) -> dict[str, np.ndarray]:
+        """Capture a frame from each camera view. Returns {name: (H, W, 3) uint8 array}."""
+        if not hasattr(self, "_multi_cam_info"):
+            self._setup_multi_cameras()
+
+        # Update camera positions to track the robot
+        root_pos = self.scene["robot"].data.root_pos_w[0].detach().cpu().numpy()
+        for name, (eye_off, look_off) in self.CAMERA_VIEWS.items():
+            self._set_camera_transform(
+                self._multi_cam_info[name]["prim_path"],
+                root_pos + eye_off,
+                root_pos + look_off,
+            )
+
+        # Render to update all render products
+        self.sim.render()
+
+        # Read frames
+        w, h = self.MULTI_CAM_RESOLUTION
+        frames = {}
+        for name in self.CAMERA_VIEWS:
+            rgb_data = self._multi_cam_info[name]["annotator"].get_data()
+            if rgb_data.size == 0:
+                frames[name] = np.zeros((h, w, 3), dtype=np.uint8)
+            else:
+                frames[name] = np.frombuffer(rgb_data, dtype=np.uint8).reshape(*rgb_data.shape)[:, :, :3]
+        return frames
 
     def __del__(self):
         pass

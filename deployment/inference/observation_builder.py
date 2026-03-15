@@ -296,21 +296,20 @@ def normalize_observation(
     eps: float = 1e-8,
     clip_obs: float = 5.0,
 ) -> np.ndarray:
-    """Apply running stats normalization to observation.
+    """Apply running-stat normalization for debugging and offline analysis.
 
-    This is the same normalization used during training, with clipping
-    to prevent extreme values from causing policy instability.
+    The deployed ONNX policy normalizes internally and does not call this helper.
+    The optional clip is only for diagnostics when inspecting normalized vectors.
 
     Args:
         obs: Raw 48D observation
         running_mean: 48D running mean from training
         running_var: 48D running variance from training
         eps: Small value to avoid division by zero
-        clip_obs: Clip normalized observations to [-clip_obs, clip_obs]
-                  (matches rl_games clip_observations: 5.0)
+        clip_obs: Optional diagnostic clip for normalized observations
 
         Returns:
-            Normalized and clipped observation
+            Normalized observation, optionally clipped for diagnostics
     """
     normalized = (obs - running_mean) / np.sqrt(running_var + eps)
     return np.clip(normalized, -clip_obs, clip_obs)

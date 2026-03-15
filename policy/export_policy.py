@@ -1,89 +1,57 @@
 #!/usr/bin/env python3
-"""Export Harold CPG policy to TorchScript and ONNX for RPi 5 deployment."""
+"""Export a trained Harold policy to TorchScript and ONNX."""
+
+from __future__ import annotations
+
 import argparse
 import json
-import math
-import os
+import sys
 from pathlib import Path
 
 import torch
 
-# --- Constants from training config ---
-# Session 24: Updated to 50D (includes gait phase sin/cos)
-OBS_DIM = 50
-ACTION_DIM = 12
-JOINT_ORDER = [
-    "fl_shoulder_joint",
-    "fr_shoulder_joint",
-    "bl_shoulder_joint",
-    "br_shoulder_joint",
-    "fl_thigh_joint",
-    "fr_thigh_joint",
-    "bl_thigh_joint",
-    "br_thigh_joint",
-    "fl_calf_joint",
-    "fr_calf_joint",
-    "bl_calf_joint",
-    "br_calf_joint",
-]
-JOINT_SIGN = [
-    1.0, 1.0, 1.0, 1.0,
-   -1.0,-1.0,-1.0,-1.0,
-   -1.0,-1.0,-1.0,-1.0,
-]
-DEFAULT_JOINT_POS = {
-    "fl_shoulder_joint": 0.0,
-    "fr_shoulder_joint": 0.0,
-    "bl_shoulder_joint": 0.0,
-    "br_shoulder_joint": 0.0,
-    "fl_thigh_joint": 0.3,
-    "fr_thigh_joint": 0.3,
-    "bl_thigh_joint": 0.3,
-    "br_thigh_joint": 0.3,
-    "fl_calf_joint": -0.75,
-    "fr_calf_joint": -0.75,
-    "bl_calf_joint": -0.75,
-    "br_calf_joint": -0.75,
-}
-JOINT_RANGE = {
-    "shoulder": 0.30,
-    "thigh": 0.90,
-    "calf": 0.90,
-}
-JOINT_LIMITS = {
-    "shoulder": math.radians(30.0),
-    "thigh": math.radians(90.0),
-    "calf": math.radians(90.0),
-}
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from common.policy_config import (
+    DEFAULT_ACTION_SCALE,
+    FLAT_JOINT_LIMITS_BY_CATEGORY,
+    JOINT_ORDER,
+    JOINT_RANGE_BY_CATEGORY,
+    JOINT_SIGN,
+    load_rl_default_pose_dict,
+)
 
 
 class SharedPolicyValue(torch.nn.Module):
-    """Minimal replica of skrl shared policy/value network."""
+    """Minimal replica of the skrl shared policy/value network."""
 
-    def __init__(self):
+    def __init__(self, obs_dim: int, hidden_dims: tuple[int, int, int], action_dim: int):
         super().__init__()
+        h1, h2, h3 = hidden_dims
         self.net_container = torch.nn.Sequential(
-            torch.nn.Linear(OBS_DIM, 512),
+            torch.nn.Linear(obs_dim, h1),
             torch.nn.ELU(),
-            torch.nn.Linear(512, 256),
+            torch.nn.Linear(h1, h2),
             torch.nn.ELU(),
-            torch.nn.Linear(256, 128),
+            torch.nn.Linear(h2, h3),
             torch.nn.ELU(),
         )
-        self.policy_layer = torch.nn.Linear(128, ACTION_DIM)
-        self.value_layer = torch.nn.Linear(128, 1)
-        self.log_std_parameter = torch.nn.Parameter(torch.zeros(ACTION_DIM))
+        self.policy_layer = torch.nn.Linear(h3, action_dim)
+        self.value_layer = torch.nn.Linear(h3, 1)
+        self.log_std_parameter = torch.nn.Parameter(torch.zeros(action_dim))
 
     def forward(self, obs: torch.Tensor):
-        x = self.net_container(obs)
-        mean = self.policy_layer(x)
-        value = self.value_layer(x)
+        features = self.net_container(obs)
+        mean = self.policy_layer(features)
+        value = self.value_layer(features)
         log_std = self.log_std_parameter.expand_as(mean)
         return mean, value, log_std
 
 
 class NormalizedPolicy(torch.nn.Module):
-    """Wrap policy with running stats normalization."""
+    """Wrap the policy with the same running-stat normalization used in training."""
 
     def __init__(self, base: SharedPolicyValue, running_mean: torch.Tensor, running_var: torch.Tensor):
         super().__init__()
@@ -93,32 +61,83 @@ class NormalizedPolicy(torch.nn.Module):
         self.eps = 1.0e-8
 
     def forward(self, obs: torch.Tensor):
-        norm_obs = (obs - self.running_mean) / torch.sqrt(self.running_var + self.eps)
-        mean, value, log_std = self.base(norm_obs)
+        normalized_obs = (obs - self.running_mean) / torch.sqrt(self.running_var + self.eps)
+        mean, value, log_std = self.base(normalized_obs)
         return mean, value, log_std
 
 
-def export_policy(checkpoint_path: Path, output_dir: Path) -> None:
-    ckpt = torch.load(checkpoint_path, map_location="cpu")
+def infer_policy_dims(policy_state: dict[str, torch.Tensor]) -> tuple[int, tuple[int, int, int], int]:
+    """Infer network dimensions directly from checkpoint weights."""
+    obs_dim = int(policy_state["net_container.0.weight"].shape[1])
+    hidden_dims = (
+        int(policy_state["net_container.0.weight"].shape[0]),
+        int(policy_state["net_container.2.weight"].shape[0]),
+        int(policy_state["net_container.4.weight"].shape[0]),
+    )
+    action_dim = int(policy_state["policy_layer.weight"].shape[0])
+    return obs_dim, hidden_dims, action_dim
 
-    base = SharedPolicyValue()
-    base.load_state_dict(ckpt["policy"])
+
+def load_reference_policy(checkpoint_path: Path) -> tuple[NormalizedPolicy, torch.Tensor, torch.Tensor, int]:
+    """Load the checkpoint and rebuild the normalized policy."""
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    policy_state = checkpoint["policy"]
+    running_mean = checkpoint["state_preprocessor"]["running_mean"].float()
+    running_var = checkpoint["state_preprocessor"]["running_variance"].float()
+
+    obs_dim, hidden_dims, action_dim = infer_policy_dims(policy_state)
+    if running_mean.numel() != obs_dim:
+        raise ValueError(
+            f"Checkpoint normalization stats are {running_mean.numel()}D but the policy expects {obs_dim}D observations."
+        )
+
+    base = SharedPolicyValue(obs_dim=obs_dim, hidden_dims=hidden_dims, action_dim=action_dim)
+    base.load_state_dict(policy_state)
     base.eval()
-
-    running_mean = ckpt["state_preprocessor"]["running_mean"].float()
-    running_var = ckpt["state_preprocessor"]["running_variance"].float()
-
     wrapper = NormalizedPolicy(base, running_mean, running_var).eval()
+    return wrapper, running_mean, running_var, action_dim
+
+
+def build_policy_metadata(
+    checkpoint_path: Path,
+    running_mean: torch.Tensor,
+    running_var: torch.Tensor,
+    log_std_parameter: torch.Tensor,
+) -> dict[str, object]:
+    """Build deployment metadata from the active training configuration."""
+    return {
+        "schema_version": 2,
+        "observation_dim": int(running_mean.numel()),
+        "action_dim": len(JOINT_ORDER),
+        "action_scale": DEFAULT_ACTION_SCALE,
+        "joint_order": JOINT_ORDER,
+        "default_joint_pos": load_rl_default_pose_dict(),
+        "joint_range": JOINT_RANGE_BY_CATEGORY,
+        "joint_angle_min": {key: float(bounds[0]) for key, bounds in FLAT_JOINT_LIMITS_BY_CATEGORY.items()},
+        "joint_angle_max": {key: float(bounds[1]) for key, bounds in FLAT_JOINT_LIMITS_BY_CATEGORY.items()},
+        "joint_angle_limits": {
+            key: float(max(abs(bounds[0]), abs(bounds[1])))
+            for key, bounds in FLAT_JOINT_LIMITS_BY_CATEGORY.items()
+        },
+        "joint_sign": JOINT_SIGN,
+        "running_mean": running_mean.tolist(),
+        "running_variance": running_var.tolist(),
+        "log_std_parameter": log_std_parameter.tolist(),
+        "checkpoint_path": str(checkpoint_path),
+    }
+
+
+def export_policy(checkpoint_path: Path, output_dir: Path) -> None:
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    wrapper, running_mean, running_var, _ = load_reference_policy(checkpoint_path)
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    example = torch.zeros(1, OBS_DIM)
+    example = torch.zeros(1, running_mean.numel(), dtype=torch.float32)
 
-    # TorchScript export
     traced = torch.jit.trace(wrapper, example)
     traced.save(str(output_dir / "harold_policy.ts"))
 
-    # ONNX export (mean, value, log_std outputs)
     torch.onnx.export(
         wrapper,
         example,
@@ -134,30 +153,26 @@ def export_policy(checkpoint_path: Path, output_dir: Path) -> None:
         },
     )
 
-    # Write accompanying metadata
-    policy_meta = {
-        "action_scale": 1.0,
-        "joint_order": JOINT_ORDER,
-        "default_joint_pos": DEFAULT_JOINT_POS,
-        "joint_range": JOINT_RANGE,
-        "joint_angle_limits": {
-            k: float(v) for k, v in JOINT_LIMITS.items()
-        },
-        "joint_sign": JOINT_SIGN,
-        "running_mean": running_mean.tolist(),
-        "running_variance": running_var.tolist(),
-        "log_std_parameter": ckpt["policy"]["log_std_parameter"].tolist(),
-        "running_count": int(ckpt["state_preprocessor"]["current_count"].item()),
-        "checkpoint_path": str(checkpoint_path),
-    }
-    with open(output_dir / "policy_metadata.json", "w", encoding="utf-8") as f:
-        json.dump(policy_meta, f, indent=2)
+    policy_meta = build_policy_metadata(
+        checkpoint_path=checkpoint_path,
+        running_mean=running_mean,
+        running_var=running_var,
+        log_std_parameter=checkpoint["policy"]["log_std_parameter"],
+    )
+    policy_meta["running_count"] = int(checkpoint["state_preprocessor"]["current_count"].item())
+    with open(output_dir / "policy_metadata.json", "w", encoding="utf-8") as handle:
+        json.dump(policy_meta, handle, indent=2)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export Harold PPO policy")
-    parser.add_argument("--checkpoint", type=Path, required=True, help="Path to best_agent.pt checkpoint")
-    parser.add_argument("--output", type=Path, default=Path("deployment/policy"), help="Output directory for ONNX and metadata")
+    parser.add_argument("--checkpoint", type=Path, required=True, help="Path to the checkpoint")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("deployment/policy"),
+        help="Output directory for TorchScript, ONNX, and metadata",
+    )
     args = parser.parse_args()
 
     export_policy(args.checkpoint, args.output)

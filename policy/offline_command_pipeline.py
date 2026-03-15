@@ -9,8 +9,6 @@ from pathlib import Path
 import numpy as np
 import onnxruntime as ort
 
-# Session 24: Updated to 50D (includes gait phase sin/cos)
-OBS_DIM = 50
 ACTION_DIM = 12
 UNITS_PER_DEG = 4096.0 / 360.0
 SERVO_MID = 2047
@@ -34,26 +32,36 @@ def load_metadata(meta_path: Path):
     meta = json.loads(meta_path.read_text())
     joint_order = meta["joint_order"]
     default = np.array([meta["default_joint_pos"][name] for name in joint_order], dtype=np.float32)
+    obs_dim = int(meta.get("observation_dim", len(meta["running_mean"])))
     joint_range = meta["joint_range"]
-    joint_limits = {
-        "shoulder": (-meta["joint_angle_limits"]["shoulder"], meta["joint_angle_limits"]["shoulder"]),
-        "thigh": (-meta["joint_angle_limits"]["thigh"], meta["joint_angle_limits"]["thigh"]),
-        "calf": (-meta["joint_angle_limits"]["calf"], meta["joint_angle_limits"]["calf"]),
-    }
+    joint_angle_min = meta.get("joint_angle_min")
+    joint_angle_max = meta.get("joint_angle_max")
+    if joint_angle_min is not None and joint_angle_max is not None:
+        joint_limits = {
+            name: (joint_angle_min[name], joint_angle_max[name])
+            for name in ("shoulder", "thigh", "calf")
+        }
+    else:
+        joint_limits = {
+            "shoulder": (-meta["joint_angle_limits"]["shoulder"], meta["joint_angle_limits"]["shoulder"]),
+            "thigh": (-meta["joint_angle_limits"]["thigh"], meta["joint_angle_limits"]["thigh"]),
+            "calf": (-meta["joint_angle_limits"]["calf"], meta["joint_angle_limits"]["calf"]),
+        }
     joint_sign = np.array(meta.get("joint_sign", [1.0] * ACTION_DIM), dtype=np.float32)
-    return joint_order, default, joint_range, joint_limits, joint_sign
+    action_scale = float(meta.get("action_scale", 1.0))
+    return obs_dim, action_scale, joint_order, default, joint_range, joint_limits, joint_sign
 
 
-def read_observations(path: Path, num_samples: int | None) -> np.ndarray:
+def read_observations(path: Path, obs_dim: int, num_samples: int | None) -> np.ndarray:
     lines = path.read_text().strip().splitlines()
     if num_samples is not None:
         lines = lines[:num_samples]
     obs = []
     for idx, line in enumerate(lines):
         values = [float(x) for x in line.strip().strip("[]").split(",")]
-        if len(values) < OBS_DIM:
-            raise ValueError(f"Observation line {idx} has {len(values)} values (< {OBS_DIM})")
-        obs.append(values[:OBS_DIM])
+        if len(values) < obs_dim:
+            raise ValueError(f"Observation line {idx} has {len(values)} values (< {obs_dim})")
+        obs.append(values[:obs_dim])
     return np.asarray(obs, dtype=np.float32)
 
 
@@ -61,16 +69,22 @@ def clip_actions(actions: np.ndarray) -> np.ndarray:
     return np.clip(actions, -1.0, 1.0)
 
 
-def scale_to_joint_targets(actions: np.ndarray, default: np.ndarray, joint_range: dict, joint_limits: dict, joint_sign: np.ndarray) -> np.ndarray:
+def scale_to_joint_targets(
+    actions: np.ndarray,
+    default: np.ndarray,
+    joint_range: dict,
+    joint_limits: dict,
+    joint_sign: np.ndarray,
+    action_scale: float,
+) -> np.ndarray:
     targets = np.zeros_like(actions)
     for i in range(ACTION_DIM):
         category = JOINT_CATEGORIES[i]
         span = joint_range[category]
-        raw = default[i] + span * actions[:, i]
+        raw = default[i] + action_scale * span * actions[:, i]
         lo, hi = joint_limits[category]
         targets[:, i] = np.clip(raw, lo, hi)
     return targets * joint_sign
-    return targets
 
 
 def radians_to_servo_units(rad: np.ndarray) -> np.ndarray:
@@ -90,14 +104,14 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("deployment/policy/offline_commands.csv"))
     args = parser.parse_args()
 
-    joint_order, default_pose, joint_range, joint_limits, joint_sign = load_metadata(args.metadata)
-    obs = read_observations(args.observations, None if args.samples <= 0 else args.samples)
+    obs_dim, action_scale, joint_order, default_pose, joint_range, joint_limits, joint_sign = load_metadata(args.metadata)
+    obs = read_observations(args.observations, obs_dim, None if args.samples <= 0 else args.samples)
 
     sess = ort.InferenceSession(str(args.policy))
     mean, value, log_std = sess.run(None, {"obs": obs})
     actions = clip_actions(mean)
 
-    targets = scale_to_joint_targets(actions, default_pose, joint_range, joint_limits, joint_sign)
+    targets = scale_to_joint_targets(actions, default_pose, joint_range, joint_limits, joint_sign, action_scale)
     deg, servo = radians_to_servo_units(targets)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)

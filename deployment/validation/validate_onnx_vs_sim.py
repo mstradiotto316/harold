@@ -16,14 +16,14 @@ Expected JSON format:
     "metadata": {
         "checkpoint": "path/to/checkpoint.pt",
         "num_steps": 200,
-        "running_mean": [...],  # 50D (for reference, ONNX uses these internally)
-        "running_var": [...]    # 50D
+        "running_mean": [...],  # Observation-dimension running stats
+        "running_var": [...]
     },
     "timesteps": [
         {
             "step": 0,
-            "obs_raw": [...],        # 50D raw observation -> PASS THIS TO ONNX
-            "obs_normalized": [...], # 50D normalized observation (for reference)
+            "obs_raw": [...],        # Raw observation -> PASS THIS TO ONNX
+            "obs_normalized": [...], # Normalized observation (for reference)
             "action": [...]          # 12D expected policy action
         },
         ...

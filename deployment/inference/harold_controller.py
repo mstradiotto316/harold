@@ -261,7 +261,7 @@ class HaroldController:
         print("Observation builder initialized")
 
         # Initialize action converter
-        action_config = ActionConfig.from_yaml(cpg_config_path, hw_config_path)
+        action_config = ActionConfig.from_yaml(cpg_config_path, hw_config_path, metadata=metadata)
         self.action_conv = ActionConverter(action_config)
         print("Action converter initialized")
 

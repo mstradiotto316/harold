@@ -199,14 +199,21 @@ A score of 0 means sanity failure (episodes < 300 steps). A score of 100 means p
 
 You can analyze training videos frame-by-frame using your multimodal vision capabilities. This is integrated into the evaluation step.
 
-**Extraction command** (16 frames per montage at 2fps):
+**Extraction command** (all 4 camera views):
 ```bash
-ffmpeg -y -i <video.mp4> \
+python scripts/harold.py frames --json
+```
+
+This outputs frames into `/tmp/harold_review_frames/{side,front,top,iso}/frame_*.jpg`.
+
+For manual single-camera montage (16 frames per image at 2fps):
+```bash
+ffmpeg -y -i rl-video-step-<N>-side.mp4 \
   -vf "fps=2,drawtext=text='%{frame_num}':x=10:y=10:fontsize=20:fontcolor=white:box=1:boxcolor=black@0.5,tile=4x4" \
   -q:v 2 /tmp/harold_montage_%03d.jpg
 ```
 
-Load 1-3 montage images and assess:
+Load frames and assess:
 - **Gait type**: trot, walk, standing, falling, degenerate
 - **Body posture**: pitch, roll, height stability
 - **Leg kinematics**: front/rear balance, ground clearance, foot dragging

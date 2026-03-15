@@ -1,18 +1,39 @@
-from isaaclab.utils import configclass
-from isaaclab.envs import DirectRLEnvCfg
-from isaaclab.scene import InteractiveSceneCfg
+import math
+import sys
+from pathlib import Path
+
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg
+from isaaclab.envs import DirectRLEnvCfg
+from isaaclab.envs.common import ViewerCfg
+from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns
 from isaaclab.sim import SimulationCfg
-from isaaclab.terrains import TerrainImporterCfg
-from isaaclab.envs.common import ViewerCfg
+from isaaclab.terrains import TerrainGeneratorCfg, TerrainImporterCfg
+from isaaclab.terrains.trimesh import MeshPlaneTerrainCfg
+from isaaclab.utils import configclass
 from isaaclab.utils.noise import GaussianNoiseCfg
-import math
 
 from .harold import HAROLD_V4_CFG
-from isaaclab.terrains import TerrainGeneratorCfg
-from isaaclab.terrains.trimesh import MeshPlaneTerrainCfg
+
+_REPO_ROOT = None
+for _parent in Path(__file__).resolve().parents:
+    if (_parent / "AGENTS.md").exists():
+        _REPO_ROOT = _parent
+        break
+if _REPO_ROOT is None:
+    _parents = list(Path(__file__).resolve().parents)
+    if len(_parents) > 8:
+        _REPO_ROOT = _parents[8]
+if _REPO_ROOT and str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from common.policy_config import (
+    DEFAULT_ACTION_SCALE,
+    FLAT_JOINT_ANGLE_MAX,
+    FLAT_JOINT_ANGLE_MIN,
+    JOINT_RANGE,
+)
 
 # Flat terrain configuration for Harold's locomotion training
 HAROLD_FLAT_TERRAIN_CFG = TerrainGeneratorCfg(
@@ -210,7 +231,7 @@ class TerminationCfg:
     # EXP-002: 10N kept body contact low (-0.04) but didn't prevent elbow pose
     # EXP-013: Root cause - elbow contact ~5N per point, below 10N threshold = undetected
     # Lowering to 3N should make elbow contact visible to the reward system
-    body_contact_threshold: float = 10.0
+    body_contact_threshold: float = 3.0
 
     # Joint-angle termination: detect elbow pose via front leg joint angles
     # EXP-009: thigh>1.0, calf>-0.8 too loose - robot still found elbow pose (height=1.50)
@@ -414,7 +435,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
     episode_length_s = 30.0
     decimation = 9
-    action_scale = 0.5  # Session 23: 0.7 was worse (vx=0.029, contact failing)
+    action_scale = DEFAULT_ACTION_SCALE  # Session 23: 0.7 was worse (vx=0.029, contact failing)
 
     # Space definitions
     # Observation space is always 48D; CPG is open-loop and does not affect policy input size.
@@ -426,12 +447,6 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # Session 35: beta=0.40 is optimal (0.50 prevented walking)
     # Lower beta = more smoothing (60% carryover from previous action)
     action_filter_beta: float = 0.2
-
-    # Observation clipping (matches deployment clip_obs=5.0)
-    # Session 29: Hardware deployment clips normalized obs to ±5.0
-    # Training without clipping causes policy to see larger ranges than deployment
-    clip_observations: bool = True
-    clip_observations_value: float = 5.0      # Match deployment clipping
 
     # Reward configuration
     rewards = RewardsCfg()
@@ -546,26 +561,8 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # === Joint configuration (moved from env implementation) ===
     # Per-joint normalized action ranges (scaled later by action_scale)
     # Order: [shoulders(4), thighs(4), calves(4)]
-    joint_range: tuple = (
-        0.30, 0.30, 0.30, 0.30,
-        0.90, 0.90, 0.90, 0.90,
-        0.90, 0.90, 0.90, 0.90,
-    )
+    joint_range: tuple = JOINT_RANGE
 
-    # === Joint configuration for push-up routine ===
-    # Absolute joint angle limits in radians
-    # Joint limits (Session 30: aligned with hardware safe limits)
-    # Sign convention: thighs/calves are inverted between sim and hardware
-    # Hardware limits from deployment/config/hardware.yaml
-    # thigh hardware: [-55°, +5°] → sim: [-5°, +55°] = [-0.0873, +0.9599] rad
-    # calf hardware: [-5°, +80°] → sim: [-80°, +5°] = [-1.3963, +0.0873] rad
-    joint_angle_max: tuple = (
-        0.4363, 0.4363, 0.4363, 0.4363,  # shoulders: ±25° (hardware safe limit)
-        0.9599, 0.9599, 0.9599, 0.9599,  # thighs: sim +55° (hw -55°)
-        0.0873, 0.0873, 0.0873, 0.0873   # calves: sim +5° (hw -5°)
-    )
-    joint_angle_min: tuple = (
-        -0.4363, -0.4363, -0.4363, -0.4363,  # shoulders: ±25°
-        -0.0873, -0.0873, -0.0873, -0.0873,  # thighs: sim -5° (hw +5°)
-        -1.3963, -1.3963, -1.3963, -1.3963   # calves: sim -80° (hw +80°)
-    )
+    # Absolute joint angle limits in radians.
+    joint_angle_max: tuple = FLAT_JOINT_ANGLE_MAX
+    joint_angle_min: tuple = FLAT_JOINT_ANGLE_MIN

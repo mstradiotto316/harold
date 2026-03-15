@@ -15,6 +15,19 @@
 - Optional sim policy logging breaks for multi-env runs because `_time` is serialized as if it were scalar.
 - EMA action-filter state carries across episode resets unless explicitly cleared.
 
+## 2026-03-15: Audit Remediation Outcomes
+- Flat-task reward alignment is now body-frame end-to-end: observations, velocity-tracking reward, and command-error telemetry all compare body-frame commands to `root_lin_vel_b`.
+- Forward reward leakage is closed: clearly fallen/contact-heavy states now get zero or negative forward reward instead of farming positive velocity reward.
+- Reset hygiene matters in PyTorch: advanced-index calls like `tensor[env_ids].zero_()` do not write back. Reset helpers must assign (`tensor[env_ids] = 0`) or use an in-place indexed op.
+- The `harold.py` launcher cannot rely on `bash ... & echo $!` for long Isaac runs. Detached `subprocess.Popen(..., start_new_session=True)` fixes PID tracking, keeps the trainer alive after the parent exits, and lets the watchdog attach reliably.
+- The custom multi-camera recorder had two blockers: the USD camera transform constructor was invalid for `Gf.Matrix4d`, and buffering whole videos in Python caused large step-0 memory spikes. Using the 16-arg matrix constructor plus streaming frames directly to `ffmpeg` fixes both issues.
+- Rough/task video must tolerate envs without `capture_multi_cameras()`. A `render()` fallback is enough to preserve the mandatory-video rule on rough runs.
+- Rough-task randomization is now materially applied: friction, joint stiffness, joint damping, and mass/inertia scaling update simulator properties at reset. Effective values show up in TensorBoard under `Episode_Metric/randomized_*`.
+- Rough terrain sampling now spans the generated terrain range instead of staying pinned to the easiest levels. TensorBoard now shows `terrain_level_min/mean/max` so coverage is visible.
+- Termination counters only show up in TensorBoard when logged as tensor scalars, not plain Python numbers. Mirroring them into `Episode_Metric/termination_*` makes the reset reasons observable in the current skrl logging pipeline.
+- Export/deployment is now checkpoint-derived 48D: exporter metadata, quick validation, ONNX-vs-sim validation, offline conversion, and controller metadata loading all agree on 48D and the canonical stance/config.
+- The desktop Isaac Lab venv needed `deployment/requirements.txt` installed (`onnxruntime`, `pyserial`, `smbus2`) before local export/controller validation could run end-to-end.
+
 ## 2026-01-04: Hardware CPG Baseline (Current)
 - Duty-cycle stance/swing gait reduced foot drag; shorter stride reduced impact.
 - Lowering calf lift softened touchdown without reintroducing severe drag.

@@ -175,15 +175,9 @@ def compute_rewards(env) -> torch.Tensor:
     body_contact_penalty = -undesired_contacts
 
     # === FORWARD MOTION BONUS ===
-    # Commands and observations are in the body frame, so the learning signal must match.
-    forward_motion, _ = compute_forward_motion_reward(
-        vx_b=vx_b,
-        upright=upright,
-        current_height=current_height,
-        target_height=target_height,
-        undesired_contacts=undesired_contacts,
-        weight=cfg.forward_motion_weight,
-    )
+    # Direct reward for positive vx to bootstrap walking.
+    # Gate by upright to avoid rewarding forward falling.
+    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.5, 1.0)
 
     # === STANCE HEIGHT REWARD ===
     # Directly reward standing tall — attacks the crouch-and-survive local minimum.

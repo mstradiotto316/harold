@@ -553,7 +553,7 @@ def backfill_results() -> int:
 
             score = compute_walk_score(metrics)
             hypothesis = manifest.get("hypothesis", "")
-            timestamp = manifest.get("created", "")
+            timestamp = manifest.get("started_at") or manifest.get("created", "")
 
             entry = {
                 "exp_alias": alias,

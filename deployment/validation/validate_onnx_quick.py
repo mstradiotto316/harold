@@ -23,6 +23,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Constants
+REPO_ROOT = Path(__file__).resolve().parents[2]
 ACTION_DIM = 12
 ONNX_PATH = Path(__file__).parent.parent / "policy/harold_policy.onnx"
 METADATA_PATH = Path(__file__).parent.parent / "policy/policy_metadata.json"
@@ -36,6 +37,8 @@ def resolve_checkpoint_path() -> Path | None:
         checkpoint_path = metadata.get("checkpoint_path")
         if checkpoint_path:
             candidate = Path(checkpoint_path)
+            if not candidate.is_absolute():
+                candidate = REPO_ROOT / candidate
             if candidate.exists():
                 return candidate
     return None

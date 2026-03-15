@@ -71,6 +71,7 @@ WATCHDOG_PID_FILE = Path("/tmp/harold_watchdog.pid")
 WATCHDOG_LOG_FILE = Path("/tmp/harold_watchdog.log")
 WATCHDOG_KILL_MARKER = Path("/tmp/harold_watchdog_killed.json")
 ENV_PATH = Path.home() / "Desktop" / "env_isaaclab" / "bin" / "activate"
+ISAACLAB_PYTHON = ENV_PATH.parent / "python"
 RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_ppo_")
 
 # Training defaults (single source of truth for run configuration)
@@ -696,7 +697,7 @@ def build_train_command(
     #  12000 envs: 10.6 it/s, 3.05M samples/s, GPU 6.4GB, RAM 10GB
     #  16384 envs:  8.7 it/s, 3.43M samples/s, GPU 7.6GB, RAM 11GB  <- MAX THROUGHPUT
     cmd = [
-        sys.executable, str(PROJECT_ROOT / 'harold_isaac_lab' / 'scripts' / 'skrl' / 'train.py'),
+        str(ISAACLAB_PYTHON), str(PROJECT_ROOT / 'harold_isaac_lab' / 'scripts' / 'skrl' / 'train.py'),
         f'--task={task_id}',
         '--num_envs', str(num_envs),
         '--max_iterations', str(iterations),
@@ -723,7 +724,7 @@ def start_watchdog(pid: str) -> bool:
     with open(WATCHDOG_LOG_FILE, 'w', encoding='utf-8') as watchdog_log:
         process = subprocess.Popen(
             [
-                sys.executable,
+                str(ISAACLAB_PYTHON),
                 str(watchdog_script),
                 '--pid',
                 str(pid),

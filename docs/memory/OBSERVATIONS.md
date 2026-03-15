@@ -6,6 +6,13 @@
 - `omni.*` import failures from a plain shell are usually runtime-context failures, not missing-package failures.
 - For simulator-backed checks, agents should prefer `python scripts/harold.py ...` or Isaac Lab launcher entrypoints over ad hoc import probes.
 
+## 2026-03-15: Autoresearch Session 46 - Key Findings
+- **World-frame vs body-frame velocities**: The code upgrade changed track_lin_vel_xy and forward_motion rewards from world-frame to body-frame velocities. This caused the robot to appear to go backward (negative vx_w_mean) because it could earn reward by walking in any direction in its own frame. Reverting to world-frame velocities for rewards fixed this.
+- **upright_weight=3.0 + orientation_threshold=-0.6 is the best config**: This combination produced vx=0.109 (best ever), exceeding EXP-246. The relaxed orientation threshold allows more dynamic motion while the high upright weight prevents exploit behavior.
+- **30-min training is optimal**: vx peaks at ~25-30 min then oscillates/regresses. 15 min too short, 60 min causes regression.
+- **Gait quality is the next bottleneck**: Video shows chaotic shuffle with near-zero foot clearance, not actual stepping. Increasing feet_air_time or rewards_shaper_scale trades vx for posture - doesn't break shuffle equilibrium.
+- **Must use `/home/matteo/Desktop/env_isaaclab/bin/python` for all harold.py commands** (sys.executable in harold.py picks up system python which lacks isaaclab).
+
 ## 2026-03-15: Simulation Audit Findings
 - Flat-task reward/command telemetry currently mixes world-frame velocity with body-frame observations and commands; this should be treated as a correctness bug, not tuning noise.
 - Flat-task forward reward still leaks positive reward into low-upright states, so the existing anti-fall guard is weaker than intended.
@@ -20,12 +27,15 @@
 - Forward reward leakage is closed: clearly fallen/contact-heavy states now get zero or negative forward reward instead of farming positive velocity reward.
 - Reset hygiene matters in PyTorch: advanced-index calls like `tensor[env_ids].zero_()` do not write back. Reset helpers must assign (`tensor[env_ids] = 0`) or use an in-place indexed op.
 - The `harold.py` launcher cannot rely on `bash ... & echo $!` for long Isaac runs. Detached `subprocess.Popen(..., start_new_session=True)` fixes PID tracking, keeps the trainer alive after the parent exits, and lets the watchdog attach reliably.
+- Detached launch still must pin the trainer to `~/Desktop/env_isaaclab/bin/python`; using the caller's `sys.executable` breaks `python3 scripts/harold.py train ...` outside the Isaac Lab venv.
 - The custom multi-camera recorder had two blockers: the USD camera transform constructor was invalid for `Gf.Matrix4d`, and buffering whole videos in Python caused large step-0 memory spikes. Using the 16-arg matrix constructor plus streaming frames directly to `ffmpeg` fixes both issues.
 - Rough/task video must tolerate envs without `capture_multi_cameras()`. A `render()` fallback is enough to preserve the mandatory-video rule on rough runs.
 - Rough-task randomization is now materially applied: friction, joint stiffness, joint damping, and mass/inertia scaling update simulator properties at reset. Effective values show up in TensorBoard under `Episode_Metric/randomized_*`.
 - Rough terrain sampling now spans the generated terrain range instead of staying pinned to the easiest levels. TensorBoard now shows `terrain_level_min/mean/max` so coverage is visible.
 - Termination counters only show up in TensorBoard when logged as tensor scalars, not plain Python numbers. Mirroring them into `Episode_Metric/termination_*` makes the reset reasons observable in the current skrl logging pipeline.
 - Export/deployment is now checkpoint-derived 48D: exporter metadata, quick validation, ONNX-vs-sim validation, offline conversion, and controller metadata loading all agree on 48D and the canonical stance/config.
+- Export metadata stores `checkpoint_path` repo-relatively, so local validators must resolve that path against the repo root instead of the current working directory.
+- Harold manifests use `started_at` as the authoritative start timestamp; autoresearch backfills should only fall back to `created` for older manifests.
 - The desktop Isaac Lab venv needed `deployment/requirements.txt` installed (`onnxruntime`, `pyserial`, `smbus2`) before local export/controller validation could run end-to-end.
 
 ## 2026-01-04: Hardware CPG Baseline (Current)

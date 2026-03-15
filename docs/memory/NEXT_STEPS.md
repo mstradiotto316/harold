@@ -1,7 +1,7 @@
 # Harold Next Steps
 
 1. Review the remaining legacy deployment debug scripts (`deployment/test_pipeline.py`, `deployment/test_final.py`, `deployment/test_no_feedback.py`, `deployment/test_sign_conversion.py`, `deployment/test_training_obs.py`, `deployment/test_policy_verbose.py`, `deployment/debug_*`) and either migrate them to the 48D/raw-observation path or retire them so they stop advertising stale 50D/phase-based assumptions.
-2. Re-run a default-env-count (`num_envs=8192`) CLI smoke now that the detached launcher and streamed video writer are fixed, so we know whether the temporary 64-env audit override can be dropped.
+2. Re-run a default-env-count (`num_envs=8192`) CLI smoke now that the detached launcher, explicit Isaac Lab interpreter pin, and streamed video writer are fixed, so we know whether the temporary 64-env audit override can be dropped.
 3. Run a longer rough-task validation pass and inspect whether the newly real domain-randomization path improves robustness or simply exposes a tuning gap; current rough smoke still fails sanity almost immediately.
 4. Resume the hardware-alignment workflow only after the remaining legacy-tool cleanup and the default-env-count smoke are complete.
 5. Run a real world hardware test with the robot off of the test stand under its own weight to verify all the changes landed correctly and did not result in regressions to the walking pattern. (Ensure the IMU is recording data)

@@ -734,6 +734,541 @@ def backfill_results() -> int:
     return 0
 
 
+# ── Changed Params Parsing ─────────────────────────────────────────────────
+
+# Map parameter names to search axes for plateau detection / synthesis
+_PARAM_AXIS = {}
+_REWARD_PARAMS = {
+    "track_lin_vel_xy_weight", "track_lin_vel_xy_std", "track_ang_vel_z_weight",
+    "track_ang_vel_z_std", "lin_vel_z_weight", "ang_vel_xy_weight",
+    "dof_torques_weight", "dof_acc_weight", "action_rate_weight",
+    "feet_air_time_weight", "feet_air_time_threshold",
+    "undesired_contacts_weight", "undesired_contacts_threshold",
+    "upright_weight", "forward_motion_weight",
+}
+_COMMAND_PARAMS = {
+    "vx_min", "vx_max", "vy_min", "vy_max", "yaw_min", "yaw_max",
+    "zero_velocity_prob", "command_change_interval",
+}
+_TERMINATION_PARAMS = {
+    "orientation_threshold", "height_threshold", "body_contact_threshold",
+    "elbow_pose_termination",
+}
+_DOMAIN_RAND_PARAMS = {
+    "enable_randomization", "add_imu_noise", "add_joint_noise",
+    "add_lin_vel_noise", "randomize_friction", "randomize_mass",
+    "add_action_noise", "apply_external_forces",
+}
+_ENV_LEVEL_PARAMS = {"episode_length_s", "action_scale", "action_filter_beta"}
+
+for _p in _REWARD_PARAMS:
+    _PARAM_AXIS[_p] = "reward_weights"
+for _p in _COMMAND_PARAMS:
+    _PARAM_AXIS[_p] = "command_ranges"
+for _p in _TERMINATION_PARAMS:
+    _PARAM_AXIS[_p] = "termination"
+for _p in _DOMAIN_RAND_PARAMS:
+    _PARAM_AXIS[_p] = "domain_randomization"
+for _p in _ENV_LEVEL_PARAMS:
+    _PARAM_AXIS[_p] = "env_params"
+for _p in _PPO_PARAMS:
+    _PARAM_AXIS[_p] = "ppo"
+
+
+def parse_changed_params(s: str) -> list[dict]:
+    """Parse the changed_params TSV column into structured dicts.
+
+    Formats handled:
+        'param:old->new'
+        'param:old->new, param2:old->new'
+        'train_env.py: description'  (free-text code change)
+        'duration:fast->short'
+
+    Returns list of dicts:
+        [{"param": str, "old": val, "new": val, "type": "config"|"code"|"duration"}]
+    """
+    if not s or not s.strip():
+        return []
+
+    s = s.strip()
+
+    # Free-text code change (train_env.py)
+    if s.startswith("train_env.py:"):
+        return [{"param": "train_env.py", "old": None, "new": None,
+                 "type": "code", "text": s}]
+
+    entries = []
+    # Split on comma, but be careful with spaces
+    parts = [p.strip() for p in s.split(",")]
+
+    for part in parts:
+        m = re.match(r"^(.+?):(.+)->(.+)$", part.strip())
+        if m:
+            param = m.group(1).strip()
+            old_raw = m.group(2).strip()
+            new_raw = m.group(3).strip()
+
+            if param == "duration":
+                entries.append({"param": "duration", "old": old_raw,
+                                "new": new_raw, "type": "duration"})
+            else:
+                entries.append({
+                    "param": param,
+                    "old": _try_parse_numeric(old_raw),
+                    "new": _try_parse_numeric(new_raw),
+                    "type": "config",
+                })
+        elif part.strip():
+            # Unrecognized format — treat as free-text
+            entries.append({"param": "unknown", "old": None, "new": None,
+                            "type": "code", "text": part.strip()})
+
+    return entries
+
+
+def _try_parse_numeric(s: str):
+    """Try to parse as float/int/bool, else return string."""
+    if s in ("True", "False"):
+        return s == "True"
+    try:
+        if "." in s or "e" in s.lower():
+            return float(s)
+        return int(s)
+    except ValueError:
+        return s
+
+
+def _categorize_experiment(row: dict) -> str:
+    """Categorize an experiment row by its primary search axis."""
+    changes = parse_changed_params(row.get("changed_params", ""))
+    if not changes:
+        return "unknown"
+
+    for ch in changes:
+        if ch["type"] == "code":
+            return "code_changes"
+        if ch["type"] == "duration":
+            continue
+        param = ch["param"]
+        if param == "seed":
+            return "seed"
+        if param in _PARAM_AXIS:
+            return _PARAM_AXIS[param]
+
+    # If only duration changes
+    if all(ch["type"] == "duration" for ch in changes):
+        return "duration"
+
+    return "unknown"
+
+
+# ── Experiment Similarity Detection ────────────────────────────────────────
+
+def check_similarity(proposed: dict, hypothesis: str = "") -> dict:
+    """Check if a proposed change is similar to a previously failed experiment.
+
+    Args:
+        proposed: dict of {param: value} for config changes
+        hypothesis: text description for code-change similarity
+
+    Returns:
+        {"warnings": [str, ...], "similar_count": int}
+    """
+    history = load_results_history()
+    warnings = []
+
+    for row_idx, row in enumerate(history):
+        decision = (row.get("decision") or "").strip().upper()
+        if decision not in ("DISCARD",):
+            continue
+
+        changes = parse_changed_params(row.get("changed_params", ""))
+
+        # Check config param similarity
+        for ch in changes:
+            if ch["type"] != "config":
+                continue
+            param = ch["param"]
+            if param not in proposed:
+                continue
+
+            proposed_val = proposed[param]
+            hist_val = ch["new"]
+
+            # Compare values
+            if isinstance(proposed_val, (int, float)) and isinstance(hist_val, (int, float)):
+                if hist_val == 0:
+                    similar = (proposed_val == 0)
+                else:
+                    similar = abs(proposed_val - hist_val) / abs(hist_val) < 0.20
+            else:
+                similar = (str(proposed_val) == str(hist_val))
+
+            if similar:
+                alias = row.get("exp_alias", f"row {row_idx + 1}")
+                vx = row.get("vx", "?")
+                warnings.append(
+                    f"Similar to DISCARD {alias} "
+                    f"({ch['param']}:{ch['old']}->{ch['new']}, vx={vx})"
+                )
+
+        # Check hypothesis text similarity for code changes
+        if hypothesis:
+            row_hyp = (row.get("hypothesis") or "").lower()
+            row_params = (row.get("changed_params") or "").lower()
+            # Extract keywords from hypothesis (3+ char words)
+            keywords = [w for w in re.findall(r"[a-z_]{3,}", hypothesis.lower())]
+            matching = sum(1 for kw in keywords
+                          if kw in row_hyp or kw in row_params)
+            if keywords and matching >= len(keywords) * 0.6:
+                alias = row.get("exp_alias", f"row {row_idx + 1}")
+                vx = row.get("vx", "?")
+                warnings.append(
+                    f"Similar hypothesis to DISCARD {alias}: "
+                    f"\"{row.get('hypothesis', '?')[:80]}\" (vx={vx})"
+                )
+
+    return {"warnings": warnings, "similar_count": len(warnings)}
+
+
+# ── Plateau Detection ──────────────────────────────────────────────────────
+
+def detect_plateau(window: int = 10) -> dict:
+    """Detect optimization plateaus beyond simple consecutive-DISCARD counting.
+
+    Returns structured report with plateau status, axes tried, and suggestions.
+    """
+    history = load_results_history()
+    if not history:
+        return {"is_plateau": False, "reason": "no history"}
+
+    # Find last KEEP row
+    last_keep_idx = -1
+    for i in range(len(history) - 1, -1, -1):
+        if (history[i].get("decision") or "").strip().upper() == "KEEP":
+            last_keep_idx = i
+            break
+
+    # Find best-ever vx (across all rows)
+    best_vx = -999.0
+    best_vx_alias = ""
+    best_vx_row = -1
+    for i, row in enumerate(history):
+        try:
+            vx = float(row.get("vx", 0) or 0)
+        except (ValueError, TypeError):
+            continue
+        if vx > best_vx:
+            best_vx = vx
+            best_vx_alias = row.get("exp_alias", f"row {i + 1}")
+            best_vx_row = i
+
+    experiments_since_keep = len(history) - 1 - last_keep_idx if last_keep_idx >= 0 else len(history)
+
+    # Categorize experiments since last KEEP by axis
+    axes_tried = {}
+    if last_keep_idx >= 0:
+        for row in history[last_keep_idx + 1:]:
+            axis = _categorize_experiment(row)
+            axes_tried[axis] = axes_tried.get(axis, 0) + 1
+
+    # Check if recent experiments are within noise of best
+    recent_rows = history[-window:]
+    recent_best_vx = -999.0
+    recent_best_row = ""
+    for row in recent_rows:
+        try:
+            vx = float(row.get("vx", 0) or 0)
+        except (ValueError, TypeError):
+            continue
+        if vx > recent_best_vx:
+            recent_best_vx = vx
+            recent_best_row = row.get("exp_alias", "?")
+
+    noise_plateau = (best_vx > 0 and recent_best_vx > 0 and
+                     abs(recent_best_vx - best_vx) / best_vx < 0.10)
+
+    # Find untried axes
+    all_axes = {"reward_weights", "command_ranges", "termination",
+                "domain_randomization", "env_params", "ppo", "code_changes",
+                "duration", "seed"}
+    tried_axes = set(axes_tried.keys()) - {"unknown"}
+    untried_axes = sorted(all_axes - tried_axes)
+
+    # Determine plateau
+    is_plateau = (experiments_since_keep >= 5 and noise_plateau) or experiments_since_keep >= 15
+
+    # Generate suggestion
+    suggestion = ""
+    if is_plateau:
+        if untried_axes:
+            suggestion = f"Untried axes: {', '.join(untried_axes)}. Try one of these."
+        elif "code_changes" not in tried_axes:
+            suggestion = "All config axes exhausted. Try train_env.py code changes."
+        else:
+            suggestion = ("All axes tried. Consider: combination experiments, "
+                          "longer training duration, or different seed.")
+
+    return {
+        "is_plateau": is_plateau,
+        "experiments_since_improvement": experiments_since_keep,
+        "best_ever_vx": round(best_vx, 4),
+        "best_ever_alias": best_vx_alias,
+        "best_ever_row": best_vx_row + 1,
+        "recent_best_vx": round(recent_best_vx, 4),
+        "recent_best_alias": recent_best_row,
+        "axes_tried_since_keep": axes_tried,
+        "untried_axes": untried_axes,
+        "suggestion": suggestion,
+    }
+
+
+# ── Cross-Session Synthesis ────────────────────────────────────────────────
+
+def synthesize_history() -> dict:
+    """Programmatic pattern extraction from the full experiment history.
+
+    Returns:
+        - parameter_sensitivity: per-param stats (best value, direction, outcome)
+        - winning_config: accumulated KEEP changes
+        - untried_params: registry params never changed in any experiment
+        - interaction_pairs: params that co-occurred in KEEP experiments
+    """
+    history = load_results_history()
+    if not history:
+        return {"error": "no history"}
+
+    # Parse all changed_params, group by parameter
+    param_experiments = {}  # param -> [{value, vx, decision, alias, row}]
+    for i, row in enumerate(history):
+        changes = parse_changed_params(row.get("changed_params", ""))
+        decision = (row.get("decision") or "").strip().upper()
+        try:
+            vx = float(row.get("vx", 0) or 0)
+        except (ValueError, TypeError):
+            vx = 0.0
+
+        for ch in changes:
+            if ch["type"] != "config":
+                continue
+            param = ch["param"]
+            if param not in param_experiments:
+                param_experiments[param] = []
+            param_experiments[param].append({
+                "new_value": ch["new"],
+                "old_value": ch["old"],
+                "vx": vx,
+                "decision": decision,
+                "alias": row.get("exp_alias", f"row {i + 1}"),
+            })
+
+    # Compute per-param sensitivity
+    sensitivity = {}
+    for param, exps in param_experiments.items():
+        if not exps:
+            continue
+        best_exp = max(exps, key=lambda e: e["vx"])
+        worst_exp = min(exps, key=lambda e: e["vx"])
+        keeps = [e for e in exps if e["decision"] == "KEEP"]
+        discards = [e for e in exps if e["decision"] == "DISCARD"]
+
+        entry = {
+            "experiments": len(exps),
+            "best_value": best_exp["new_value"],
+            "best_vx": round(best_exp["vx"], 4),
+            "best_alias": best_exp["alias"],
+            "worst_vx": round(worst_exp["vx"], 4),
+            "keeps": len(keeps),
+            "discards": len(discards),
+        }
+
+        # Detect direction (for numeric params with 2+ experiments)
+        numeric_exps = [e for e in exps
+                        if isinstance(e["new_value"], (int, float))]
+        if len(numeric_exps) >= 2:
+            sorted_by_val = sorted(numeric_exps, key=lambda e: e["new_value"])
+            sorted_by_vx = sorted(numeric_exps, key=lambda e: e["vx"], reverse=True)
+            best_val = sorted_by_vx[0]["new_value"]
+            old_val = sorted_by_val[0].get("old_value")
+            if isinstance(old_val, (int, float)) and isinstance(best_val, (int, float)):
+                if best_val > old_val:
+                    entry["best_direction"] = "increase"
+                elif best_val < old_val:
+                    entry["best_direction"] = "decrease"
+
+            # Diminishing returns: 3+ values, improvement shrinking
+            if len(numeric_exps) >= 3:
+                vals_and_vx = sorted(
+                    [(e["new_value"], e["vx"]) for e in numeric_exps],
+                    key=lambda x: x[0]
+                )
+                # Check if best vx is at an intermediate value (not extremes)
+                best_idx = max(range(len(vals_and_vx)), key=lambda j: vals_and_vx[j][1])
+                if 0 < best_idx < len(vals_and_vx) - 1:
+                    entry["diminishing_returns"] = True
+
+        sensitivity[param] = entry
+
+    # Winning config: accumulate all KEEP changes in order
+    winning_config = {}
+    for row in history:
+        if (row.get("decision") or "").strip().upper() != "KEEP":
+            continue
+        changes = parse_changed_params(row.get("changed_params", ""))
+        for ch in changes:
+            if ch["type"] == "config" and ch["new"] is not None:
+                winning_config[ch["param"]] = ch["new"]
+
+    # Untried params: registry params never in any experiment
+    tried_params = set(param_experiments.keys())
+    try:
+        registry = load_parameter_registry()
+        all_tunable = {p for p, meta in registry.items()
+                       if meta["category"] in ("TUNABLE", "CONSTRAINED")}
+        untried = sorted(all_tunable - tried_params)
+    except FileNotFoundError:
+        untried = []
+
+    # Interaction pairs: params that co-occurred in KEEP experiments
+    interactions = []
+    for row in history:
+        if (row.get("decision") or "").strip().upper() != "KEEP":
+            continue
+        changes = parse_changed_params(row.get("changed_params", ""))
+        config_params = [ch["param"] for ch in changes if ch["type"] == "config"]
+        if len(config_params) >= 2:
+            interactions.append({
+                "params": config_params,
+                "alias": row.get("exp_alias", "?"),
+                "vx": float(row.get("vx", 0) or 0),
+            })
+
+    return {
+        "parameter_sensitivity": sensitivity,
+        "winning_config": winning_config,
+        "untried_params": untried,
+        "interaction_pairs": interactions,
+    }
+
+
+# ── Combination Generator ─────────────────────────────────────────────────
+
+def suggest_combinations(top_n: int = 3) -> list[dict]:
+    """Generate combination experiment proposals from near-miss DISCARDs.
+
+    Finds DISCARD experiments where at least one metric beat the current
+    baseline, then proposes non-conflicting pairs.
+
+    Returns list of proposals with sources and rationale.
+    """
+    history = load_results_history()
+    if not history:
+        return []
+
+    # Find current baseline (last KEEP)
+    baseline = None
+    for row in reversed(history):
+        if (row.get("decision") or "").strip().upper() == "KEEP":
+            baseline = row
+            break
+    if not baseline:
+        return []
+
+    baseline_vx = float(baseline.get("vx", 0) or 0)
+    baseline_upright = float(baseline.get("upright", 0) or 0)
+    baseline_ep_len = float(baseline.get("ep_len", 0) or 0)
+
+    # Accumulate current KEEP config
+    keep_config = {}
+    for row in history:
+        if (row.get("decision") or "").strip().upper() != "KEEP":
+            continue
+        for ch in parse_changed_params(row.get("changed_params", "")):
+            if ch["type"] == "config" and ch["new"] is not None:
+                keep_config[ch["param"]] = ch["new"]
+
+    # Find near-miss DISCARDs: beat baseline on at least one metric
+    near_misses = []
+    for i, row in enumerate(history):
+        if (row.get("decision") or "").strip().upper() != "DISCARD":
+            continue
+
+        changes = parse_changed_params(row.get("changed_params", ""))
+        config_changes = [ch for ch in changes if ch["type"] == "config"]
+        if not config_changes:
+            continue
+
+        # Skip if the change is already in the current KEEP config
+        novel_changes = []
+        for ch in config_changes:
+            if ch["param"] in keep_config and keep_config[ch["param"]] == ch["new"]:
+                continue
+            novel_changes.append(ch)
+        if not novel_changes:
+            continue
+
+        try:
+            vx = float(row.get("vx", 0) or 0)
+            upright = float(row.get("upright", 0) or 0)
+            ep_len = float(row.get("ep_len", 0) or 0)
+        except (ValueError, TypeError):
+            continue
+
+        improvements = []
+        if vx > baseline_vx * 0.8:  # Within 20% of baseline vx
+            improvements.append(f"vx={vx:.3f}")
+        if upright > baseline_upright:
+            improvements.append(f"upright={upright:.3f}")
+        if ep_len > baseline_ep_len:
+            improvements.append(f"ep_len={ep_len:.0f}")
+
+        if improvements:
+            near_misses.append({
+                "row": i + 1,
+                "alias": row.get("exp_alias", f"row {i + 1}"),
+                "changes": novel_changes,
+                "improvements": improvements,
+                "vx": vx,
+                "upright": upright,
+                "ep_len": ep_len,
+            })
+
+    # Generate non-conflicting pairs
+    proposals = []
+    for i in range(len(near_misses)):
+        for j in range(i + 1, len(near_misses)):
+            a, b = near_misses[i], near_misses[j]
+            a_params = {ch["param"] for ch in a["changes"]}
+            b_params = {ch["param"] for ch in b["changes"]}
+
+            # Skip if they modify the same parameter
+            if a_params & b_params:
+                continue
+
+            # Score: sum of metric improvements
+            score = (a["vx"] + b["vx"]) + (a["upright"] + b["upright"]) * 0.1
+
+            changes_desc = []
+            for ch in a["changes"] + b["changes"]:
+                changes_desc.append(f"{ch['param']}={ch['new']}")
+
+            proposals.append({
+                "changes": {ch["param"]: ch["new"]
+                            for ch in a["changes"] + b["changes"]},
+                "changes_desc": " + ".join(changes_desc),
+                "sources": [
+                    f"{a['alias']} ({', '.join(a['improvements'])})",
+                    f"{b['alias']} ({', '.join(b['improvements'])})",
+                ],
+                "score": round(score, 4),
+                "conflicts": [],
+            })
+
+    # Sort by score descending, take top N
+    proposals.sort(key=lambda p: p["score"], reverse=True)
+    return proposals[:top_n]
+
+
 # ── Session State ──────────────────────────────────────────────────────────
 
 def save_state(state_update: dict) -> None:
@@ -804,6 +1339,17 @@ def main():
 
     sub.add_parser("recompute-scores", help="Recompute walk_score and progress_score for all rows")
 
+    sim_p = sub.add_parser("check-similarity", help="Check if proposed change is similar to past failures")
+    sim_p.add_argument("delta", help="JSON dict of {param: value}")
+    sim_p.add_argument("--hypothesis", default="", help="Text hypothesis for code-change similarity")
+
+    sub.add_parser("detect-plateau", help="Detect optimization plateaus")
+
+    sub.add_parser("synthesize", help="Extract patterns from experiment history")
+
+    combo_p = sub.add_parser("suggest-combinations", help="Suggest combination experiments from near-misses")
+    combo_p.add_argument("--top", type=int, default=3, help="Number of proposals (default: 3)")
+
     args = parser.parse_args()
 
     if args.command == "load-baseline":
@@ -857,6 +1403,72 @@ def main():
         state_update = json.loads(args.state_json)
         save_state(state_update)
         print(f"Session state saved to {SESSION_STATE_PATH}")
+
+    elif args.command == "check-similarity":
+        proposed = json.loads(args.delta)
+        result = check_similarity(proposed, hypothesis=args.hypothesis)
+        if result["warnings"]:
+            for w in result["warnings"]:
+                print(f"WARNING: {w}")
+            print(f"\n{result['similar_count']} similar DISCARD experiment(s) found.")
+        else:
+            print("No similar past failures found. Proceed.")
+        print(json.dumps(result))
+
+    elif args.command == "detect-plateau":
+        result = detect_plateau()
+        if result.get("is_plateau"):
+            print("PLATEAU DETECTED:")
+        else:
+            print("No plateau detected:")
+        print(f"  experiments_since_improvement: {result.get('experiments_since_improvement', 0)}")
+        print(f"  best_ever_vx: {result.get('best_ever_vx', 0)} ({result.get('best_ever_alias', '?')})")
+        print(f"  recent_best_vx: {result.get('recent_best_vx', 0)} ({result.get('recent_best_alias', '?')})")
+        if result.get("axes_tried_since_keep"):
+            axes = ", ".join(f"{k}({v})" for k, v in result["axes_tried_since_keep"].items())
+            print(f"  axes_tried_since_keep: {axes}")
+        if result.get("untried_axes"):
+            print(f"  untried_axes: {result['untried_axes']}")
+        if result.get("suggestion"):
+            print(f"  suggestion: {result['suggestion']}")
+        print(json.dumps(result))
+
+    elif args.command == "synthesize":
+        result = synthesize_history()
+        sens = result.get("parameter_sensitivity", {})
+        if sens:
+            print("PARAMETER SENSITIVITY:")
+            for param, info in sorted(sens.items(), key=lambda x: -x[1].get("experiments", 0)):
+                direction = info.get("best_direction", "?")
+                dr = " (DIMINISHING RETURNS)" if info.get("diminishing_returns") else ""
+                print(f"  {param}: {info['experiments']} exps, "
+                      f"best={info['best_value']} (vx={info['best_vx']}), "
+                      f"direction={direction}{dr}, "
+                      f"keeps={info['keeps']}/discards={info['discards']}")
+        wc = result.get("winning_config", {})
+        if wc:
+            print(f"\nWINNING CONFIG (accumulated KEEPs): {json.dumps(wc)}")
+        untried = result.get("untried_params", [])
+        if untried:
+            print(f"\nUNTRIED PARAMETERS: {', '.join(untried)}")
+        pairs = result.get("interaction_pairs", [])
+        if pairs:
+            print("\nINTERACTION PAIRS:")
+            for p in pairs:
+                print(f"  {' + '.join(p['params'])} ({p['alias']}, vx={p['vx']:.3f})")
+        print(json.dumps(result))
+
+    elif args.command == "suggest-combinations":
+        proposals = suggest_combinations(top_n=args.top)
+        if not proposals:
+            print("No combination proposals found (need near-miss DISCARDs).")
+        else:
+            for i, p in enumerate(proposals, 1):
+                print(f"\nPROPOSAL {i}: {p['changes_desc']}")
+                for src in p["sources"]:
+                    print(f"  Source: {src}")
+                print(f"  Score: {p['score']}")
+        print(json.dumps(proposals))
 
     else:
         parser.print_help()

@@ -171,6 +171,7 @@ All 5 metrics are still logged to results.tsv for diagnostics.
 ```
 LOOP FOREVER:
   1. HYPOTHESIZE: One change, one falsifiable prediction
+  1b. CHECK: autoresearch.py check-similarity '{"param": value}' (skip if >2 similar DISCARDs)
   2. EDIT: config param (autoresearch.py apply) or train_env.py code
   3. COMMIT: git commit -m "autoresearch: <hypothesis>"
   4. TRAIN: harold train --hypothesis "..." --tags "autoresearch,..." --duration fast
@@ -188,20 +189,32 @@ LOOP FOREVER:
 
 **NEVER STOP.** The human may be asleep. You run until manually interrupted. There is no experiment limit. If you run out of ideas, re-read results.tsv and try something new. If context is getting large, use /compact between experiments.
 
-After step 9 (LOG), run: `python3 scripts/autoresearch.py save-state '{"baseline_walk_score": ..., "consecutive_discards": ..., "current_strategy": "..."}'`
+After step 9 (LOG), run:
+```
+python3 scripts/autoresearch.py save-state '{
+  "baseline_walk_score": ...,
+  "consecutive_discards": ...,
+  "current_strategy": "...",
+  "current_bottleneck": "...",
+  "experiments_since_last_keep": ...,
+  "strategic_direction": "what to try next"
+}'
+```
 
 ### Consecutive DISCARD Fallback Rules
 
 If 3+ consecutive DISCARDs:
-1. Read results.tsv — what was the last KEEP? What has been tried since?
-2. Try a DIFFERENT axis: if you've been tuning rewards, try PPO hyperparameters.
+1. Run `autoresearch.py detect-plateau` — get a structured view of what's been tried and what hasn't.
+2. Read results.tsv — what was the last KEEP? What has been tried since?
+3. Try a DIFFERENT axis: if you've been tuning rewards, try PPO hyperparameters.
    If you've been tuning params, try a code change in train_env.py.
    If you've been editing train_env.py, try reverting to a known-good state and changing a param.
-3. Try the OPPOSITE: if increasing X failed, try decreasing X.
-4. Try COMBINING: take the 2-3 best near-miss experiments and apply their changes together.
-5. Try a LONGER RUN: if fast (15 min) isn't enough, try short (30 min) or standard (60 min).
-6. Try a DIFFERENT SEED: the results may be seed-sensitive at 512 envs.
-7. DO NOT STOP. These are fallback strategies, not reasons to pause.
+4. Try the OPPOSITE: if increasing X failed, try decreasing X.
+5. Try COMBINING: run `autoresearch.py suggest-combinations` for data-driven proposals from near-miss DISCARDs.
+6. Try a LONGER RUN: if fast (15 min) isn't enough, try short (30 min) or standard (60 min).
+7. Try a DIFFERENT SEED: the results may be seed-sensitive at 512 envs.
+8. If `detect-plateau` reports 15+ experiments since improvement, make a QUALITATIVELY DIFFERENT change (new axis, code change, or combination). Do not keep tuning the same axis.
+9. DO NOT STOP. These are fallback strategies, not reasons to pause.
 
 ### Video Review Agent (Step 7)
 
@@ -299,13 +312,14 @@ Your context window is finite. To run indefinitely:
 ## Setup (Start of Session)
 
 1. Read this file (program.md) -- this is the only file you need
-2. Run `python3 scripts/autoresearch.py state` -- recover session state (baseline, kept changes, strategy). If no state exists, this is a fresh session.
-3. Run `python3 scripts/autoresearch.py history` -- check prior results
-4. Read `docs/memory/OBSERVATIONS.md` -- accumulated insights
-5. Run `python3 scripts/harold.py ps` -- check for orphan processes
-6. Create branch: `git checkout -b autoresearch/session-$(date +%Y-%m-%d)`
-7. Run baseline if no prior score in results.tsv
-8. Begin the loop. Do not stop.
+2. Run `python3 scripts/autoresearch.py state` -- recover session state (baseline, bottleneck, strategy). If no state exists, this is a fresh session.
+3. Run `python3 scripts/autoresearch.py synthesize` -- get strategic summary of cross-session patterns (parameter sensitivity, winning config, untried params)
+4. Run `python3 scripts/autoresearch.py history` -- check prior results
+5. Read `docs/memory/OBSERVATIONS.md` -- accumulated insights
+6. Run `python3 scripts/harold.py ps` -- check for orphan processes
+7. Create branch: `git checkout -b autoresearch/session-$(date +%Y-%m-%d)`
+8. Run baseline if no prior score in results.tsv
+9. Begin the loop. Do not stop.
 
 ## Quick Reference
 
@@ -322,6 +336,10 @@ Your context window is finite. To run indefinitely:
 | View history | `python scripts/autoresearch.py history` |
 | Save session state | `python scripts/autoresearch.py save-state '{"key": "value"}'` |
 | Load session state | `python scripts/autoresearch.py state` |
+| Check similarity | `python scripts/autoresearch.py check-similarity '{"param": value}'` |
+| Detect plateau | `python scripts/autoresearch.py detect-plateau` |
+| Synthesize patterns | `python scripts/autoresearch.py synthesize` |
+| Suggest combinations | `python scripts/autoresearch.py suggest-combinations` |
 | Extract video frames | `python scripts/harold.py frames --json` |
 | View training log | `python scripts/harold.py log` |
 | Stop training | `python scripts/harold.py stop` |

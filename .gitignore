@@ -10,3 +10,4 @@ tmux-*.log
 *.nmconnection
 docs/autoresearch/results.tsv
 docs/autoresearch/session_state.json
+.autoresearch_baseline.json

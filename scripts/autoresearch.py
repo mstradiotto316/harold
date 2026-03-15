@@ -53,6 +53,20 @@ PPO_CFG_PATH = (
     / "skrl_ppo_cfg.yaml"
 )
 
+TRAIN_ENV_PATH = (
+    PROJECT_ROOT
+    / "harold_isaac_lab"
+    / "source"
+    / "harold_isaac_lab"
+    / "harold_isaac_lab"
+    / "tasks"
+    / "direct"
+    / "harold_flat"
+    / "train_env.py"
+)
+
+BASELINE_SNAPSHOT_PATH = PROJECT_ROOT / ".autoresearch_baseline.json"
+
 REGISTRY_PATH = PROJECT_ROOT / "docs" / "autoresearch" / "PARAMETER_REGISTRY.md"
 RESULTS_PATH = PROJECT_ROOT / "docs" / "autoresearch" / "results.tsv"
 SESSION_STATE_PATH = PROJECT_ROOT / "docs" / "autoresearch" / "session_state.json"
@@ -253,6 +267,30 @@ def _extract_ppo_cfg_regex() -> dict:
     return values
 
 
+# ── Baseline Snapshot ────────────────────────────────────────────────────────
+
+def _save_baseline_snapshot() -> None:
+    """Snapshot mutable config files before mutation.
+
+    Saves file contents + git HEAD SHA so revert_change() can restore the
+    exact pre-experiment state even after a git commit.
+    """
+    head_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=PROJECT_ROOT,
+        capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+    snapshot = {
+        "head_sha": head_sha,
+        "files": {}
+    }
+    for path in [ENV_CFG_PATH, PPO_CFG_PATH, TRAIN_ENV_PATH]:
+        if path.exists():
+            snapshot["files"][str(path)] = path.read_text()
+
+    BASELINE_SNAPSHOT_PATH.write_text(json.dumps(snapshot, indent=2) + "\n")
+
+
 # ── Apply / Revert Changes ──────────────────────────────────────────────────
 
 def apply_change(delta: dict) -> list:
@@ -263,6 +301,10 @@ def apply_change(delta: dict) -> list:
     Validates against parameter registry before applying.
     Raises ValueError for FROZEN params or out-of-range values.
     """
+    # Auto-snapshot baseline before first mutation in this experiment cycle
+    if not BASELINE_SNAPSHOT_PATH.exists():
+        _save_baseline_snapshot()
+
     registry = load_parameter_registry()
     modified_files = set()
 
@@ -378,11 +420,32 @@ def _apply_ppo_change(param: str, value) -> None:
     PPO_CFG_PATH.write_text("\n".join(lines) + "\n")
 
 
-def revert_change(files: list = None) -> None:
-    """Revert config files to the last git commit state."""
-    if files is None:
+def revert_change(revert_all: bool = False) -> None:
+    """Revert config files to the pre-experiment baseline state.
+
+    If a baseline snapshot exists (saved by apply_change), restores file
+    contents from the snapshot — works even after git commit.
+    Falls back to git checkout if no snapshot exists (backward compatible).
+
+    Args:
+        revert_all: If True, also revert train_env.py (default: config only).
+    """
+    if BASELINE_SNAPSHOT_PATH.exists():
+        snapshot = json.loads(BASELINE_SNAPSHOT_PATH.read_text())
+        files_to_revert = [str(ENV_CFG_PATH), str(PPO_CFG_PATH)]
+        if revert_all:
+            files_to_revert.append(str(TRAIN_ENV_PATH))
+
+        for filepath in files_to_revert:
+            if filepath in snapshot["files"]:
+                Path(filepath).write_text(snapshot["files"][filepath])
+
+        BASELINE_SNAPSHOT_PATH.unlink()
+    else:
         files = [str(ENV_CFG_PATH), str(PPO_CFG_PATH)]
-    subprocess.run(["git", "checkout", "--"] + files, cwd=PROJECT_ROOT, check=True)
+        if revert_all:
+            files.append(str(TRAIN_ENV_PATH))
+        subprocess.run(["git", "checkout", "--"] + files, cwd=PROJECT_ROOT, check=True)
 
 
 def _validate_file(filepath: str) -> None:
@@ -451,6 +514,40 @@ def compute_walk_score(metrics: dict) -> float:
     return round(gate * vx_score * 100.0, 1)
 
 
+def compute_progress_score(metrics: dict) -> float:
+    """Incremental progress score 0-100 with soft survival gate.
+
+    Same formula as walk_score but replaces the hard ep_len >= 300 cutoff
+    with tanh(ep_len / 150), so short-lived experiments still get partial
+    credit. Converges to walk_score as ep_len grows.
+
+    Formula:
+        progress_score = survival * posture * velocity * 100
+        survival = tanh(ep_len / 150)
+        posture  = min(upright_gate, height_gate, contact_gate)
+        velocity = tanh(max(0, vx) / 0.05)
+    """
+    ep_len = metrics.get("episode_length", 0)
+    upright = metrics.get("upright_mean", 0)
+    height = metrics.get("height_reward", 0)
+    contact = metrics.get("body_contact", 0)
+    vx = metrics.get("vx_w_mean", 0)
+
+    # Soft survival gate (tanh ramp)
+    survival = math.tanh(ep_len / 150.0)
+
+    # Posture gates (same as walk_score)
+    upright_gate = min(1.0, max(0.0, (upright - 0.85) / 0.10))
+    height_gate = min(1.0, max(0.0, (height - 0.3) / 0.3))
+    contact_gate = min(1.0, max(0.0, (contact + 0.3) / 0.3))
+    posture = min(upright_gate, height_gate, contact_gate)
+
+    # Velocity (same as walk_score)
+    velocity = math.tanh(max(0.0, vx) / 0.05)
+
+    return round(survival * posture * velocity * 100.0, 1)
+
+
 # Backward compatibility alias
 def compute_score(metrics: dict, weights: dict = None) -> float:
     """Legacy scoring function. Delegates to compute_walk_score."""
@@ -462,13 +559,34 @@ def compute_score(metrics: dict, weights: dict = None) -> float:
 RESULTS_COLUMNS = [
     "exp_alias", "timestamp", "hypothesis", "changed_params", "duration_min",
     "verdict", "vx", "upright", "height", "contact", "ep_len",
-    "walk_score", "decision", "notes",
+    "walk_score", "progress_score", "decision", "notes",
 ]
 
 
+def _scores_from_entry(entry: dict) -> tuple[float, float]:
+    """Compute walk_score and progress_score from an entry's metric fields."""
+    metrics = {
+        "episode_length": float(entry.get("ep_len", 0) or 0),
+        "upright_mean": float(entry.get("upright", 0) or 0),
+        "height_reward": float(entry.get("height", 0) or 0),
+        "body_contact": float(entry.get("contact", 0) or 0),
+        "vx_w_mean": float(entry.get("vx", 0) or 0),
+    }
+    return compute_walk_score(metrics), compute_progress_score(metrics)
+
+
 def log_result(entry: dict) -> None:
-    """Append a result row to docs/autoresearch/results.tsv."""
+    """Append a result row to docs/autoresearch/results.tsv.
+
+    Auto-computes walk_score and progress_score from the entry's metric
+    fields, overriding any caller-provided values for consistency.
+    """
     RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    # Always recompute scores from stored metrics (prevents drift)
+    ws, ps = _scores_from_entry(entry)
+    entry["walk_score"] = str(ws)
+    entry["progress_score"] = str(ps)
 
     write_header = not RESULTS_PATH.exists() or RESULTS_PATH.stat().st_size == 0
 
@@ -488,6 +606,42 @@ def load_results_history() -> list:
     with open(RESULTS_PATH, newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
         return list(reader)
+
+
+# ── Recompute Scores ───────────────────────────────────────────────────────
+
+def recompute_scores() -> int:
+    """Recompute walk_score and progress_score for all rows in results.tsv.
+
+    Reads the file, recalculates both scores from stored metric fields,
+    and writes back. Adds progress_score column if missing.
+    Returns number of rows updated.
+    """
+    if not RESULTS_PATH.exists():
+        print("No results.tsv found")
+        return 0
+
+    rows = []
+    with open(RESULTS_PATH, newline="") as f:
+        reader = csv.DictReader(f, delimiter="\t")
+        existing_fields = reader.fieldnames or []
+        rows = list(reader)
+
+    updated = 0
+    for row in rows:
+        ws, ps = _scores_from_entry(row)
+        row["walk_score"] = str(ws)
+        row["progress_score"] = str(ps)
+        updated += 1
+
+    with open(RESULTS_PATH, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=RESULTS_COLUMNS, delimiter="\t",
+                                extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+
+    print(f"Recomputed scores for {updated} rows")
+    return updated
 
 
 # ── Backfill ───────────────────────────────────────────────────────────────
@@ -595,9 +749,14 @@ def save_state(state_update: dict) -> None:
     if not existing.get("session_start"):
         existing["session_start"] = datetime.now(timezone.utc).isoformat()
 
-    # Count experiments from results.tsv
+    # Count experiments from results.tsv and auto-detect last_exp
     history = load_results_history()
     existing["experiments_run"] = len(history)
+
+    if history and "last_exp" not in state_update:
+        last_alias = history[-1].get("exp_alias", "")
+        if last_alias:
+            existing["last_exp"] = last_alias
 
     # Merge update
     existing.update(state_update)
@@ -629,7 +788,9 @@ def main():
     apply_p = sub.add_parser("apply", help="Apply config changes")
     apply_p.add_argument("delta", help="JSON dict of {param: value}")
 
-    sub.add_parser("revert", help="Revert config files to git HEAD")
+    revert_p = sub.add_parser("revert", help="Revert config files to baseline")
+    revert_p.add_argument("--all", action="store_true", dest="revert_all",
+                          help="Also revert train_env.py (default: config only)")
     sub.add_parser("backfill", help="Backfill results.tsv from existing experiment logs")
     sub.add_parser("state", help="Print current session state")
 
@@ -641,6 +802,8 @@ def main():
 
     log_p = sub.add_parser("log", help="Append result to results.tsv")
     log_p.add_argument("entry", help="JSON dict of result entry")
+
+    sub.add_parser("recompute-scores", help="Recompute walk_score and progress_score for all rows")
 
     args = parser.parse_args()
 
@@ -658,13 +821,16 @@ def main():
         print(json.dumps({"modified_files": modified}))
 
     elif args.command == "revert":
-        revert_change()
-        print("Reverted to git HEAD")
+        had_snapshot = BASELINE_SNAPSHOT_PATH.exists()
+        revert_change(revert_all=args.revert_all)
+        source = "baseline snapshot" if had_snapshot else "git HEAD"
+        print(f"Reverted to {source}")
 
     elif args.command == "score":
         metrics = json.loads(args.metrics)
-        s = compute_walk_score(metrics)
-        print(json.dumps({"walk_score": s}))
+        ws = compute_walk_score(metrics)
+        ps = compute_progress_score(metrics)
+        print(json.dumps({"walk_score": ws, "progress_score": ps}))
 
     elif args.command == "log":
         entry = json.loads(args.entry)
@@ -674,6 +840,9 @@ def main():
     elif args.command == "history":
         history = load_results_history()
         print(json.dumps(history, indent=2))
+
+    elif args.command == "recompute-scores":
+        recompute_scores()
 
     elif args.command == "backfill":
         return backfill_results()

@@ -133,6 +133,11 @@ METRICS = [
 AUX_METRICS = [
     AuxMetricSpec('x_displacement', 'Info / Episode_Metric/x_displacement', 'X Displacement'),
     AuxMetricSpec('x_displacement_abs', 'Info / Episode_Metric/x_displacement_abs', 'Abs X Displacement'),
+    AuxMetricSpec('term_orientation', 'Episode_Termination/orientation', 'Term: Orientation'),
+    AuxMetricSpec('term_height', 'Episode_Termination/height', 'Term: Height'),
+    AuxMetricSpec('term_body_contact', 'Episode_Termination/body_contact', 'Term: Body Contact'),
+    AuxMetricSpec('term_elbow_pose', 'Episode_Termination/elbow_pose', 'Term: Elbow Pose'),
+    AuxMetricSpec('term_timeout', 'Episode_Termination/time_out', 'Term: Timeout'),
 ]
 
 # Derived lookups (computed once at import time)

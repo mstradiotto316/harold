@@ -186,9 +186,22 @@ LOOP FOREVER:
      Loop to step 1
 ```
 
-**NEVER STOP.** The human may be asleep. Run until max_experiments or manual interrupt.
+**NEVER STOP.** The human may be asleep. You run until manually interrupted. There is no experiment limit. If you run out of ideas, re-read results.tsv and try something new. If context is getting large, use /compact between experiments.
 
-If 3+ consecutive DISCARDs: re-read results.tsv, reconsider strategy. Try combining near-misses. Try the opposite of what failed. Try simplifying.
+After step 9 (LOG), run: `python3 scripts/autoresearch.py save-state '{"baseline_walk_score": ..., "consecutive_discards": ..., "current_strategy": "..."}'`
+
+### Consecutive DISCARD Fallback Rules
+
+If 3+ consecutive DISCARDs:
+1. Read results.tsv — what was the last KEEP? What has been tried since?
+2. Try a DIFFERENT axis: if you've been tuning rewards, try PPO hyperparameters.
+   If you've been tuning params, try a code change in train_env.py.
+   If you've been editing train_env.py, try reverting to a known-good state and changing a param.
+3. Try the OPPOSITE: if increasing X failed, try decreasing X.
+4. Try COMBINING: take the 2-3 best near-miss experiments and apply their changes together.
+5. Try a LONGER RUN: if fast (15 min) isn't enough, try short (30 min) or standard (60 min).
+6. Try a DIFFERENT SEED: the results may be seed-sensitive at 512 envs.
+7. DO NOT STOP. These are fallback strategies, not reasons to pause.
 
 ### Video Review Agent (Step 7)
 
@@ -260,21 +273,30 @@ Use `harold log` to inspect raw training output for debugging:
 
 ## Session Parameters
 
-- max_experiments: 10
 - duration_per_experiment: fast (~15 min)
 - mode: rl
 - task: flat
 - num_envs: 512 (when Claude Code is running concurrently; 1024 standalone)
 
+### Context Management
+
+Your context window is finite. To run indefinitely:
+- After every 3-4 experiments, type /compact to compress the conversation
+- Session state is saved automatically after each experiment (session_state.json)
+- After compaction, re-read this file and run `autoresearch.py state` to recover
+- Keep experiment logging concise — don't repeat full video descriptions in your messages
+- The video review agent uses fresh context (sub-agent), so its output doesn't accumulate
+
 ## Setup (Start of Session)
 
 1. Read this file (program.md) -- this is the only file you need
-2. Run `python3 scripts/autoresearch.py history` -- check prior results
-3. Read `docs/memory/OBSERVATIONS.md` -- accumulated insights
-4. Run `python3 scripts/harold.py ps` -- check for orphan processes
-5. Create branch: `git checkout -b autoresearch/session-$(date +%Y-%m-%d)`
-6. Run baseline if no prior score in results.tsv
-7. Begin the loop. Do not stop.
+2. Run `python3 scripts/autoresearch.py state` -- recover session state (baseline, kept changes, strategy). If no state exists, this is a fresh session.
+3. Run `python3 scripts/autoresearch.py history` -- check prior results
+4. Read `docs/memory/OBSERVATIONS.md` -- accumulated insights
+5. Run `python3 scripts/harold.py ps` -- check for orphan processes
+6. Create branch: `git checkout -b autoresearch/session-$(date +%Y-%m-%d)`
+7. Run baseline if no prior score in results.tsv
+8. Begin the loop. Do not stop.
 
 ## Quick Reference
 
@@ -289,6 +311,8 @@ Use `harold log` to inspect raw training output for debugging:
 | Score | `python scripts/autoresearch.py score '{"metrics": ...}'` |
 | Log result | `python scripts/autoresearch.py log '{"entry": ...}'` |
 | View history | `python scripts/autoresearch.py history` |
+| Save session state | `python scripts/autoresearch.py save-state '{"key": "value"}'` |
+| Load session state | `python scripts/autoresearch.py state` |
 | Extract video frames | `python scripts/harold.py frames --json` |
 | View training log | `python scripts/harold.py log` |
 | Stop training | `python scripts/harold.py stop` |

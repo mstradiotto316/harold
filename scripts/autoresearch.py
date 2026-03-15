@@ -23,6 +23,7 @@ import os
 import re
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -54,6 +55,7 @@ PPO_CFG_PATH = (
 
 REGISTRY_PATH = PROJECT_ROOT / "docs" / "autoresearch" / "PARAMETER_REGISTRY.md"
 RESULTS_PATH = PROJECT_ROOT / "docs" / "autoresearch" / "results.tsv"
+SESSION_STATE_PATH = PROJECT_ROOT / "docs" / "autoresearch" / "session_state.json"
 
 # Patterns for extracting values from env_cfg.py
 # Matches lines like: `parameter_name: float = 5.0` or `parameter_name = 5.0`
@@ -579,6 +581,41 @@ def backfill_results() -> int:
     return 0
 
 
+# ── Session State ──────────────────────────────────────────────────────────
+
+def save_state(state_update: dict) -> None:
+    """Save/update session state to session_state.json.
+
+    Merges state_update into existing state. Auto-populates session_start
+    and experiments_run from results.tsv if not provided.
+    """
+    # Load existing state or start fresh
+    existing = load_state()
+
+    if not existing.get("session_start"):
+        existing["session_start"] = datetime.now(timezone.utc).isoformat()
+
+    # Count experiments from results.tsv
+    history = load_results_history()
+    existing["experiments_run"] = len(history)
+
+    # Merge update
+    existing.update(state_update)
+
+    SESSION_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SESSION_STATE_PATH.write_text(json.dumps(existing, indent=2) + "\n")
+
+
+def load_state() -> dict:
+    """Load session state from session_state.json. Returns empty dict if none."""
+    if not SESSION_STATE_PATH.exists():
+        return {}
+    try:
+        return json.loads(SESSION_STATE_PATH.read_text())
+    except (json.JSONDecodeError, IOError):
+        return {}
+
+
 # ── CLI Interface ───────────────────────────────────────────────────────────
 
 def main():
@@ -594,6 +631,10 @@ def main():
 
     sub.add_parser("revert", help="Revert config files to git HEAD")
     sub.add_parser("backfill", help="Backfill results.tsv from existing experiment logs")
+    sub.add_parser("state", help="Print current session state")
+
+    save_state_p = sub.add_parser("save-state", help="Save/update session state")
+    save_state_p.add_argument("state_json", help="JSON dict of state fields to save/update")
 
     score_p = sub.add_parser("score", help="Compute quantitative score")
     score_p.add_argument("metrics", help="JSON dict of metrics")
@@ -636,6 +677,18 @@ def main():
 
     elif args.command == "backfill":
         return backfill_results()
+
+    elif args.command == "state":
+        state = load_state()
+        if state:
+            print(json.dumps(state, indent=2))
+        else:
+            print("No session state found (fresh session)")
+
+    elif args.command == "save-state":
+        state_update = json.loads(args.state_json)
+        save_state(state_update)
+        print(f"Session state saved to {SESSION_STATE_PATH}")
 
     else:
         parser.print_help()

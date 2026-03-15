@@ -9,3 +9,4 @@ tmux-*.log
 .vscode/
 *.nmconnection
 docs/autoresearch/results.tsv
+docs/autoresearch/session_state.json

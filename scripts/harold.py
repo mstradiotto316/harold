@@ -84,7 +84,7 @@ TRAINING_DEFAULTS = {
     'num_envs': 8192,
     'video_interval': 3200,
     'video_length': 250,
-    'rendering_mode': 'performance',
+    'rendering_mode': 'balanced',
 }
 DURATION_PRESETS = {
     'fast': 625,       # ~15 minutes (screening)
@@ -731,22 +731,18 @@ def start_watchdog(pid: str) -> bool:
 
 def cmd_train(args):
     """Start training in background with optional hypothesis and tags."""
-    # Check if already running
+    # Auto-stop if already running (enables seamless experiment chaining)
     train_status = is_training_running()
     if train_status.running:
-        print(f"ERROR: Training already running (PID: {train_status.pid})")
-        print(f"Check status: harold status")
-        print(f"Kill it: kill {train_status.pid}")
-        return 1
+        print(f"Stopping previous training (PID: {train_status.pid})...")
+        cmd_stop(argparse.Namespace())
+        time.sleep(3)
 
     existing_processes = find_training_processes()
     if existing_processes:
-        print("ERROR: Found existing training processes not tracked by PID file.")
-        for proc in existing_processes:
-            elapsed_str = format_elapsed(proc['elapsed'])
-            print(f"  PID {proc['pid']} (running {elapsed_str})")
-        print("Run: harold stop")
-        return 1
+        print("Stopping orphan training processes...")
+        cmd_stop(argparse.Namespace())
+        time.sleep(3)
 
     # Parse arguments with defaults
     task_key = getattr(args, 'task', DEFAULT_TASK) or DEFAULT_TASK

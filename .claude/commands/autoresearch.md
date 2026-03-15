@@ -3,9 +3,10 @@ You are starting an autonomous autoresearch session for the Harold quadruped rob
 Read `docs/autoresearch/program.md` — this is your complete lab policy, experiment loop, parameter registry, and scoring system in one file.
 
 Then:
-1. Run `python3 scripts/autoresearch.py history` — check prior results
-2. Read `docs/memory/OBSERVATIONS.md` — accumulated insights
-3. Run `python3 scripts/harold.py ps` — check for orphan processes
-4. Create branch: `git checkout -b autoresearch/session-$(date +%Y-%m-%d)`
-5. Run baseline if no prior score in results.tsv
-6. Begin the experiment loop. Do not stop.
+1. Run `python3 scripts/autoresearch.py state` — recover session state (baseline, kept changes, strategy)
+2. Run `python3 scripts/autoresearch.py history` — check prior results
+3. Read `docs/memory/OBSERVATIONS.md` — accumulated insights
+4. Run `python3 scripts/harold.py ps` — check for orphan processes
+5. Create branch: `git checkout -b autoresearch/session-$(date +%Y-%m-%d)`
+6. Run baseline if no prior score in results.tsv
+7. Begin the experiment loop. Do not stop.

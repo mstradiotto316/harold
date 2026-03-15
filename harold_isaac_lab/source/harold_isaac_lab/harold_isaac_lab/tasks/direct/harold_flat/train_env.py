@@ -180,9 +180,9 @@ def compute_rewards(env) -> torch.Tensor:
 
     # === PHASED REWARD CURRICULUM ===
     # Gate motion rewards on episode progress: learn stability before walking.
-    # Steps 0-100 (~5s): motion rewards ramp 0→1 (stability-only phase).
-    # Steps 100+: all rewards active at full strength.
-    motion_gate = (env.episode_length_buf.float() / 100.0).clamp(0.0, 1.0)
+    # Shortened to 30 steps (~1.5s) to avoid standing-only local minimum.
+    # Floor of 0.3 ensures some forward signal even during stability phase.
+    motion_gate = (0.3 + 0.7 * (env.episode_length_buf.float() / 30.0).clamp(0.0, 1.0))
 
     # === FORWARD MOTION BONUS ===
     # Direct reward for positive vx to bootstrap walking.

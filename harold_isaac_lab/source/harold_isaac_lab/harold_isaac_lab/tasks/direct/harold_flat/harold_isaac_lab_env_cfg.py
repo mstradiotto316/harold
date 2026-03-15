@@ -414,7 +414,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
     episode_length_s = 30.0
     decimation = 9
-    action_scale = 0.5  # Session 23: 0.7 was worse (vx=0.029, contact failing)
+    action_scale = 0.4  # Session 23: 0.7 was worse (vx=0.029, contact failing)
 
     # Space definitions
     # Observation space is always 48D; CPG is open-loop and does not affect policy input size.

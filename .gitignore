@@ -8,6 +8,7 @@ __pycache__/
 tmux-*.log
 .vscode/
 *.nmconnection
+deployment/validation/sim_episode.json
 docs/autoresearch/results.tsv
 docs/autoresearch/session_state.json
 .autoresearch_baseline.json

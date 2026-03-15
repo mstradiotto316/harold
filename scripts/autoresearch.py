@@ -19,6 +19,7 @@ Usage (by Claude Code agent):
 import argparse
 import csv
 import json
+import math
 import os
 import re
 import subprocess
@@ -469,8 +470,6 @@ def _validate_file(filepath: str) -> None:
 
 # ── Scoring ─────────────────────────────────────────────────────────────────
 
-import math
-
 
 def compute_walk_score(metrics: dict) -> float:
     """Single scalar 0-100 for walking quality.
@@ -549,7 +548,7 @@ def compute_progress_score(metrics: dict) -> float:
 
 
 # Backward compatibility alias
-def compute_score(metrics: dict, weights: dict = None) -> float:
+def compute_score(metrics: dict) -> float:
     """Legacy scoring function. Delegates to compute_walk_score."""
     return compute_walk_score(metrics)
 

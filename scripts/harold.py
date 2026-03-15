@@ -648,7 +648,6 @@ def get_progress(run_path: Path) -> tuple[float | None, int | None, int | None]:
         # Look for iteration progress in log
         content = LOG_FILE.read_text()
         # Find patterns like "1234/4167" or similar
-        import re
         matches = re.findall(r'(\d+)/(\d+)', content)
         if matches:
             current, total = map(int, matches[-1])
@@ -668,7 +667,6 @@ def get_training_rate() -> tuple[float | None, float | None]:
         return None, None
 
     try:
-        import re
         content = LOG_FILE.read_text()
         # Match patterns like "17.02it/s" or "6.31it/s"
         matches = re.findall(r'(\d+\.?\d*)it/s', content)
@@ -753,7 +751,7 @@ def cmd_train(args):
     # Auto-stop if already running (enables seamless experiment chaining)
     train_status = is_training_running()
     if train_status.running:
-        print(f"Stopping previous training (PID: {train_status.pid})...")
+        print(f"WARNING: Auto-stopping previous training (PID: {train_status.pid}) to start new run.")
         cmd_stop(argparse.Namespace())
         time.sleep(3)
 
@@ -1370,7 +1368,6 @@ def cmd_snapshot_config(args):
 
 def _extract_step_number(filename: str) -> int:
     """Extract the step number from a video filename like 'rl-video-step-3200-side.mp4'."""
-    import re
     m = re.search(r'rl-video-step-(\d+)', filename)
     return int(m.group(1)) if m else -1
 

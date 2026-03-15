@@ -231,7 +231,7 @@ class TerminationCfg:
     # EXP-002: 10N kept body contact low (-0.04) but didn't prevent elbow pose
     # EXP-013: Root cause - elbow contact ~5N per point, below 10N threshold = undetected
     # Lowering to 3N should make elbow contact visible to the reward system
-    body_contact_threshold: float = 3.0
+    body_contact_threshold: float = 10.0
 
     # Joint-angle termination: detect elbow pose via front leg joint angles
     # EXP-009: thigh>1.0, calf>-0.8 too loose - robot still found elbow pose (height=1.50)

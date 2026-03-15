@@ -290,7 +290,7 @@ class DomainRandomizationCfg:
     # Robot learned to stand still to cope with uncertainty
     # Session 28: Re-enabled for SENSOR NOISE ONLY to simulate gear backlash (~2°)
     # Session 37: Replaced noise with explicit hysteresis model (BacklashCfg)
-    enable_randomization: bool = True   # Session 28: OPTIMAL for backlash robustness
+    enable_randomization: bool = False   # Session 28: OPTIMAL for backlash robustness
     randomize_on_reset: bool = False
     randomize_per_step: bool = True     # Session 28: Per-step noise for backlash
     

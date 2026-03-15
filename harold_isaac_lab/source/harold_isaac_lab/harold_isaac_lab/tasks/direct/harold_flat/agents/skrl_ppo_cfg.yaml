@@ -1,4 +1,4 @@
-seed: 42 #42
+seed: 38 #42
 
 models:
   separate: False
@@ -33,7 +33,7 @@ memory:
 
 agent:
   class: PPO
-  rollouts: 48               # 24×8192≈196k samples/update
+  rollouts: 24               # 24×8192≈196k samples/update
   learning_epochs: 5         # passes per rollout
   mini_batches: 8            # 196k/8 ≈ 24k samples/mini-batch (adjusted for 8192 envs)
   discount_factor: 0.99      # gamma
@@ -52,7 +52,7 @@ agent:
   ratio_clip: 0.2            # e_clip - EXP-065: reverted to standard, longer training
   value_clip: 0.2            # clip_value
   clip_predicted_values: True
-  entropy_loss_scale: 0.03  # standard exploration
+  entropy_loss_scale: 0.01  # standard exploration
   value_loss_scale: 1.0      # stronger critic weight for stable learning
   kl_threshold: 0.0         # disable early-stop for policy updates
   rewards_shaper_scale: 0.6  # increase reward shaping scale

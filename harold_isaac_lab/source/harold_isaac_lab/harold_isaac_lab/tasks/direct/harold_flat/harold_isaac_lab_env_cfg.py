@@ -66,10 +66,10 @@ class RewardsCfg:
 
     # === GAIT REWARDS ===
     # Session 36i: Increased 0.2 → 1.0 to force stepping behavior
-    feet_air_time_weight: float = 2.0         # Strongly encourage stepping
+    feet_air_time_weight: float = 1.0         # Strongly encourage stepping
     feet_air_time_threshold: float = 0.3      # Target air time (seconds)
 
-    undesired_contacts_weight: float = -3.0   # Penalize body contact
+    undesired_contacts_weight: float = -1.0   # Penalize body contact
     undesired_contacts_threshold: float = 1.0 # Force threshold (Newtons)
 
     # === STABILITY REWARD ===
@@ -80,7 +80,7 @@ class RewardsCfg:
     # Without this, policy converges to standing still (local minimum)
     # Session 36f-g: Weight sweep: 3.0→+0.01, 5.0→+0.001, 10.0→-0.017
     # 3.0 is optimal, trying longer training (4000 iter) to see if vx improves
-    forward_motion_weight: float = 5.0        # Optimal weight (verified by sweep)
+    forward_motion_weight: float = 3.0        # Optimal weight (verified by sweep)
 
 
 @configclass
@@ -197,7 +197,7 @@ class TerminationCfg:
 
     base_contact_force_threshold: float = math.inf
     undesired_contact_force_threshold: float = math.inf
-    orientation_threshold: float = -0.7
+    orientation_threshold: float = -0.5
     # Height termination: terminate if base height < threshold
     # EXP-002: 10N contact alone wasn't enough - robot stayed low (height=1.76)
     # EXP-003-007: Height termination has issues - scanner returns bad values
@@ -290,7 +290,7 @@ class DomainRandomizationCfg:
     # Robot learned to stand still to cope with uncertainty
     # Session 28: Re-enabled for SENSOR NOISE ONLY to simulate gear backlash (~2°)
     # Session 37: Replaced noise with explicit hysteresis model (BacklashCfg)
-    enable_randomization: bool = False   # Session 28: OPTIMAL for backlash robustness
+    enable_randomization: bool = True   # Session 28: OPTIMAL for backlash robustness
     randomize_on_reset: bool = False
     randomize_per_step: bool = True     # Session 28: Per-step noise for backlash
     
@@ -414,7 +414,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
     episode_length_s = 30.0
     decimation = 9
-    action_scale = 0.4  # Session 23: 0.7 was worse (vx=0.029, contact failing)
+    action_scale = 0.5  # Session 23: 0.7 was worse (vx=0.029, contact failing)
 
     # Space definitions
     # Observation space is always 48D; CPG is open-loop and does not affect policy input size.

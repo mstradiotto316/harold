@@ -218,10 +218,9 @@ def compute_rewards(env) -> torch.Tensor:
         "forward_motion": forward_motion,
         "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,
-        "stumble_penalty": stumble_penalty,
     }
 
-    total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
+    total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0) + stumble_penalty
 
     for key, value in rewards.items():
         env._episode_sums[key] += value

@@ -1400,10 +1400,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
     # Camera offsets relative to robot root position.
     # Each entry: (eye_offset, lookat_offset)
     CAMERA_VIEWS = {
-        "side":  (np.array([0.0, -1.5, 0.4]),  np.array([0.0, 0.0, 0.15])),
-        "front": (np.array([1.5,  0.0, 0.5]),  np.array([0.0, 0.0, 0.15])),
+        "side":  (np.array([0.0, -1.5, 0.3]),  np.array([0.0, 0.0, 0.0])),
+        "front": (np.array([1.5,  0.0, 0.3]),  np.array([0.0, 0.0, 0.0])),
         "top":   (np.array([0.0,  0.0, 2.5]),  np.array([0.0, 0.0, 0.0])),
-        "iso":   (np.array([1.2, -1.0, 0.7]),  np.array([0.0, 0.0, 0.15])),
+        "iso":   (np.array([1.2, -1.0, 0.5]),  np.array([0.0, 0.0, 0.0])),
     }
     MULTI_CAM_RESOLUTION = (960, 540)
 
@@ -1419,6 +1419,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             if not stage.GetPrimAtPath(prim_path).IsValid():
                 cam_prim = UsdGeom.Camera.Define(stage, prim_path)
                 cam_prim.GetClippingRangeAttr().Set(Gf.Vec2f(0.01, 100.0))
+                cam_prim.GetFocalLengthAttr().Set(18.0)
             rp = rep.create.render_product(prim_path, self.MULTI_CAM_RESOLUTION)
             annotator = rep.AnnotatorRegistry.get_annotator("rgb", device="cpu")
             annotator.attach([rp])

@@ -87,14 +87,16 @@ def compute_rewards(env) -> torch.Tensor:
     cfg = env.cfg.rewards
 
     # === Extract quantities ===
+    root_lin_vel_w = env._robot.data.root_lin_vel_w
     root_lin_vel_b = env._robot.data.root_lin_vel_b
     root_ang_vel_b = env._robot.data.root_ang_vel_b
     projected_gravity = env._robot.data.projected_gravity_b
     joint_acc = env._robot.data.joint_acc
     applied_torque = env._robot.data.applied_torque
 
-    vx_b = root_lin_vel_b[:, 0]
-    vy_b = root_lin_vel_b[:, 1]
+    # World-frame velocities for reward computation (matches walk_score metrics)
+    vx = root_lin_vel_w[:, 0]
+    vy = root_lin_vel_w[:, 1]
     vz_b = root_lin_vel_b[:, 2]
     wz = root_ang_vel_b[:, 2]
 
@@ -104,7 +106,7 @@ def compute_rewards(env) -> torch.Tensor:
 
     # === TASK REWARDS (exponential kernel) ===
     lin_vel_error = torch.sum(
-        torch.square(torch.stack([vx_b - cmd_vx, vy_b - cmd_vy], dim=1)), dim=1
+        torch.square(torch.stack([vx - cmd_vx, vy - cmd_vy], dim=1)), dim=1
     )
     track_lin_vel_xy = torch.exp(-lin_vel_error / (cfg.track_lin_vel_xy_std ** 2))
 
@@ -177,7 +179,7 @@ def compute_rewards(env) -> torch.Tensor:
     # === FORWARD MOTION BONUS ===
     # Direct reward for positive vx to bootstrap walking.
     # Gate by upright to avoid rewarding forward falling.
-    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.5, 1.0)
+    forward_motion = cfg.forward_motion_weight * vx * upright.clamp(0.5, 1.0)
 
     # === STANCE HEIGHT REWARD ===
     # Directly reward standing tall — attacks the crouch-and-survive local minimum.
@@ -293,14 +295,6 @@ def process_actions(env, actions: torch.Tensor) -> None:
     if not hasattr(env, "_actions_smooth"):
         env._actions_smooth = torch.zeros_like(env._actions)
     beta = getattr(env.cfg, "action_filter_beta", 0.2)
-
-    # Warm-start EMA for envs that just reset (buffer was zeroed).
-    # Without this, the first ~5 steps have 80% attenuated actions,
-    # effectively paralyzing the robot and preventing stepping bootstrap.
-    just_reset = env._actions_smooth.abs().sum(dim=-1) < 1e-8
-    if just_reset.any():
-        env._actions_smooth[just_reset] = env._actions[just_reset]
-
     env._actions_smooth = (1.0 - beta) * env._actions_smooth + beta * env._actions
 
     # Apply action noise and delays if domain randomization is enabled

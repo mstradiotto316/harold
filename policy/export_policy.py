@@ -98,6 +98,22 @@ def load_reference_policy(checkpoint_path: Path) -> tuple[NormalizedPolicy, torc
     return wrapper, running_mean, running_var, action_dim
 
 
+def _read_training_action_scale(checkpoint_path: Path) -> float:
+    """Read action_scale from the training run's manifest, falling back to the default."""
+    # Checkpoint is typically at <run_dir>/checkpoints/<file> or <run_dir>/<file>
+    for parent in [checkpoint_path.parent, checkpoint_path.parent.parent]:
+        manifest = parent / "manifest.json"
+        if manifest.exists():
+            try:
+                data = json.loads(manifest.read_text(encoding="utf-8"))
+                meta = data.get("metadata", data)
+                if "action_scale" in meta:
+                    return float(meta["action_scale"])
+            except (json.JSONDecodeError, ValueError, TypeError):
+                pass
+    return DEFAULT_ACTION_SCALE
+
+
 def build_policy_metadata(
     checkpoint_path: Path,
     running_mean: torch.Tensor,
@@ -109,7 +125,7 @@ def build_policy_metadata(
         "schema_version": 2,
         "observation_dim": int(running_mean.numel()),
         "action_dim": len(JOINT_ORDER),
-        "action_scale": DEFAULT_ACTION_SCALE,
+        "action_scale": _read_training_action_scale(checkpoint_path),
         "joint_order": JOINT_ORDER,
         "default_joint_pos": load_rl_default_pose_dict(),
         "joint_range": JOINT_RANGE_BY_CATEGORY,

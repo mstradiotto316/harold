@@ -63,8 +63,10 @@ def compute_forward_motion_reward(
     height_gate = (current_height / target_height).clamp(0.0, 1.0)
     posture_quality = upright_gate * height_gate  # [0, 1]
 
+    healthy_mask = posture_quality > 0.5
     reward = weight * vx_b * posture_quality
-    healthy_mask = posture_quality > 0.5  # informational only
+    # Clamp to non-positive for fallen poses to prevent reward leaking
+    reward = torch.where(healthy_mask, reward, torch.clamp(reward, max=0.0))
     return reward, healthy_mask
 
 

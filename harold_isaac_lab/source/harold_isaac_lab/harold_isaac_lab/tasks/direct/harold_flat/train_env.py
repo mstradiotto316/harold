@@ -181,9 +181,9 @@ def compute_rewards(env) -> torch.Tensor:
     # === PHASED REWARD CURRICULUM ===
     # Gate motion rewards on episode progress: learn stability before walking.
     # 100 steps (~5s) for stability learning (proven in EXP-292: upright>0.9).
-    # Floor of 0.5 ensures strong forward signal even during stability phase.
-    # 0.3 floor (EXP-294) was too low — standing trap persisted.
-    motion_gate = (0.5 + 0.5 * (env.episode_length_buf.float() / 100.0).clamp(0.0, 1.0))
+    # Floor of 0.3 was the best combination (EXP-294: ep_len=121, vx=0.078).
+    # 0.5 floor was worse (EXP-295: ep_len=105, vx=0.056). Keep 0.3.
+    motion_gate = (0.3 + 0.7 * (env.episode_length_buf.float() / 100.0).clamp(0.0, 1.0))
 
     # === FORWARD MOTION BONUS ===
     # Direct reward for positive vx to bootstrap walking.

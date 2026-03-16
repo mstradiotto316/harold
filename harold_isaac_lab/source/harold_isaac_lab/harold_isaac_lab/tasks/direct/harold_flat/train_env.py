@@ -203,12 +203,17 @@ def compute_rewards(env) -> torch.Tensor:
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
 
     # === STANDING PENALTY ===
-    # Penalize near-zero body-frame X velocity when commanded to move.
-    # Video review (EXP-328): -2.0 too weak vs height+upright passive income (~5.0/step).
-    # Increased to -4.0 so standing-still is net-negative.
-    body_vx = torch.abs(root_lin_vel_b[:, 0])
+    # Penalize near-zero WORLD-FRAME X velocity when commanded to move.
+    # Video review (EXP-329): body-frame penalty allowed spinning exploit.
+    # Using world-frame aligns with forward_motion reward direction.
+    world_vx_abs = torch.abs(vx)
     moving_cmd = (cmd_magnitude > 0.05).float()
-    standing_penalty = -4.0 * torch.exp(-body_vx / 0.03) * moving_cmd
+    standing_penalty = -4.0 * torch.exp(-world_vx_abs / 0.03) * moving_cmd
+
+    # === YAW PENALTY ===
+    # Penalize yaw rotation to prevent spinning-in-place exploit.
+    # Video review (EXP-329): robot spins ~45 degrees/episode to avoid standing penalty.
+    yaw_penalty = -0.5 * wz.square()
 
     # === COMPUTE TOTAL ===
     rewards = {
@@ -227,6 +232,7 @@ def compute_rewards(env) -> torch.Tensor:
         "foot_slip_penalty": foot_slip_penalty,
         "standing_penalty": standing_penalty,
         "pitch_penalty": pitch_penalty,
+        "yaw_penalty": yaw_penalty,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

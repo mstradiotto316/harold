@@ -29,47 +29,6 @@ def compute_body_frame_command_errors(root_lin_vel_b: torch.Tensor, commands: to
     )
 
 
-def healthy_forward_posture_mask(
-    upright: torch.Tensor,
-    current_height: torch.Tensor,
-    target_height: float,
-    undesired_contacts: torch.Tensor,
-    min_upright: float = 0.75,
-    min_height_ratio: float = 0.65,
-) -> torch.Tensor:
-    """Identify postures that are allowed to earn positive forward reward."""
-    return (
-        (upright > min_upright)
-        & (current_height > target_height * min_height_ratio)
-    )
-
-
-def compute_forward_motion_reward(
-    vx_b: torch.Tensor,
-    upright: torch.Tensor,
-    current_height: torch.Tensor,
-    target_height: float,
-    undesired_contacts: torch.Tensor,
-    weight: float,
-    fallen_penalty_scale: float = 0.0,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Reward forward motion scaled smoothly by posture quality.
-
-    Uses a continuous [0,1] gate instead of a binary mask so the policy always
-    receives gradient, with reward proportional to how upright and tall the robot is.
-    """
-    # Smooth posture gate: product of upright quality and height quality
-    upright_gate = upright.clamp(0.0, 1.0)
-    height_gate = (current_height / target_height).clamp(0.0, 1.0)
-    posture_quality = upright_gate * height_gate  # [0, 1]
-
-    healthy_mask = posture_quality > 0.5
-    reward = weight * vx_b * posture_quality
-    # Clamp to non-positive for fallen poses to prevent reward leaking
-    reward = torch.where(healthy_mask, reward, torch.clamp(reward, max=0.0))
-    return reward, healthy_mask
-
-
 def extract_sim_time_scalar(time_buffer: torch.Tensor, env_index: int = 0) -> float:
     """Serialize a single environment timestamp for JSON logging."""
     if time_buffer.ndim == 0:
@@ -96,11 +55,14 @@ def compute_rewards(env) -> torch.Tensor:
     joint_acc = env._robot.data.joint_acc
     applied_torque = env._robot.data.applied_torque
 
-    # World-frame velocities for reward computation (matches walk_score metrics)
-    vx = root_lin_vel_w[:, 0]
-    vy = root_lin_vel_w[:, 1]
+    # Body-frame velocities for reward computation (commands are body-frame).
+    # BUG-1 fix: was using root_lin_vel_w which diverges from commands after yaw.
+    vx_b = root_lin_vel_b[:, 0]
+    vy_b = root_lin_vel_b[:, 1]
     vz_b = root_lin_vel_b[:, 2]
     wz = root_ang_vel_b[:, 2]
+    # Keep world-frame vx for telemetry (walk_score uses world frame)
+    vx_w = root_lin_vel_w[:, 0]
 
     cmd_vx = env._commands[:, 0]
     cmd_vy = env._commands[:, 1]
@@ -108,7 +70,7 @@ def compute_rewards(env) -> torch.Tensor:
 
     # === TASK REWARDS (exponential kernel) ===
     lin_vel_error = torch.sum(
-        torch.square(torch.stack([vx - cmd_vx, vy - cmd_vy], dim=1)), dim=1
+        torch.square(torch.stack([vx_b - cmd_vx, vy_b - cmd_vy], dim=1)), dim=1
     )
     track_lin_vel_xy = torch.exp(-lin_vel_error / (cfg.track_lin_vel_xy_std ** 2))
 
@@ -183,7 +145,7 @@ def compute_rewards(env) -> torch.Tensor:
     # Gate by upright AND maintained height to prevent lean-to-fall exploit.
     # Video review (EXP-319, EXP-323) showed robot earning vx from nose-dive.
     height_gate = (current_height > target_height * 0.6).float()
-    forward_motion = cfg.forward_motion_weight * vx * upright.clamp(0.8, 1.0) * height_gate
+    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * height_gate
 
     # === PITCH PENALTY ===
     # Penalize forward/backward body tilt (nose-down lean exploit).
@@ -203,12 +165,11 @@ def compute_rewards(env) -> torch.Tensor:
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
 
     # === STANDING PENALTY ===
-    # Penalize near-zero WORLD-FRAME X velocity when commanded to move.
-    # Video review (EXP-329): body-frame penalty allowed spinning exploit.
-    # Using world-frame aligns with forward_motion reward direction.
-    world_vx_abs = torch.abs(vx)
+    # Penalize near-zero body-frame X velocity when commanded to move.
+    # With BUG-1 fix (all rewards body-frame) and yaw penalty, body-frame is correct.
+    body_vx_abs = torch.abs(vx_b)
     moving_cmd = (cmd_magnitude > 0.05).float()
-    standing_penalty = -4.0 * torch.exp(-world_vx_abs / 0.03) * moving_cmd
+    standing_penalty = -4.0 * torch.exp(-body_vx_abs / 0.03) * moving_cmd
 
     # === YAW PENALTY ===
     # Penalize yaw rotation to prevent spinning-in-place exploit.

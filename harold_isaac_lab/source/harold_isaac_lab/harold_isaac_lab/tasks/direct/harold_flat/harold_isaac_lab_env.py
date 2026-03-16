@@ -335,7 +335,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "upright",
             "forward_motion",  # Session 36e: bootstrap walking
             "stance_height",  # Added by train_env.py research surface
-            "all_feet_penalty",  # Added by train_env.py research surface
             "foot_slip_penalty",  # Added by train_env.py research surface
             "standing_penalty",  # Added by train_env.py research surface
             "pitch_penalty",  # Added by train_env.py research surface

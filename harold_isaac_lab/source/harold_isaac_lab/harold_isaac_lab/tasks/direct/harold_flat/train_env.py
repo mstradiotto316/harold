@@ -122,15 +122,6 @@ def compute_rewards(env) -> torch.Tensor:
     env._foot_slip_speed_sum += slip_sample
     env._foot_slip_speed_count += foot_contact.float()
 
-    # === FOOT HEIGHT REWARD ===
-    # Continuous reward for lifting feet above ground to bootstrap stepping.
-    # Air time reward (binary) provides zero gradient when feet are grounded.
-    # This gives gradient for even tiny lifts (~1mm), seeding the stepping behavior.
-    foot_pos_z = env._robot.data.body_pos_w[:, env._feet_body_ids, 2]  # [num_envs, 4]
-    # Reward only when commanded to move (don't penalize standing at rest)
-    foot_height_above_min = torch.clamp(foot_pos_z - 0.02, min=0.0)  # 2cm ground clearance baseline
-    foot_height_reward = 1.0 * torch.mean(foot_height_above_min, dim=1) * (cmd_magnitude > 0.05).float()
-
     # === STABILITY: UPRIGHT ===
     upright = -projected_gravity[:, 2]
 
@@ -148,40 +139,15 @@ def compute_rewards(env) -> torch.Tensor:
     body_contact_penalty = -undesired_contacts
 
     # === FORWARD MOTION BONUS ===
-    # Direct reward for positive vx to bootstrap walking.
-    # Gate by upright AND maintained height to prevent lean-to-fall exploit.
-    # Video review (EXP-319, EXP-323) showed robot earning vx from nose-dive.
-    height_gate = (current_height > target_height * 0.6).float()
-    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * height_gate
-
-    # === PITCH PENALTY ===
-    # Penalize forward/backward body tilt (nose-down lean exploit).
-    # projected_gravity_b[:, 0] is non-zero when body is pitched.
-    # Video review: robot was falling forward to farm vx reward.
-    pitch_sq = projected_gravity[:, 0].square()
-    pitch_penalty = -1.0 * pitch_sq
+    # Direct reward for body-frame forward velocity, gated by posture quality.
+    # Bug fixes applied: uses vx_b (body-frame), upright.clamp(0.0, 1.0) (proper gate).
+    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0)
 
     # === STANCE HEIGHT REWARD ===
-    # Reward standing tall to prevent crouch-and-survive.
-    # Restored to 3.0: video review (EXP-327) showed robot crouching too low.
-    # With pitch penalty + standing penalty, the standing trap is blocked.
     stance_height = 3.0 * height_reward
 
     # === FOOT SLIP PENALTY ===
-    # Penalize feet sliding along the ground while in contact.
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
-
-    # === STANDING PENALTY ===
-    # Penalize near-zero body-frame XY speed when commanded to move.
-    # Uses total XY speed so lateral commands don't get unfairly penalized.
-    body_speed_xy = torch.norm(root_lin_vel_b[:, :2], dim=1)
-    moving_cmd = (cmd_magnitude > 0.05).float()
-    standing_penalty = -4.0 * torch.exp(-body_speed_xy / 0.03) * moving_cmd
-
-    # === YAW PENALTY ===
-    # Penalize yaw ERROR (deviation from commanded yaw) rather than absolute yaw.
-    # Previous version penalized all yaw, conflicting with yaw tracking reward.
-    yaw_penalty = -0.5 * (wz - cmd_yaw).square()
 
     # === COMPUTE TOTAL ===
     rewards = {
@@ -198,10 +164,6 @@ def compute_rewards(env) -> torch.Tensor:
         "forward_motion": forward_motion,
         "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,
-        "standing_penalty": standing_penalty,
-        "pitch_penalty": pitch_penalty,
-        "yaw_penalty": yaw_penalty,
-        "foot_height_reward": foot_height_reward,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

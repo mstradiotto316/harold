@@ -78,7 +78,7 @@ class RewardsCfg:
     # Session 36 fix: -2.0 caused -43800/ep, -0.05 caused -1149/ep
     # Harold produces higher body-frame vertical velocities than larger robots
     # Session 36h: -0.0005 still limits movement, trying -0.0001
-    lin_vel_z_weight: float = -0.05         # Allow more vertical movement
+    lin_vel_z_weight: float = -0.005         # Allow more vertical movement
     ang_vel_xy_weight: float = -0.0001        # Also reduced for consistency
 
     # === SMOOTHNESS PENALTIES ===

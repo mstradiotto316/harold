@@ -89,7 +89,7 @@ class RewardsCfg:
     # === GAIT REWARDS ===
     # Session 36i: Increased 0.2 → 1.0 to force stepping behavior
     feet_air_time_weight: float = 1.0         # Strongly encourage stepping
-    feet_air_time_threshold: float = 0.3      # Target air time (seconds)
+    feet_air_time_threshold: float = 0.2      # Target air time (seconds)
 
     undesired_contacts_weight: float = -1.0   # Penalize body contact
     undesired_contacts_threshold: float = 1.0 # Force threshold (Newtons)

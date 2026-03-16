@@ -1400,10 +1400,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
     # Camera offsets relative to robot root position.
     # Each entry: (eye_offset, lookat_offset)
     CAMERA_VIEWS = {
-        "side":  (np.array([0.0, -1.5, 0.3]),  np.array([0.0, 0.0, 0.0])),
-        "front": (np.array([1.5,  0.0, 0.3]),  np.array([0.0, 0.0, 0.0])),
-        "top":   (np.array([0.0,  0.0, 2.5]),  np.array([0.0, 0.0, 0.0])),
-        "iso":   (np.array([1.2, -1.0, 0.5]),  np.array([0.0, 0.0, 0.0])),
+        "side":  (np.array([0.0, -1.2, 0.24]),  np.array([0.0, 0.0, 0.0])),
+        "front": (np.array([1.2,  0.0, 0.24]),  np.array([0.0, 0.0, 0.0])),
+        "top":   (np.array([0.0,  0.0, 2.0]),   np.array([0.0, 0.0, 0.0])),
+        "iso":   (np.array([0.96, -0.8, 0.4]),  np.array([0.0, 0.0, 0.0])),
     }
     MULTI_CAM_RESOLUTION = (960, 540)
 

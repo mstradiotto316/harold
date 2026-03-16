@@ -180,8 +180,17 @@ def compute_rewards(env) -> torch.Tensor:
 
     # === FORWARD MOTION BONUS ===
     # Direct reward for positive vx to bootstrap walking.
-    # Gate by upright to avoid rewarding forward falling.
-    forward_motion = cfg.forward_motion_weight * vx * upright.clamp(0.5, 1.0)
+    # Gate by upright AND maintained height to prevent lean-to-fall exploit.
+    # Video review (EXP-319, EXP-323) showed robot earning vx from nose-dive.
+    height_gate = (current_height > target_height * 0.6).float()
+    forward_motion = cfg.forward_motion_weight * vx * upright.clamp(0.8, 1.0) * height_gate
+
+    # === PITCH PENALTY ===
+    # Penalize forward/backward body tilt (nose-down lean exploit).
+    # projected_gravity_b[:, 0] is non-zero when body is pitched.
+    # Video review: robot was falling forward to farm vx reward.
+    pitch_sq = projected_gravity[:, 0].square()
+    pitch_penalty = -1.0 * pitch_sq
 
     # === STANCE HEIGHT REWARD ===
     # Reward standing tall to prevent crouch-and-survive.
@@ -215,6 +224,7 @@ def compute_rewards(env) -> torch.Tensor:
         "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,
         "standing_penalty": standing_penalty,
+        "pitch_penalty": pitch_penalty,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

@@ -187,7 +187,7 @@ def compute_rewards(env) -> torch.Tensor:
     # Directly reward standing tall — attacks the crouch-and-survive local minimum.
     # height_reward is already computed above (tanh(3 * exp(-5 * |h - target|)))
     # Weight 2.0 makes crouching costly relative to the ~3.0 forward_motion bonus.
-    stance_height = 2.0 * height_reward
+    stance_height = 1.0 * height_reward
 
     # === FOOT SLIP PENALTY ===
     # Penalize feet sliding along the ground while in contact.

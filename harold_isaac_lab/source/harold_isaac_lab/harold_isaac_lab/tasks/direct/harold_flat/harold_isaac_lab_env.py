@@ -303,8 +303,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Constant width of the arrow (y and z scale components).
         self._arrow_width = torch.full((self.num_envs,), 1.0, device=self.device)
         
-        # Pre-allocate tensors for marker computations to avoid repeated allocations (only if GUI enabled)
-        if self.sim.has_gui():
+        # Pre-allocate tensors for marker computations (GUI or video recording)
+        if self.sim.has_gui() or self.render_mode == "rgb_array":
             self._cmd_scale_buffer = torch.zeros((self.num_envs, 3), device=self.device)
             self._act_scale_buffer = torch.zeros((self.num_envs, 3), device=self.device)
         else:
@@ -471,8 +471,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         light_cfg.func("/World/Light", light_cfg)
 
         # --- Visualization Markers Setup ---
-        # Only create markers when GUI is enabled to save memory in headless training
-        self._markers_enabled = self.sim.has_gui()
+        # Create markers when GUI is enabled or video recording is active
+        self._markers_enabled = self.sim.has_gui() or self.render_mode == "rgb_array"
         if self._markers_enabled:
             # Instantiate and configure arrow markers for command vs actual velocity
             command_arrow_cfg = VisualizationMarkersCfg(

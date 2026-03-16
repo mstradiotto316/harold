@@ -513,6 +513,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
             mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
             project_uvw=True,
             texture_scale=(0.25, 0.25),
+            albedo_brightness=0.4,
         ),
         debug_vis=False,
     )

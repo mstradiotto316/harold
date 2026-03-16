@@ -194,8 +194,9 @@ def compute_rewards(env) -> torch.Tensor:
 
     # === STANCE HEIGHT REWARD ===
     # Reward standing tall to prevent crouch-and-survive.
-    # Reduced from 3.0 to 1.0: too-high standing reward creates standing trap.
-    stance_height = 1.0 * height_reward
+    # Restored to 3.0: video review (EXP-327) showed robot crouching too low.
+    # With pitch penalty + standing penalty, the standing trap is blocked.
+    stance_height = 3.0 * height_reward
 
     # === FOOT SLIP PENALTY ===
     # Penalize feet sliding along the ground while in contact.

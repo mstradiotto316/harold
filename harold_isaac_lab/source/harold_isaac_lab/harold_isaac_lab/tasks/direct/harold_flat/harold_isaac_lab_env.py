@@ -52,7 +52,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         - Contact-based termination and gait analysis
         - Real-time visualization with velocity command/actual arrows
         - 48-dimensional observation space including robot state, commands, and terrain info
-        - Physics simulation at 360Hz with 20Hz policy updates (18:1 decimation)
+        - Physics simulation at 180Hz with 20Hz policy updates (9:1 decimation)
     
     State Spaces:
         - Observation: 48D vector [root_vel(6) + gravity(3) + joint_pos(12) + joint_vel(12) + commands(3) + actions(12)]

@@ -78,7 +78,8 @@ def compute_rewards(env) -> torch.Tensor:
     track_ang_vel_z = torch.exp(-ang_vel_error / (cfg.track_ang_vel_z_std ** 2))
 
     # === MOTION QUALITY PENALTIES ===
-    lin_vel_z = torch.square(vz_b)
+    vz_w = root_lin_vel_w[:, 2]
+    lin_vel_z = torch.square(vz_w)  # world-frame vertical velocity (not body-frame Z)
     ang_vel_xy = torch.sum(torch.square(root_ang_vel_b[:, :2]), dim=1)
 
     # === SMOOTHNESS PENALTIES ===
@@ -165,16 +166,16 @@ def compute_rewards(env) -> torch.Tensor:
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
 
     # === STANDING PENALTY ===
-    # Penalize near-zero body-frame X velocity when commanded to move.
-    # With BUG-1 fix (all rewards body-frame) and yaw penalty, body-frame is correct.
-    body_vx_abs = torch.abs(vx_b)
+    # Penalize near-zero body-frame XY speed when commanded to move.
+    # Uses total XY speed so lateral commands don't get unfairly penalized.
+    body_speed_xy = torch.norm(root_lin_vel_b[:, :2], dim=1)
     moving_cmd = (cmd_magnitude > 0.05).float()
-    standing_penalty = -4.0 * torch.exp(-body_vx_abs / 0.03) * moving_cmd
+    standing_penalty = -4.0 * torch.exp(-body_speed_xy / 0.03) * moving_cmd
 
     # === YAW PENALTY ===
-    # Penalize yaw rotation to prevent spinning-in-place exploit.
-    # Video review (EXP-329): robot spins ~45 degrees/episode to avoid standing penalty.
-    yaw_penalty = -0.5 * wz.square()
+    # Penalize yaw ERROR (deviation from commanded yaw) rather than absolute yaw.
+    # Previous version penalized all yaw, conflicting with yaw tracking reward.
+    yaw_penalty = -0.5 * (wz - cmd_yaw).square()
 
     # === COMPUTE TOTAL ===
     rewards = {

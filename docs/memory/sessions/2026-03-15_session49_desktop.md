@@ -21,6 +21,7 @@
 - Clarified `deployment/config/hardware.yaml` comments so the shoulder semantics vs right-side servo mirroring split is explicit.
 - Changed `scripts/harold.py` so `cmd_train()` rejects active runs and orphan processes instead of auto-stopping them.
 - Added regression coverage in `deployment/tests/test_inference.py` and new CLI tests in `deployment/tests/test_harold_cli.py`.
+- Updated the durable operator-facing docs (`docs/hardware/rpi_deployment.md`, `deployment/README.md`, `docs/reference/hardware_reference.md`, `docs/hardware/calibration_checklist.md`) so they describe the non-mirrored shoulder semantics and metadata/hardware sign-consistency rule.
 
 ## Verification
 - `python3 -m py_compile common/policy_config.py deployment/inference/action_converter.py deployment/inference/observation_builder.py deployment/inference/harold_controller.py scripts/harold.py deployment/tests/test_inference.py deployment/tests/test_harold_cli.py`

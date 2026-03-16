@@ -105,6 +105,14 @@ arduino-cli upload -p /dev/ttyUSB0 --fqbn esp32:esp32:esp32 firmware/StreamingCo
 - ESP32 via USB (CP2102 adapter) -> `/dev/ttyUSB0` (verify on the Pi)
 - IMU (MPU6050) via I2C bus 1, address `0x68`
 
+## Joint sign semantics
+
+- Policy/RL joint order is `[FL, FR, BL, BR] x [shoulder, thigh, calf]`.
+- Shoulders keep the same semantic sign on all four legs. Positive shoulder motion should mean the same body-relative motion on left and right legs.
+- Thighs and calves are sign-inverted between RL convention and hardware convention.
+- Right-side servo mirroring is handled by the low-level direction tables in `deployment/config/hardware.yaml` and the ESP32 firmware, not by flipping the high-level shoulder sign convention.
+- If `policy/policy_metadata.json` and `deployment/config/hardware.yaml` disagree on `joint_sign`, treat that as a deployment error and regenerate/reconcile before running the controller.
+
 ## Troubleshooting
 
 ```bash

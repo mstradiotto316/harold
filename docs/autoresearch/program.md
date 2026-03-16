@@ -171,6 +171,8 @@ All 5 metrics are still logged to results.tsv for diagnostics.
 ```
 LOOP FOREVER:
   1. HYPOTHESIZE: One change, one falsifiable prediction
+     - MUST reference prior video review findings when available
+     - If last video showed an exploit/degenerate behavior, hypothesis MUST address it
   1b. CHECK: autoresearch.py check-similarity '{"param": value}' (skip if >2 similar DISCARDs)
   2. EDIT: config param (autoresearch.py apply) or train_env.py code
   3. COMMIT: git commit -m "autoresearch: <hypothesis>"
@@ -179,11 +181,25 @@ LOOP FOREVER:
      Early stop: SANITY_FAIL after 5 min -> harold stop, score=0, DISCARD
      Early stop: height FAIL + negative vx after 10 min -> harold stop, DISCARD
   6. SCORE: harold validate -> walk_score (via autoresearch.py score)
-  7. VIDEO REVIEW: Launch video review agent (see below)
-  8. DECIDE: KEEP if walk_score > baseline + 2.0 AND video review supports it
-     DISCARD if not improved or video reveals exploit/degenerate behavior
-  9. LOG: autoresearch.py log -> results.tsv (include video_description)
+  7. VIDEO REVIEW (BLOCKING): Launch video review agent and WAIT for result
+     - Do NOT proceed to step 8 until video review is complete
+     - Read the FULL video description — it is the primary success/failure signal
+     - Metrics can lie (vx from falling, ep_len from standing); video cannot
+  8. DECIDE: Based on video verdict FIRST, then metrics
+     - KEEP only if video shows WALKING or STEPPING with forward progress
+       AND walk_score > baseline + 2.0
+     - DISCARD if video shows STANDING, FALLING, or DEGENERATE
+       regardless of metric improvements
+     - Record the video analyst's specific recommendations for next experiment
+  9. LOG: autoresearch.py log -> results.tsv
+     - video_description field is MANDATORY (not "pending")
+     - Include the video verdict (WALKING/STEPPING/STANDING/FALLING/DEGENERATE)
+     - Include specific recommendations from video review
      If DISCARD: revert config (autoresearch.py revert) or git checkout -- train_env.py
+  10. PLAN NEXT: Before looping to step 1, explicitly state:
+     - What the video review revealed about robot behavior
+     - What specific recommendation from the video analyst you are following
+     - Why you believe the next hypothesis addresses the identified issue
      Loop to step 1
 ```
 
@@ -216,9 +232,17 @@ If 3+ consecutive DISCARDs:
 8. If `detect-plateau` reports 15+ experiments since improvement, make a QUALITATIVELY DIFFERENT change (new axis, code change, or combination). Do not keep tuning the same axis.
 9. DO NOT STOP. These are fallback strategies, not reasons to pause.
 
-### Video Review Agent (Step 7)
+### Video Review Agent (Step 7) — THE MOST IMPORTANT STEP
 
-After every experiment completes, launch a **fresh-context sub-agent** to analyze the latest training video. This is the most important qualitative signal in the loop -- metrics can lie, video cannot.
+After every experiment completes, launch a **fresh-context sub-agent** to analyze the latest training video. **The video review is the PRIMARY success/failure signal — it outranks all metrics.**
+
+Why video review matters more than metrics:
+- vx=0.068 can mean "walking forward" or "falling forward slowly" — only video tells which
+- ep_len=195 can mean "stable walking" or "standing still" — only video tells which
+- upright=0.9 can mean "level body while stepping" or "level body while crouching" — only video tells which
+- Every metric-based "improvement" in Session 48 was revealed by video to be a degenerate exploit
+
+**BLOCKING RULE: You MUST read the video review output before planning the next experiment. Do NOT launch the next experiment while the video review is still pending. The video review agent should NOT be run in background — run it in foreground and wait for the result.**
 
 **Procedure:**
 
@@ -259,14 +283,18 @@ Then provide a VERBOSE description covering:
 7. FAILURE MODES: Any reward hacking, exploits, or degenerate policies?
 8. VERDICT: One of WALKING / STEPPING / STANDING / FALLING / DEGENERATE
    Plus a 1-2 sentence summary a researcher would find useful.
+9. RECOMMENDATION: What specific change would improve behavior in the next experiment?
+   Be concrete (e.g., "add pitch penalty" or "increase height reward weight").
 
 Be specific. Reference frame numbers and camera view. Describe what you actually see, not what the metrics say."""
 )
 ```
 
-3. Read the agent's response. Store it as `video_description` in results.tsv.
+3. **Read the agent's response IN FULL before proceeding.** Store it as `video_description` in results.tsv.
 
-4. If the description reveals something the metrics missed (e.g., "robot is on its side but sliding forward" explains a positive vx with low height), factor that into the keep/discard decision.
+4. **The video verdict OVERRIDES metrics.** If video shows STANDING but metrics show vx=0.05, the robot is NOT walking. If video shows DEGENERATE but ep_len improved, the improvement is from an exploit.
+
+5. **Use the video analyst's RECOMMENDATION** to design the next experiment. The analyst has seen what the robot is actually doing — their suggested fix is more informed than metric-driven guessing.
 
 5. You can **resume the agent** to ask follow-up questions:
    - "Look at frames 15-20 more carefully -- is the front-left leg making ground contact?"

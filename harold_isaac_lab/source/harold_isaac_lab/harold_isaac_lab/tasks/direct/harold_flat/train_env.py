@@ -178,18 +178,10 @@ def compute_rewards(env) -> torch.Tensor:
     # === BODY CONTACT METRIC ===
     body_contact_penalty = -undesired_contacts
 
-    # === PHASED REWARD CURRICULUM ===
-    # Gate motion rewards on episode progress: learn stability before walking.
-    # 100 steps (~5s) for stability learning (proven in EXP-292: upright>0.9).
-    # Floor of 0.3 was the best combination (EXP-294: ep_len=121, vx=0.078).
-    # 0.5 floor was worse (EXP-295: ep_len=105, vx=0.056). Keep 0.3.
-    motion_gate = (0.3 + 0.7 * (env.episode_length_buf.float() / 100.0).clamp(0.0, 1.0))
-
     # === FORWARD MOTION BONUS ===
     # Direct reward for positive vx to bootstrap walking.
     # Gate by upright to avoid rewarding forward falling.
-    # Gate by episode phase to learn stability first.
-    forward_motion = motion_gate * cfg.forward_motion_weight * vx * upright.clamp(0.5, 1.0)
+    forward_motion = cfg.forward_motion_weight * vx * upright.clamp(0.5, 1.0)
 
     # === STANCE HEIGHT REWARD ===
     # Directly reward standing tall — attacks the crouch-and-survive local minimum.
@@ -205,8 +197,8 @@ def compute_rewards(env) -> torch.Tensor:
 
     # === COMPUTE TOTAL ===
     rewards = {
-        "track_lin_vel_xy": motion_gate * cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
-        "track_ang_vel_z": motion_gate * cfg.track_ang_vel_z_weight * track_ang_vel_z,
+        "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
+        "track_ang_vel_z": cfg.track_ang_vel_z_weight * track_ang_vel_z,
         "lin_vel_z": cfg.lin_vel_z_weight * lin_vel_z,
         "ang_vel_xy": cfg.ang_vel_xy_weight * ang_vel_xy,
         "dof_torques": cfg.dof_torques_weight * dof_torques,

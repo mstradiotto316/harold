@@ -239,6 +239,23 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             self._feet_ids = torch.tensor(self._feet_ids, device=self.device, dtype=torch.long)
         self._front_foot_slots = torch.tensor((0, 1), device=self.device, dtype=torch.long)
         self._rear_foot_slots = torch.tensor((2, 3), device=self.device, dtype=torch.long)
+
+        # Separate articulation body IDs for body_lin_vel_w indexing (BUG-1 fix).
+        # _feet_ids is for contact sensor data; _feet_body_ids is for articulation data.
+        artic_feet_ids, artic_foot_names = self._robot.find_bodies(".*calf")
+        artic_names_lower = [str(name).lower() for name in artic_foot_names]
+        artic_reorder: list[int] = []
+        for expected in desired_order:
+            matches = [i for i, name in enumerate(artic_names_lower) if expected in name]
+            if len(matches) != 1:
+                raise RuntimeError(
+                    f"Expected exactly one '{expected}' calf in articulation body results, found {matches} from {artic_foot_names}."
+                )
+            artic_reorder.append(matches[0])
+        if isinstance(artic_feet_ids, torch.Tensor):
+            self._feet_body_ids = artic_feet_ids.index_select(0, torch.tensor(artic_reorder, device=artic_feet_ids.device, dtype=torch.long))
+        else:
+            self._feet_body_ids = torch.tensor([artic_feet_ids[i] for i in artic_reorder], device=self.device, dtype=torch.long)
         
         # Get undesired contact bodies (body, thighs, shoulders should not touch ground)
         self._undesired_contact_body_ids, _ = self._contact_sensor.find_bodies(".*(body|thigh|shoulder)")
@@ -836,9 +853,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             net_contact_forces = getattr(self._contact_sensor.data, "net_forces_w", None)
             if net_contact_forces is None:
                 net_contact_forces = self._contact_sensor.data.net_forces_w_history[:, 0]
-            # Sum of absolute Z-force on undesired contact bodies
-            undesired_contact_forces = torch.abs(
-                net_contact_forces[:, self._undesired_contact_body_ids, 2]
+            # Full 3D norm of forces on undesired contact bodies (matches reward penalty).
+            # Previously only checked Z-axis, missing lateral dragging/grinding.
+            undesired_contact_forces = torch.norm(
+                net_contact_forces[:, self._undesired_contact_body_ids], dim=-1
             )
             body_contact_force = undesired_contact_forces.sum(dim=1)
             body_contact_terminated = body_contact_force > body_contact_threshold

@@ -59,10 +59,7 @@ def compute_rewards(env) -> torch.Tensor:
     # BUG-1 fix: was using root_lin_vel_w which diverges from commands after yaw.
     vx_b = root_lin_vel_b[:, 0]
     vy_b = root_lin_vel_b[:, 1]
-    vz_b = root_lin_vel_b[:, 2]
     wz = root_ang_vel_b[:, 2]
-    # Keep world-frame vx for telemetry (walk_score uses world frame)
-    vx_w = root_lin_vel_w[:, 0]
 
     cmd_vx = env._commands[:, 0]
     cmd_vy = env._commands[:, 1]
@@ -119,7 +116,7 @@ def compute_rewards(env) -> torch.Tensor:
     env._foot_air_time_sumsq += air_time_sample * air_time_sample
     env._foot_air_time_count += first_contact.float()
 
-    foot_lin_vel_xy = env._robot.data.body_lin_vel_w[:, env._feet_ids, :2]
+    foot_lin_vel_xy = env._robot.data.body_lin_vel_w[:, env._feet_body_ids, :2]
     foot_slip_speed = torch.linalg.vector_norm(foot_lin_vel_xy, dim=-1)
     slip_sample = foot_slip_speed * foot_contact.float()
     env._foot_slip_speed_sum += slip_sample

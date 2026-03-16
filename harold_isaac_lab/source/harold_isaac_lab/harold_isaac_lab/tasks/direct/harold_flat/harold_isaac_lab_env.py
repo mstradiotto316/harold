@@ -356,6 +356,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "standing_penalty",  # Added by train_env.py research surface
             "pitch_penalty",  # Added by train_env.py research surface
             "yaw_penalty",  # Added by train_env.py research surface
+            "foot_height_reward",  # Added by train_env.py research surface
         ]
 
         self._metric_keys = [

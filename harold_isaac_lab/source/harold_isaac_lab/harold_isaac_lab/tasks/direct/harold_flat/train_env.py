@@ -122,6 +122,15 @@ def compute_rewards(env) -> torch.Tensor:
     env._foot_slip_speed_sum += slip_sample
     env._foot_slip_speed_count += foot_contact.float()
 
+    # === FOOT HEIGHT REWARD ===
+    # Continuous reward for lifting feet above ground to bootstrap stepping.
+    # Air time reward (binary) provides zero gradient when feet are grounded.
+    # This gives gradient for even tiny lifts (~1mm), seeding the stepping behavior.
+    foot_pos_z = env._robot.data.body_pos_w[:, env._feet_body_ids, 2]  # [num_envs, 4]
+    # Reward only when commanded to move (don't penalize standing at rest)
+    foot_height_above_min = torch.clamp(foot_pos_z - 0.02, min=0.0)  # 2cm ground clearance baseline
+    foot_height_reward = 1.0 * torch.mean(foot_height_above_min, dim=1) * (cmd_magnitude > 0.05).float()
+
     # === STABILITY: UPRIGHT ===
     upright = -projected_gravity[:, 2]
 
@@ -192,6 +201,7 @@ def compute_rewards(env) -> torch.Tensor:
         "standing_penalty": standing_penalty,
         "pitch_penalty": pitch_penalty,
         "yaw_penalty": yaw_penalty,
+        "foot_height_reward": foot_height_reward,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

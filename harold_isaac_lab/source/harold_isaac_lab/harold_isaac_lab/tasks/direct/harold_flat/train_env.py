@@ -204,10 +204,11 @@ def compute_rewards(env) -> torch.Tensor:
 
     # === STANDING PENALTY ===
     # Penalize near-zero body-frame X velocity when commanded to move.
-    # Breaks the standing trap: standing earns -2.0 per step, walking at vx>0.1 earns ~0.
+    # Video review (EXP-328): -2.0 too weak vs height+upright passive income (~5.0/step).
+    # Increased to -4.0 so standing-still is net-negative.
     body_vx = torch.abs(root_lin_vel_b[:, 0])
     moving_cmd = (cmd_magnitude > 0.05).float()
-    standing_penalty = -2.0 * torch.exp(-body_vx / 0.03) * moving_cmd
+    standing_penalty = -4.0 * torch.exp(-body_vx / 0.03) * moving_cmd
 
     # === COMPUTE TOTAL ===
     rewards = {

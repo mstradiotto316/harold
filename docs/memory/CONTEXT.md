@@ -46,6 +46,15 @@ When ending a session and transferring to another machine:
 ## Goal
 Train a controllable walking gait for the Harold quadruped robot that can follow velocity commands.
 
+## Current State (2026-03-16, Desktop Review Follow-up)
+- Export metadata is now sourced from the training run itself for supported fallback cases:
+  - manifest action-scale fields remain first priority
+  - manifestless or older direct `skrl` runs fall back to `params/env.yaml`
+  - task defaults are only used when no run-local config is available
+- Non-flat exports no longer stamp flat-task action scale or joint limits into `policy_metadata.json`; rough/pushup checkpoints now resolve to the trained `action_scale=1.0` path and mechanical joint bounds.
+- `harold status` now resolves termination counters from the actual TensorBoard scalar names (`Info / Episode_Termination/*`) with `Episode_Metric/termination_*` fallbacks, so aux diagnostics show up again on existing runs.
+- Regression coverage now includes manifestless export metadata resolution and TensorBoard termination-tag lookup.
+
 ## Current State (2026-03-15, Desktop Audit Remediation)
 - The March 2026 audit blockers have been repaired in the primary flat task, rough task, launcher, and export/deployment path.
 - Public-repo secret remediation was completed on 2026-03-15:

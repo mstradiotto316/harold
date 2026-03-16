@@ -14,6 +14,23 @@ Each experiment entry contains:
 
 ## Experiments
 
+### MAINT-2026-03-16: Export Metadata Fallback + Status Termination Tags
+- **Date**: 2026-03-16
+- **ID**: manifestless/non-flat export metadata fix, termination tag lookup fix
+- **Config**:
+  - Exporter now resolves action scale and joint limits from `manifest.json`, then `params/env.yaml`, before using task defaults
+  - `harold status` aux termination metrics now read the real `Info / Episode_Termination/*` tags and tolerate `Episode_Metric/termination_*` fallbacks
+  - Added regression tests for manifestless export metadata and termination metric lookup
+- **Duration**: single maintenance pass
+- **Result**: **PASS** - manifestless rough/non-flat checkpoints now export correct metadata and status diagnostics surface termination counters again
+- **Metrics**:
+  - `~/Desktop/env_isaaclab/bin/python -m pytest deployment/tests/test_export_policy.py deployment/tests/test_harold_cli.py deployment/tests/test_inference.py -q`: 14 passed
+  - `~/Desktop/env_isaaclab/bin/python -m py_compile common/policy_config.py policy/export_policy.py scripts/harold.py deployment/tests/test_export_policy.py deployment/tests/test_harold_cli.py`
+- **Notes**:
+  - Isaac Lab `params/env.yaml` snapshots use `!!python/tuple`, so `yaml.safe_load` is insufficient; `yaml.full_load` works for these local generated files.
+  - Verified against real runs that `resolve_export_training_config()` returns `action_scale=1.0` plus mechanical joint bounds for `terrain_58` and `2026-03-15_02-03-30_ppo_torch`.
+  - Verified against `2026-03-15_02-10-19_ppo_torch` that termination counters now resolve through `harold.get_metrics()`.
+
 ### MAINT-2026-03-15: Deployment Sign Convention Alignment + Train Guard
 - **Date**: 2026-03-15
 - **ID**: deployment sign-source unification, metadata/hardware mismatch guard, `harold train` relaunch guard

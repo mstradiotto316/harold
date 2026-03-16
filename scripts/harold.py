@@ -154,11 +154,31 @@ METRICS = [
 AUX_METRICS = [
     AuxMetricSpec('x_displacement', 'Info / Episode_Metric/x_displacement', 'X Displacement'),
     AuxMetricSpec('x_displacement_abs', 'Info / Episode_Metric/x_displacement_abs', 'Abs X Displacement'),
-    AuxMetricSpec('term_orientation', 'Episode_Termination/orientation', 'Term: Orientation'),
-    AuxMetricSpec('term_height', 'Episode_Termination/height', 'Term: Height'),
-    AuxMetricSpec('term_body_contact', 'Episode_Termination/body_contact', 'Term: Body Contact'),
-    AuxMetricSpec('term_elbow_pose', 'Episode_Termination/elbow_pose', 'Term: Elbow Pose'),
-    AuxMetricSpec('term_timeout', 'Episode_Termination/time_out', 'Term: Timeout'),
+    AuxMetricSpec(
+        'term_orientation',
+        ('Info / Episode_Termination/orientation', 'Info / Episode_Metric/termination_orientation'),
+        'Term: Orientation',
+    ),
+    AuxMetricSpec(
+        'term_height',
+        ('Info / Episode_Termination/height', 'Info / Episode_Metric/termination_height'),
+        'Term: Height',
+    ),
+    AuxMetricSpec(
+        'term_body_contact',
+        ('Info / Episode_Termination/body_contact', 'Info / Episode_Termination/contact', 'Info / Episode_Metric/termination_body_contact', 'Info / Episode_Metric/termination_contact'),
+        'Term: Body Contact',
+    ),
+    AuxMetricSpec(
+        'term_elbow_pose',
+        ('Info / Episode_Termination/elbow_pose', 'Info / Episode_Metric/termination_elbow_pose'),
+        'Term: Elbow Pose',
+    ),
+    AuxMetricSpec(
+        'term_timeout',
+        ('Info / Episode_Termination/time_out', 'Info / Episode_Metric/termination_time_out'),
+        'Term: Timeout',
+    ),
 ]
 
 # Derived lookups (computed once at import time)

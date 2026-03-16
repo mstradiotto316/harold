@@ -5,6 +5,12 @@
 - Public-secret cleanup for git requires both steps: remove the file from `HEAD` and rewrite history. Deleting only the current file is insufficient once the repo has been pushed.
 - After a public-history rewrite, cached clones/forks may still hold the credential. Treat the credential as compromised and rotate it.
 
+## 2026-03-16: Export Metadata + Status Diagnostics
+- Old direct `skrl` runs can be manifestless but still preserve the training config under `params/env.yaml`; export fallback logic should prefer that snapshot over repo defaults.
+- Isaac Lab `params/env.yaml` snapshots use `!!python/tuple` tags. `yaml.safe_load` fails on these files; `yaml.full_load` is required if we want to read the saved config directly.
+- Category-level export metadata should fail closed if a saved env snapshot ever contains per-joint ranges or limits that differ within a category. Silently collapsing asymmetric per-joint limits into one category bound would corrupt deployment/offline replay.
+- `harold status` auxiliary termination counters only resolve when the TensorBoard tags include the `Info /` prefix used by skrl (`Info / Episode_Termination/*` and `Info / Episode_Metric/termination_*`).
+
 ## 2026-03-15: Desktop Environment And Runtime Context
 - Desktop Isaac Lab work should use `/home/matteo/Desktop/env_isaaclab`; Raspberry Pi runtime work should use system `python3`.
 - `isaaclab` import success in the desktop venv does not imply Isaac Sim runtime modules are available.

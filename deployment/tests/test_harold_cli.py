@@ -2,6 +2,8 @@ import argparse
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -72,3 +74,23 @@ def test_cmd_train_rejects_orphans_without_auto_stop(monkeypatch, capsys):
     assert result == 1
     assert "harold stop" in output
     assert stop_calls == []
+
+
+def test_get_metrics_reads_termination_counters_with_info_prefix(tmp_path):
+    """Status diagnostics should resolve the actual TensorBoard scalar names."""
+    tensorboard = pytest.importorskip("torch.utils.tensorboard")
+    harold = _load_harold_cli_module()
+
+    writer = tensorboard.SummaryWriter(log_dir=str(tmp_path))
+    writer.add_scalar("Info / Episode_Termination/orientation", 3.0, 1)
+    writer.add_scalar("Info / Episode_Termination/body_contact", 5.0, 1)
+    writer.add_scalar("Info / Episode_Termination/time_out", 7.0, 1)
+    writer.add_scalar("Info / Episode_Metric/vx_w_mean", 0.12, 1)
+    writer.flush()
+    writer.close()
+
+    metrics = harold.get_metrics(tmp_path)
+
+    assert metrics["term_orientation"] == 3.0
+    assert metrics["term_body_contact"] == 5.0
+    assert metrics["term_timeout"] == 7.0

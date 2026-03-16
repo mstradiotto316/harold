@@ -88,7 +88,7 @@ class RewardsCfg:
 
     # === GAIT REWARDS ===
     # Session 36i: Increased 0.2 → 1.0 to force stepping behavior
-    feet_air_time_weight: float = 1.5         # Strongly encourage stepping
+    feet_air_time_weight: float = 1.0         # Strongly encourage stepping
     feet_air_time_threshold: float = 0.3      # Target air time (seconds)
 
     undesired_contacts_weight: float = -1.0   # Penalize body contact
@@ -447,7 +447,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # Action filtering (EMA low-pass)
     # Session 35: beta=0.40 is optimal (0.50 prevented walking)
     # Lower beta = more smoothing (60% carryover from previous action)
-    action_filter_beta: float = 0.2
+    action_filter_beta: float = 0.15
 
     # Reward configuration
     rewards = RewardsCfg()

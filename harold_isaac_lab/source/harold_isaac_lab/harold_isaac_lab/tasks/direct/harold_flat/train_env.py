@@ -184,16 +184,20 @@ def compute_rewards(env) -> torch.Tensor:
     forward_motion = cfg.forward_motion_weight * vx * upright.clamp(0.5, 1.0)
 
     # === STANCE HEIGHT REWARD ===
-    # Directly reward standing tall — attacks the crouch-and-survive local minimum.
-    # height_reward is already computed above (tanh(3 * exp(-5 * |h - target|)))
-    # Weight 2.0 makes crouching costly relative to the ~3.0 forward_motion bonus.
-    stance_height = 3.0 * height_reward
+    # Reward standing tall to prevent crouch-and-survive.
+    # Reduced from 3.0 to 1.0: too-high standing reward creates standing trap.
+    stance_height = 1.0 * height_reward
 
     # === FOOT SLIP PENALTY ===
     # Penalize feet sliding along the ground while in contact.
-    # Discourages shuffle gait and encourages clean lift-and-place stepping.
-    # foot_slip_speed is already computed above (per-foot XY velocity while in contact).
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
+
+    # === STANDING PENALTY ===
+    # Penalize near-zero body-frame X velocity when commanded to move.
+    # Breaks the standing trap: standing earns -2.0 per step, walking at vx>0.1 earns ~0.
+    body_vx = torch.abs(root_lin_vel_b[:, 0])
+    moving_cmd = (cmd_magnitude > 0.05).float()
+    standing_penalty = -2.0 * torch.exp(-body_vx / 0.03) * moving_cmd
 
     # === COMPUTE TOTAL ===
     rewards = {
@@ -210,6 +214,7 @@ def compute_rewards(env) -> torch.Tensor:
         "forward_motion": forward_motion,
         "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,
+        "standing_penalty": standing_penalty,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

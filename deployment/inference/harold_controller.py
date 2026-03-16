@@ -256,7 +256,7 @@ class HaroldController:
         print("  IMU connected")
 
         # Initialize observation builder
-        obs_config = ObservationConfig.from_yaml(cpg_config_path)
+        obs_config = ObservationConfig.from_yaml(cpg_config_path, hw_config_path, metadata=metadata)
         self.obs_builder = ObservationBuilder(self.imu, self.esp32, obs_config)
         print("Observation builder initialized")
 

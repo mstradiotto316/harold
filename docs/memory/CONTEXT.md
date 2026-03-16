@@ -68,9 +68,13 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
   - exporter/metadata/validation/controller are all 48D
   - metadata is sourced from checkpoint stats plus canonical stance/config
   - fresh artifacts were regenerated from `logs/skrl/harold_direct/terrain_64_2/checkpoints/best_agent.pt`
+  - deployment sign resolution is now hardware-backed end-to-end: shoulders stay non-mirrored, while right-side servo mounting remains handled by firmware/hardware direction tables
+  - controller startup now rejects export metadata whose `joint_sign` disagrees with `deployment/config/hardware.yaml`
+  - `harold train` again rejects active/orphan launches instead of auto-stopping existing work
 - Verification completed this session:
   - `py_compile` on edited modules
   - `pytest deployment/tests/test_inference.py -q` (7 passed)
+  - `pytest deployment/tests/test_inference.py deployment/tests/test_harold_cli.py -q` (11 passed)
   - `policy/validate_export.py` PASS
   - `deployment/validation/validate_onnx_quick.py` PASS
   - `deployment/validation/validate_onnx_vs_sim.py --data deployment/validation/sim_episode.json` PASS

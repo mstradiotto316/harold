@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 import torch
 
 # Add parent directories to path
@@ -107,6 +108,80 @@ def test_action_converter_respects_metadata_action_scale():
     expected_delta = 0.25 * 0.90
 
     assert np.isclose(rl_targets[4] - cfg.rl_default_pose[4], expected_delta)
+
+
+def test_deployment_joint_sign_uses_hardware_convention(tmp_path):
+    """Action and observation conversion should share the hardware-backed sign convention."""
+    from common.policy_config import JOINT_SIGN
+    from inference.action_converter import ActionConfig
+    from inference.observation_builder import ObservationConfig
+
+    cpg_path = tmp_path / "cpg.yaml"
+    cpg_path.write_text(
+        "\n".join(
+            [
+                "joint_sign:",
+                "  shoulders: [1.0, -1.0, 1.0, -1.0]",
+                "  thighs: -1.0",
+                "  calves: -1.0",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    hw_path = tmp_path / "hardware.yaml"
+    hw_path.write_text(
+        "\n".join(
+            [
+                "servos:",
+                "  joint_sign:",
+                "    shoulders: 1.0",
+                "    thighs: -1.0",
+                "    calves: -1.0",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    action_cfg = ActionConfig.from_yaml(cpg_path, hw_path)
+    obs_cfg = ObservationConfig.from_yaml(cpg_path, hw_path)
+    expected = np.array(JOINT_SIGN, dtype=np.float32)
+
+    assert np.array_equal(action_cfg.joint_sign, expected)
+    assert np.array_equal(obs_cfg.joint_sign, expected)
+
+
+def test_deployment_joint_sign_rejects_mismatched_metadata(tmp_path):
+    """Deployment should fail closed if export metadata disagrees with hardware.yaml."""
+    from inference.action_converter import ActionConfig
+    from inference.observation_builder import ObservationConfig
+
+    cpg_path = tmp_path / "cpg.yaml"
+    cpg_path.write_text("joint_range: {}\n", encoding="utf-8")
+    hw_path = tmp_path / "hardware.yaml"
+    hw_path.write_text(
+        "\n".join(
+            [
+                "servos:",
+                "  joint_sign:",
+                "    shoulders: 1.0",
+                "    thighs: -1.0",
+                "    calves: -1.0",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    bad_metadata = {
+        "joint_sign": [1.0, -1.0, 1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0],
+    }
+
+    with pytest.raises(ValueError, match="joint_sign"):
+        ActionConfig.from_yaml(cpg_path, hw_path, metadata=bad_metadata)
+
+    with pytest.raises(ValueError, match="joint_sign"):
+        ObservationConfig.from_yaml(cpg_path, hw_path, metadata=bad_metadata)
 
 
 def test_flat_command_errors_use_body_frame():

@@ -802,18 +802,23 @@ def cmd_train(args):
     # Build command (validates interpreter path, etc.)
     cmd = build_train_command(num_envs, iterations, task_id, args.checkpoint)
 
-    # All validation passed — now safe to stop any existing training.
+    # Reject concurrent launches instead of killing in-flight work.
     train_status = is_training_running()
     if train_status.running:
-        print(f"WARNING: Auto-stopping previous training (PID: {train_status.pid}) to start new run.")
-        cmd_stop(argparse.Namespace())
-        time.sleep(3)
+        print(
+            "ERROR: Training is already running "
+            f"(PID: {train_status.pid}). Stop it explicitly with `harold stop` before starting a new run."
+        )
+        return 1
 
     existing_processes = find_training_processes()
     if existing_processes:
-        print("Stopping orphan training processes...")
-        cmd_stop(argparse.Namespace())
-        time.sleep(3)
+        orphan_pids = ", ".join(str(proc["pid"]) for proc in existing_processes)
+        print(
+            "ERROR: Found existing Harold training process(es) "
+            f"({orphan_pids}). Run `harold stop` to clean them up before starting a new run."
+        )
+        return 1
 
     # Capture latest run before launch (used to detect new run directory)
     previous_run = get_latest_run()

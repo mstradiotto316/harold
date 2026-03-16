@@ -14,6 +14,22 @@ Each experiment entry contains:
 
 ## Experiments
 
+### MAINT-2026-03-15: Deployment Sign Convention Alignment + Train Guard
+- **Date**: 2026-03-15
+- **ID**: deployment sign-source unification, metadata/hardware mismatch guard, `harold train` relaunch guard
+- **Config**:
+  - Moved deployment sign resolution onto the hardware-backed convention in `deployment/config/hardware.yaml`
+  - Updated observation/action conversion to share the same sign resolver and reject mismatched export metadata
+  - Restored non-destructive `harold train` behavior when a tracked run or orphan processes already exist
+- **Duration**: single maintenance pass
+- **Result**: **PASS** - deployment no longer splits observation vs command shoulder semantics, and CLI relaunch no longer tears down active work
+- **Metrics**:
+  - `python3 -m py_compile common/policy_config.py deployment/inference/action_converter.py deployment/inference/observation_builder.py deployment/inference/harold_controller.py scripts/harold.py deployment/tests/test_inference.py deployment/tests/test_harold_cli.py`
+  - `pytest deployment/tests/test_inference.py deployment/tests/test_harold_cli.py -q`: 11 passed
+- **Notes**:
+  - The stale mirrored-shoulder config was in `deployment/config/cpg.yaml`; the Pi runtime, calibration sketch, standalone gait firmware, and streaming firmware all already treated shoulders as non-mirrored semantic joints.
+  - Export metadata with shoulder signs `[1, 1, 1, 1]` matched the real hardware path; the fix was to unify deployment around that convention rather than reintroduce mirrored shoulders in metadata.
+
 ### SECURITY-2026-03-15: Public Repo Wi-Fi Secret Remediation
 - **Date**: 2026-03-15
 - **ID**: tracked root-level `.nmconnection` history scrub on `main` and `autoresearch/session-2026-03-14`

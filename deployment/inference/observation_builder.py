@@ -15,41 +15,21 @@ Observation layout (48D):
     [36:48] prev_target_delta   - Previous policy output
 """
 import time
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
-import yaml
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from common.policy_config import JOINT_SIGN, resolve_deployment_joint_sign
 from drivers.imu_reader_rpi5 import IMUReaderRPi5, IMUData
 from drivers.esp32_serial import ESP32Interface, Telemetry
 from inference.stance import load_hw_default_pose
-
-
-def _expand_joint_sign(js: dict) -> np.ndarray:
-    """Expand joint_sign config into a 12D array (shoulders, thighs, calves)."""
-    if not isinstance(js, dict):
-        js = {}
-
-    shoulders = js.get("shoulders", 1.0)
-    if isinstance(shoulders, (list, tuple)) and len(shoulders) == 4:
-        shoulder_vals = list(shoulders)
-    else:
-        shoulder_vals = [
-            js.get("shoulder_fl", shoulders),
-            js.get("shoulder_fr", shoulders),
-            js.get("shoulder_bl", shoulders),
-            js.get("shoulder_br", shoulders),
-        ]
-
-    thigh_val = js.get("thighs", -1.0)
-    calf_val = js.get("calves", -1.0)
-
-    return np.array(
-        shoulder_vals + [thigh_val] * 4 + [calf_val] * 4,
-        dtype=np.float32,
-    )
 
 
 @dataclass
@@ -76,11 +56,7 @@ class ObservationConfig:
 
         if self.joint_sign is None:
             # Sign conversion: rl_relative = hw_relative * joint_sign
-            self.joint_sign = np.array([
-                1.0, 1.0, 1.0, 1.0,         # Shoulders: same
-                -1.0, -1.0, -1.0, -1.0,     # Thighs: inverted
-                -1.0, -1.0, -1.0, -1.0      # Calves: inverted
-            ], dtype=np.float32)
+            self.joint_sign = np.array(JOINT_SIGN, dtype=np.float32)
 
         if self.default_commands is None:
             # NOTE: Training used commands around 0.3 m/s (see running_mean[33])
@@ -88,16 +64,21 @@ class ObservationConfig:
             self.default_commands = np.array([0.3, 0.0, 0.0], dtype=np.float32)
 
     @classmethod
-    def from_yaml(cls, cpg_path: Path) -> "ObservationConfig":
-        """Load config from CPG YAML file."""
-        with open(cpg_path) as f:
-            data = yaml.safe_load(f)
-
+    def from_yaml(
+        cls,
+        cpg_path: Path,
+        hw_path: Path | None = None,
+        metadata: dict | None = None,
+    ) -> "ObservationConfig":
+        """Load config from deployment config files."""
         # Hardware default pose (ready stance, from config/stance.yaml)
         hw_default_pose = load_hw_default_pose(cpg_path)
 
-        # Joint sign for HW -> RL conversion (supports per-shoulder overrides)
-        joint_sign = _expand_joint_sign(data.get("joint_sign", {}))
+        # Joint sign must match the same hardware-facing convention used by action conversion.
+        joint_sign = np.array(
+            resolve_deployment_joint_sign(metadata=metadata, hardware_path=hw_path),
+            dtype=np.float32,
+        )
 
         return cls(hw_default_pose=hw_default_pose, joint_sign=joint_sign)
 

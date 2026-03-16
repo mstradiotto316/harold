@@ -111,6 +111,13 @@ def _resolve_stance_path() -> Path | None:
     return None
 
 
+def _resolve_hardware_path() -> Path | None:
+    candidate = _repo_root() / "deployment" / "config" / "hardware.yaml"
+    if candidate.exists():
+        return candidate
+    return None
+
+
 def _load_yaml(path: Path) -> dict[str, Any]:
     if yaml is None:
         return {}
@@ -128,6 +135,73 @@ def _expand_group(value: Any, defaults: list[float]) -> list[float]:
     if value is None:
         return [float(defaults[0])] * 4
     return [float(value)] * 4
+
+
+def expand_joint_sign(value: Any, defaults: list[float] | None = None) -> list[float]:
+    """Expand a joint-sign config into the canonical 12D joint order."""
+    joint_defaults = list(defaults or JOINT_SIGN)
+
+    if isinstance(value, (list, tuple)) and len(value) == ACTION_DIM:
+        return [float(item) for item in value]
+
+    if not isinstance(value, dict):
+        return list(joint_defaults)
+
+    shoulders_value = value.get("shoulders")
+    if isinstance(shoulders_value, (list, tuple)) and len(shoulders_value) == 4:
+        shoulders = [float(item) for item in shoulders_value]
+    else:
+        shoulders = [
+            value.get("shoulder_fl", shoulders_value),
+            value.get("shoulder_fr", shoulders_value),
+            value.get("shoulder_bl", shoulders_value),
+            value.get("shoulder_br", shoulders_value),
+        ]
+        shoulders = [
+            float(item) if item is not None else float(joint_defaults[index])
+            for index, item in enumerate(shoulders)
+        ]
+
+    thighs = _expand_group(value.get("thighs"), joint_defaults[4:8])
+    calves = _expand_group(value.get("calves"), joint_defaults[8:12])
+    return shoulders + thighs + calves
+
+
+def load_hardware_joint_sign(path: Path | None = None) -> list[float]:
+    """Load the deployment joint-sign convention from hardware.yaml."""
+    hardware_path = path or _resolve_hardware_path()
+    if hardware_path is None:
+        return list(JOINT_SIGN)
+
+    hardware_data = _load_yaml(hardware_path)
+    servos = hardware_data.get("servos", {}) if isinstance(hardware_data, dict) else {}
+    return expand_joint_sign(servos.get("joint_sign", {}), defaults=list(JOINT_SIGN))
+
+
+def resolve_deployment_joint_sign(
+    *,
+    metadata: dict[str, Any] | None = None,
+    hardware_path: Path | None = None,
+) -> list[float]:
+    """Resolve the deployment sign convention and reject mismatched metadata."""
+    hardware_sign = load_hardware_joint_sign(hardware_path)
+    metadata = metadata or {}
+
+    metadata_sign = metadata.get("joint_sign")
+    if metadata_sign is None:
+        return hardware_sign
+
+    if not isinstance(metadata_sign, (list, tuple)) or len(metadata_sign) != ACTION_DIM:
+        raise ValueError(f"Expected metadata joint_sign to have {ACTION_DIM} entries")
+
+    normalized_metadata = [float(item) for item in metadata_sign]
+    if normalized_metadata != hardware_sign:
+        raise ValueError(
+            "Exported metadata joint_sign does not match deployment hardware.yaml. "
+            "Refuse to start with inconsistent sign conventions."
+        )
+
+    return normalized_metadata
 
 
 def _expand_pose(pose: Any, defaults: list[float]) -> list[float]:
@@ -164,4 +238,3 @@ def load_rl_default_pose() -> list[float]:
 
 def load_rl_default_pose_dict() -> dict[str, float]:
     return {name: float(value) for name, value in zip(JOINT_ORDER, load_rl_default_pose())}
-

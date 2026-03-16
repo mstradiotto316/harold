@@ -46,7 +46,9 @@ servos:
     - br_calf
 
   # Sign correction: RL -> hardware
-  # Thighs and calves are inverted relative to simulation
+  # Shoulder semantics stay the same on every leg.
+  # Right-side servo mirroring is handled by `direction`, not by flipping the
+  # high-level shoulder sign convention.
   joint_sign:
     shoulders: 1.0
     thighs: -1.0

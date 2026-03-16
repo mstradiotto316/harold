@@ -43,6 +43,12 @@
 - Harold manifests use `started_at` as the authoritative start timestamp; autoresearch backfills should only fall back to `created` for older manifests.
 - The desktop Isaac Lab venv needed `deployment/requirements.txt` installed (`onnxruntime`, `pyserial`, `smbus2`) before local export/controller validation could run end-to-end.
 
+## 2026-03-15: Deployment Sign Convention Alignment
+- The real robot path treats shoulders as non-mirrored semantic joints; only thighs/calves are sign-inverted. Right-side servo mirroring already lives in `deployment/config/hardware.yaml` `direction` and the ESP32 `DIR_TABLE`, not in high-level shoulder signs.
+- `deployment/config/cpg.yaml` had drifted from the hardware path by mirroring the FR/BR shoulders. That mismatch was already present on `main`; export metadata with shoulder signs `[1, 1, 1, 1]` matched the real hardware code better than the stale CPG config did.
+- Deployment should fail closed if export metadata and `hardware.yaml` disagree on `joint_sign`. Silently choosing one convention risks commanding the opposite physical shoulder motion from what the controller observes.
+- `harold train` should reject active or orphan training processes instead of auto-stopping them on re-invocation. Explicit `harold stop` is safer than destructive launch-time cleanup.
+
 ## 2026-01-04: Hardware CPG Baseline (Current)
 - Duty-cycle stance/swing gait reduced foot drag; shorter stride reduced impact.
 - Lowering calf lift softened touchdown without reintroducing severe drag.

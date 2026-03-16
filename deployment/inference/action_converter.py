@@ -18,32 +18,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from common.policy_config import DEFAULT_ACTION_SCALE, JOINT_RANGE_BY_CATEGORY, JOINT_SIGN
+from common.policy_config import (
+    DEFAULT_ACTION_SCALE,
+    JOINT_RANGE_BY_CATEGORY,
+    JOINT_SIGN,
+    resolve_deployment_joint_sign,
+)
 from inference.stance import load_hw_default_pose, load_rl_default_pose
-
-def _expand_joint_sign(js: dict) -> np.ndarray:
-    """Expand joint_sign config into a 12D array (shoulders, thighs, calves)."""
-    if not isinstance(js, dict):
-        js = {}
-
-    shoulders = js.get("shoulders", 1.0)
-    if isinstance(shoulders, (list, tuple)) and len(shoulders) == 4:
-        shoulder_vals = list(shoulders)
-    else:
-        shoulder_vals = [
-            js.get("shoulder_fl", shoulders),
-            js.get("shoulder_fr", shoulders),
-            js.get("shoulder_bl", shoulders),
-            js.get("shoulder_br", shoulders),
-        ]
-
-    thigh_val = js.get("thighs", -1.0)
-    calf_val = js.get("calves", -1.0)
-
-    return np.array(
-        shoulder_vals + [thigh_val] * 4 + [calf_val] * 4,
-        dtype=np.float32,
-    )
 
 
 @dataclass
@@ -122,12 +103,11 @@ class ActionConfig:
         # Get RL default pose (ready stance, from config/stance.yaml)
         rl_default_pose = load_rl_default_pose(cpg_path)
 
-        # Get joint sign from CPG config (supports per-shoulder overrides)
-        metadata_joint_sign = metadata.get("joint_sign")
-        if isinstance(metadata_joint_sign, list) and len(metadata_joint_sign) == 12:
-            joint_sign = np.array(metadata_joint_sign, dtype=np.float32)
-        else:
-            joint_sign = _expand_joint_sign(cpg_data.get("joint_sign", {}))
+        # Joint sign comes from the hardware-facing deployment convention.
+        joint_sign = np.array(
+            resolve_deployment_joint_sign(metadata=metadata, hardware_path=hw_path),
+            dtype=np.float32,
+        )
 
         return cls(
             joint_range=joint_range,

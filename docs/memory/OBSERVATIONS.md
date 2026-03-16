@@ -11,6 +11,15 @@
 - `omni.*` import failures from a plain shell are usually runtime-context failures, not missing-package failures.
 - For simulator-backed checks, agents should prefer `python scripts/harold.py ...` or Isaac Lab launcher entrypoints over ad hoc import probes.
 
+## 2026-03-16: Autoresearch Session 47 - Key Findings
+- **1024 envs is transformative**: Doubled environments from 512 to 1024 increased ep_len from ~123 to ~170-191 without any reward changes. More diverse training data produces much more stable policies.
+- **Walking basin is extremely fragile at 512 envs**: ANY reward function change at 512 envs (even 5x increase in near-zero lin_vel_z penalty) pushes policy to standing/crouching. The walking equilibrium is narrow.
+- **upright_weight=2.0 + stance_height=3.0 + 1024 envs is the new best config**: Produces ep_len=174, vx=0.057, upright=0.906 with confirmed forward displacement in video. Front legs now motor-active.
+- **Phased reward curriculum produces STANDING, not walking**: All variants (floor 0, 0.3, 0.5; phase 30, 100 steps) converge to standing policies confirmed by video. Curriculum prevents the walking equilibrium from forming.
+- **Video review is essential**: Metrics like upright=0.9+ and ep_len=189 can mask DEGENERATE behavior (crouching, static standing). Video reveals the true policy behavior that metrics miss.
+- **Front-leg passivity is the current bottleneck**: Video shows rear legs stepping with clearance, but front legs act as passive props. Need to activate front legs for coordinated gait.
+- **feet_air_time_threshold reduction (0.3→0.2) produces in-place stepping**: More foot lifting but zero forward progress. Air time reward doesn't care about step direction.
+
 ## 2026-03-15: Autoresearch Session 46 - Key Findings
 - **World-frame vs body-frame velocities**: The code upgrade changed track_lin_vel_xy and forward_motion rewards from world-frame to body-frame velocities. This caused the robot to appear to go backward (negative vx_w_mean) because it could earn reward by walking in any direction in its own frame. Reverting to world-frame velocities for rewards fixed this.
 - **upright_weight=3.0 + orientation_threshold=-0.6 is the best config**: This combination produced vx=0.109 (best ever), exceeding EXP-246. The relaxed orientation threshold allows more dynamic motion while the high upright weight prevents exploit behavior.

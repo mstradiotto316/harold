@@ -141,7 +141,7 @@ def compute_rewards(env) -> torch.Tensor:
     # === FORWARD MOTION BONUS ===
     # Direct reward for body-frame forward velocity, gated by posture quality.
     # Bug fixes applied: uses vx_b (body-frame), upright.clamp(0.0, 1.0) (proper gate).
-    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0)
+    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
 
     # === STANCE HEIGHT REWARD ===
     stance_height = 3.0 * height_reward
@@ -254,9 +254,16 @@ def process_actions(env, actions: torch.Tensor) -> None:
     # Action copy
     env._actions.copy_(actions)
 
-    # Low-pass filter (EMA) for stability and sim2real
+    # Low-pass filter (EMA) for stability and sim2real.
+    # Seed freshly-reset envs with the current action to avoid cold-start attenuation.
     if not hasattr(env, "_actions_smooth"):
-        env._actions_smooth = torch.zeros_like(env._actions)
+        env._actions_smooth = env._actions.clone()
+    else:
+        # Detect reset envs: _actions_smooth is zeroed by reset_policy_state_buffers.
+        # Seed those envs so first action isn't attenuated to 20%.
+        reset_mask = (env._actions_smooth.abs().sum(dim=1) == 0)
+        if reset_mask.any():
+            env._actions_smooth[reset_mask] = env._actions[reset_mask]
     beta = getattr(env.cfg, "action_filter_beta", 0.2)
     env._actions_smooth = (1.0 - beta) * env._actions_smooth + beta * env._actions
 

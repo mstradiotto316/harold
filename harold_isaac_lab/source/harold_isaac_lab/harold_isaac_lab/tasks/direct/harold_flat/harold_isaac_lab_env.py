@@ -353,10 +353,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "forward_motion",  # Session 36e: bootstrap walking
             "stance_height",  # Added by train_env.py research surface
             "foot_slip_penalty",  # Added by train_env.py research surface
-            "standing_penalty",  # Added by train_env.py research surface
-            "pitch_penalty",  # Added by train_env.py research surface
-            "yaw_penalty",  # Added by train_env.py research surface
-            "foot_height_reward",  # Added by train_env.py research surface
         ]
 
         self._metric_keys = [
@@ -1248,11 +1244,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             self._action_delay_buffer[:, 1:] = self._action_delay_buffer[:, :-1].clone()
             self._action_delay_buffer[:, 0] = noisy_actions
             
-            # Select delayed actions based on per-env delays
-            delayed_actions = torch.zeros_like(noisy_actions)
-            for i in range(self.num_envs):
-                delay = self._action_delays[i]
-                delayed_actions[i] = self._action_delay_buffer[i, delay]
+            # Select delayed actions based on per-env delays (vectorized)
+            env_indices = torch.arange(self.num_envs, device=self.device)
+            delayed_actions = self._action_delay_buffer[env_indices, self._action_delays]
             
             return delayed_actions
         
@@ -1291,15 +1285,17 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         if num == 0:
             return
 
-        # Apply command change probability
+        # Apply command change probability.
+        # Reset ALL expired timers first, then filter by probability.
+        # Previously, envs that failed the prob check kept expired timers
+        # and retried every step instead of waiting a full interval.
         change_prob = getattr(cmd_cfg, 'command_change_prob', 1.0)
         if change_prob < 1.0:
+            self._command_timer[update_mask] = 0.0  # reset all expired timers
             prob_mask = torch.rand(num, device=self.device) < change_prob
             update_ids = update_ids[prob_mask]
             num = len(update_ids)
             if num == 0:
-                # Reset timers but don't change commands
-                self._command_timer[update_mask] = 0.0
                 return
 
         # Sample new commands (same logic as _reset_idx)

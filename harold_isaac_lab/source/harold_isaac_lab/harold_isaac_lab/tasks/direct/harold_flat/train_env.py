@@ -157,6 +157,14 @@ def compute_rewards(env) -> torch.Tensor:
     joint_activity = torch.tanh(joint_vel_norm / 10.0)  # saturates at high vel
     joint_activity_reward = 0.3 * joint_activity * (cmd_magnitude > 0.05).float()
 
+    # === FOOT VERTICAL MOTION REWARD ===
+    # Reward vertical (Z) velocity of feet. Provides gradient FROM ground contact
+    # state — unlike air_time (needs contact transition) or foot_height (was inert).
+    # Penalize-free: only rewards upward motion (positive Z velocity = lifting).
+    foot_vel_z = env._robot.data.body_lin_vel_w[:, env._feet_body_ids, 2]
+    foot_lift_speed = torch.clamp(foot_vel_z, min=0.0)  # only upward
+    foot_lift_reward = 0.3 * torch.sum(torch.tanh(foot_lift_speed / 0.5), dim=1) * (cmd_magnitude > 0.05).float()
+
     # === COMPUTE TOTAL ===
     rewards = {
         "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
@@ -173,6 +181,7 @@ def compute_rewards(env) -> torch.Tensor:
         "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,
         "joint_activity_reward": joint_activity_reward,
+        "foot_lift_reward": foot_lift_reward,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

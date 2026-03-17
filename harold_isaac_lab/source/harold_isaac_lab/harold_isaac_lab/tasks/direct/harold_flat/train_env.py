@@ -165,7 +165,7 @@ def compute_rewards(env) -> torch.Tensor:
     foot_lift_speed = torch.clamp(foot_vel_z, min=0.0)  # only upward
     base_lift = torch.tanh(foot_lift_speed / 0.5)
     airborne_mult = 1.0 + (~foot_contact).float()  # 1.0 on ground, 2.0 airborne
-    foot_lift_reward = 0.5 * torch.sum(base_lift * airborne_mult, dim=1) * (cmd_magnitude > 0.05).float()
+    foot_lift_reward = 0.3 * torch.sum(base_lift * airborne_mult, dim=1) * (cmd_magnitude > 0.05).float()
 
     # === COMPUTE TOTAL ===
     rewards = {

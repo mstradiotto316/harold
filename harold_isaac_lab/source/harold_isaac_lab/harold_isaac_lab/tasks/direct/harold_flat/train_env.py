@@ -150,11 +150,12 @@ def compute_rewards(env) -> torch.Tensor:
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
 
     # === PITCH PENALTY ===
-    # Penalize forward pitch (nose-down). gx = forward component of gravity in body frame.
-    # When level gx ≈ 0; when nose-down gx > 0. Prevents controlled-fall strategy
-    # while allowing joint activity to drive dynamics.
+    # Only penalize pitch beyond ~15 degrees (|gx| > 0.26). Moderate forward lean
+    # is mechanically useful for propulsion (EXP-341: vx=0.061 relied on it).
+    # Linear penalty above threshold avoids oscillation from quadratic steep walls.
     gx = projected_gravity[:, 0]
-    pitch_penalty = -2.0 * gx * gx
+    gx_excess = torch.clamp(torch.abs(gx) - 0.26, min=0.0)
+    pitch_penalty = -1.0 * gx_excess
 
     # === JOINT ACTIVITY REWARD ===
     # Incentivize joint movement when commanded to move. Provides gradient from

@@ -149,13 +149,6 @@ def compute_rewards(env) -> torch.Tensor:
     # === FOOT SLIP PENALTY ===
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
 
-    # === HEIGHT FLOOR PENALTY ===
-    # Steep penalty below 60% target height to prevent crouching exploit.
-    # The existing height_reward is too soft (0.75 even at belly-on-ground).
-    min_height = 0.60 * target_height  # ~0.165m
-    height_deficit = torch.clamp(min_height - current_height, min=0.0)
-    height_floor_penalty = -3.0 * height_deficit
-
     # === COMPUTE TOTAL ===
     rewards = {
         "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
@@ -171,7 +164,6 @@ def compute_rewards(env) -> torch.Tensor:
         "forward_motion": forward_motion,
         "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,
-        "height_floor_penalty": height_floor_penalty,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

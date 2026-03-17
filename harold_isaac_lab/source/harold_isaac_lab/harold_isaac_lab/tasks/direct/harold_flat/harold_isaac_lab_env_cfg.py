@@ -68,7 +68,7 @@ class RewardsCfg:
     # Session 36d: Increased weights for stronger velocity incentive
     # With std=0.5, standing gives ~0.91 reward, walking gives ~1.0
     # Increasing weight amplifies this difference
-    track_lin_vel_xy_weight: float = 5.0      # Primary: velocity tracking (was 1.5)
+    track_lin_vel_xy_weight: float = 10.0      # Primary: velocity tracking (was 1.5)
     track_lin_vel_xy_std: float = 0.25        # Steeper gradient (was 0.5)
 
     track_ang_vel_z_weight: float = 2.0       # Yaw rate tracking (was 0.75)
@@ -79,7 +79,7 @@ class RewardsCfg:
     # Harold produces higher body-frame vertical velocities than larger robots
     # Session 36h: -0.0005 still limits movement, trying -0.0001
     lin_vel_z_weight: float = -0.0001         # Allow more vertical movement
-    ang_vel_xy_weight: float = -0.005        # Also reduced for consistency
+    ang_vel_xy_weight: float = -0.0001        # Also reduced for consistency
 
     # === SMOOTHNESS PENALTIES ===
     dof_torques_weight: float = -0.0001       # Smooth torques

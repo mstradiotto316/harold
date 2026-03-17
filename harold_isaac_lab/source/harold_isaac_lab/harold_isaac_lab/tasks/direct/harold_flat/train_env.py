@@ -141,10 +141,7 @@ def compute_rewards(env) -> torch.Tensor:
     # === FORWARD MOTION BONUS ===
     # Direct reward for body-frame forward velocity, gated by posture quality.
     # Bug fixes applied: uses vx_b (body-frame), upright.clamp(0.0, 1.0) (proper gate).
-    # Gate forward_motion on height: must stand tall to earn forward velocity reward.
-    # height_reward^3 creates 2x multiplier between crouching (0.78^3=0.47) and standing (0.99^3=0.97).
-    # Eliminates lean-for-vx exploit where robot earns vx by crouching + pitching forward.
-    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float() * height_reward ** 3
+    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
 
     # === STANCE HEIGHT REWARD ===
     stance_height = 3.0 * height_reward
@@ -159,6 +156,14 @@ def compute_rewards(env) -> torch.Tensor:
     joint_vel_norm = torch.sum(torch.abs(env._robot.data.joint_vel), dim=1)
     joint_activity = torch.tanh(joint_vel_norm / 10.0)  # saturates at high vel
     joint_activity_reward = 1.0 * joint_activity * (cmd_magnitude > 0.05).float()
+
+    # === CONTACT DIVERSITY REWARD ===
+    # Bootstrap foot lifting: reward having 1-3 feet on ground (not all 4).
+    # Air_time reward has zero gradient when all feet are on ground (no first_contact).
+    # This provides gradient FROM the all-feet-down state toward lifting at least one foot.
+    num_feet_in_contact = torch.sum(foot_contact.float(), dim=1)
+    contact_diversity = ((num_feet_in_contact >= 1) & (num_feet_in_contact <= 3)).float()
+    contact_diversity_reward = 0.5 * contact_diversity * (cmd_magnitude > 0.05).float()
 
     # === COMPUTE TOTAL ===
     rewards = {
@@ -176,6 +181,7 @@ def compute_rewards(env) -> torch.Tensor:
         "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,
         "joint_activity_reward": joint_activity_reward,
+        "contact_diversity_reward": contact_diversity_reward,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

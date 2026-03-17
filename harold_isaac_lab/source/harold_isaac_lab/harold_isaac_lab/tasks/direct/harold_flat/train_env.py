@@ -141,21 +141,16 @@ def compute_rewards(env) -> torch.Tensor:
     # === FORWARD MOTION BONUS ===
     # Direct reward for body-frame forward velocity, gated by posture quality.
     # Bug fixes applied: uses vx_b (body-frame), upright.clamp(0.0, 1.0) (proper gate).
-    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
+    # Gate forward_motion on height: must stand tall to earn forward velocity reward.
+    # height_reward^3 creates 2x multiplier between crouching (0.78^3=0.47) and standing (0.99^3=0.97).
+    # Eliminates lean-for-vx exploit where robot earns vx by crouching + pitching forward.
+    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float() * height_reward ** 3
 
     # === STANCE HEIGHT REWARD ===
     stance_height = 3.0 * height_reward
 
     # === FOOT SLIP PENALTY ===
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
-
-    # === PITCH PENALTY ===
-    # Only penalize pitch beyond ~15 degrees (|gx| > 0.26). Moderate forward lean
-    # is mechanically useful for propulsion (EXP-341: vx=0.061 relied on it).
-    # Linear penalty above threshold avoids oscillation from quadratic steep walls.
-    gx = projected_gravity[:, 0]
-    gx_excess = torch.clamp(torch.abs(gx) - 0.26, min=0.0)
-    pitch_penalty = -1.0 * gx_excess
 
     # === JOINT ACTIVITY REWARD ===
     # Incentivize joint movement when commanded to move. Provides gradient from
@@ -180,7 +175,6 @@ def compute_rewards(env) -> torch.Tensor:
         "forward_motion": forward_motion,
         "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,
-        "pitch_penalty": pitch_penalty,
         "joint_activity_reward": joint_activity_reward,
     }
 

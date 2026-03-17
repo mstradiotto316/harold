@@ -178,7 +178,7 @@ def compute_rewards(env) -> torch.Tensor:
         "action_rate": cfg.action_rate_weight * action_rate,
         "feet_air_time": cfg.feet_air_time_weight * air_time_reward,
         "undesired_contacts": cfg.undesired_contacts_weight * undesired_contacts,
-        "upright": cfg.upright_weight * upright * torch.clamp(vx_b / 0.1, min=0.5, max=1.0),
+        "upright": cfg.upright_weight * upright * torch.clamp(vx_b / 0.1, min=0.5, max=1.0) * torch.clamp((height_reward - 0.7) / 0.2, min=0.3, max=1.0),
         "forward_motion": forward_motion,
         "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,

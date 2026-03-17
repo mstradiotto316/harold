@@ -152,7 +152,7 @@ def compute_rewards(env) -> torch.Tensor:
     # === YAW DAMPING PENALTY ===
     # Penalize yaw rotation to prevent drift that wastes stepping energy.
     # EXP-350 video showed 15-20 deg yaw drift eating forward velocity.
-    yaw_damping = -1.0 * wz * wz
+    yaw_damping = -0.2 * wz * wz
 
     # === JOINT ACTIVITY REWARD ===
     # Incentivize joint movement when commanded to move. Provides gradient from

@@ -149,10 +149,13 @@ def compute_rewards(env) -> torch.Tensor:
     # === FOOT SLIP PENALTY ===
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
 
-    # === JOINT ACTIVITY REWARD (DISABLED) ===
-    # Removed: incentivizes indiscriminate joint motion that destabilizes the robot.
-    # Foot lift reward alone provides targeted leg activation.
-    joint_activity_reward = torch.zeros(env.num_envs, device=env.device)
+    # === JOINT ACTIVITY REWARD ===
+    # Incentivize joint movement when commanded to move. Provides gradient from
+    # standing (zero joint vel = 0) toward motion. Smooth periodic motion (gait)
+    # is favored over jittering by action_rate and dof_acc penalties.
+    joint_vel_norm = torch.sum(torch.abs(env._robot.data.joint_vel), dim=1)
+    joint_activity = torch.tanh(joint_vel_norm / 10.0)  # saturates at high vel
+    joint_activity_reward = 0.3 * joint_activity * (cmd_magnitude > 0.05).float()
 
     # === FOOT LIFT REWARD ===
     # Reward upward (Z+) velocity of feet with 2x bonus when foot is airborne.

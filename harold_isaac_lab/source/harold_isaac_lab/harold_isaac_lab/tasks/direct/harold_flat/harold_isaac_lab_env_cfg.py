@@ -219,7 +219,7 @@ class TerminationCfg:
 
     base_contact_force_threshold: float = math.inf
     undesired_contact_force_threshold: float = math.inf
-    orientation_threshold: float = -0.6
+    orientation_threshold: float = -0.7
     # Height termination: terminate if base height < threshold
     # EXP-002: 10N contact alone wasn't enough - robot stayed low (height=1.76)
     # EXP-003-007: Height termination has issues - scanner returns bad values

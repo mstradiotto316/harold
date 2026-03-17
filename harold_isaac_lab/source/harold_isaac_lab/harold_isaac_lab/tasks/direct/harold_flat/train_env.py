@@ -167,6 +167,13 @@ def compute_rewards(env) -> torch.Tensor:
     airborne_mult = 1.0 + (~foot_contact).float()  # 1.0 on ground, 2.0 airborne
     foot_lift_reward = 0.3 * torch.sum(base_lift * airborne_mult, dim=1) * (cmd_magnitude > 0.05).float()
 
+    # === DIAGONAL CONTACT REWARD ===
+    # Bonus for trot-like foot pattern: not all 4 feet on ground simultaneously.
+    # Encourages alternating contact which is prerequisite for stepping.
+    num_feet_contact = torch.sum(foot_contact.float(), dim=1)  # 0-4
+    # Reward: 0 when 4 feet down, 0.5 when 3, 1.0 when 2 (ideal trot), 0.5 when 1, 0 when 0
+    trot_bonus = 0.3 * (1.0 - torch.abs(num_feet_contact - 2.0) / 2.0) * (cmd_magnitude > 0.05).float()
+
     # === COMPUTE TOTAL ===
     rewards = {
         "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
@@ -184,6 +191,7 @@ def compute_rewards(env) -> torch.Tensor:
         "foot_slip_penalty": foot_slip_penalty,
         "joint_activity_reward": joint_activity_reward,
         "foot_lift_reward": foot_lift_reward,
+        "trot_bonus": trot_bonus,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

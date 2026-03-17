@@ -95,7 +95,7 @@ class RewardsCfg:
     undesired_contacts_threshold: float = 1.0 # Force threshold (Newtons)
 
     # === STABILITY REWARD ===
-    upright_weight: float = 3.0               # Stay upright (uses projected gravity)
+    upright_weight: float = 2.0               # Stay upright (uses projected gravity)
 
     # === FORWARD MOTION BONUS ===
     # Session 36e: Direct reward for positive vx to bootstrap walking

@@ -149,11 +149,6 @@ def compute_rewards(env) -> torch.Tensor:
     # === FOOT SLIP PENALTY ===
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
 
-    # === YAW DAMPING PENALTY ===
-    # Penalize yaw rotation to prevent drift that wastes stepping energy.
-    # EXP-350 video showed 15-20 deg yaw drift eating forward velocity.
-    yaw_damping = -0.2 * wz * wz
-
     # === JOINT ACTIVITY REWARD ===
     # Incentivize joint movement when commanded to move. Provides gradient from
     # standing (zero joint vel = 0) toward motion. Smooth periodic motion (gait)
@@ -187,7 +182,6 @@ def compute_rewards(env) -> torch.Tensor:
         "forward_motion": forward_motion,
         "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,
-        "yaw_damping": yaw_damping,
         "joint_activity_reward": joint_activity_reward,
         "foot_lift_reward": foot_lift_reward,
     }

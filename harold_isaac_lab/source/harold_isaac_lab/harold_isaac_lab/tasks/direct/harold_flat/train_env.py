@@ -149,6 +149,14 @@ def compute_rewards(env) -> torch.Tensor:
     # === FOOT SLIP PENALTY ===
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
 
+    # === JOINT ACTIVITY REWARD ===
+    # Incentivize joint movement when commanded to move. Provides gradient from
+    # standing (zero joint vel = 0) toward motion. Smooth periodic motion (gait)
+    # is favored over jittering by action_rate and dof_acc penalties.
+    joint_vel_norm = torch.sum(torch.abs(env._robot.data.joint_vel), dim=1)
+    joint_activity = torch.tanh(joint_vel_norm / 10.0)  # saturates at high vel
+    joint_activity_reward = 1.0 * joint_activity * (cmd_magnitude > 0.05).float()
+
     # === COMPUTE TOTAL ===
     rewards = {
         "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
@@ -164,6 +172,7 @@ def compute_rewards(env) -> torch.Tensor:
         "forward_motion": forward_motion,
         "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,
+        "joint_activity_reward": joint_activity_reward,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

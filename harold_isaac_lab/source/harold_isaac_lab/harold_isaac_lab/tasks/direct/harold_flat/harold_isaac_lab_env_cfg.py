@@ -95,14 +95,13 @@ class RewardsCfg:
     undesired_contacts_threshold: float = 1.0 # Force threshold (Newtons)
 
     # === STABILITY REWARD ===
-    upright_weight: float = 2.0               # Stay upright (uses projected gravity)
+    upright_weight: float = 3.0               # Stay upright (uses projected gravity). Session 47/48 winning config.
 
     # === FORWARD MOTION BONUS ===
     # Session 36e: Direct reward for positive vx to bootstrap walking
-    # Without this, policy converges to standing still (local minimum)
-    # Session 36f-g: Weight sweep: 3.0→+0.01, 5.0→+0.001, 10.0→-0.017
-    # 3.0 is optimal, trying longer training (4000 iter) to see if vx improves
-    forward_motion_weight: float = 3.0        # Optimal weight (verified by sweep)
+    # EXP-350: 5.0 redirected stepping forward (was 3.0). Confirmed essential.
+    # EXP-362: 4.0 lost direction, EXP-366: 7.0 too aggressive. 5.0 is sweet spot.
+    forward_motion_weight: float = 5.0        # EXP-350 winning value
 
 
 @configclass

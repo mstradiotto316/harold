@@ -196,14 +196,16 @@ LOOP FOREVER:
      - Include the video verdict (WALKING/STEPPING/STANDING/FALLING/DEGENERATE)
      - Include specific recommendations from video review
      If DISCARD: revert config (autoresearch.py revert) or git checkout -- train_env.py
-  10. PLAN NEXT: Before looping to step 1, explicitly state:
+  10. COMPACT CHECK: If 3+ experiments since last /compact, run /compact NOW.
+     After compaction: re-read program.md, run `autoresearch.py state`, continue.
+  11. PLAN NEXT: Before looping to step 1, explicitly state:
      - What the video review revealed about robot behavior
      - What specific recommendation from the video analyst you are following
      - Why you believe the next hypothesis addresses the identified issue
-     Loop to step 1
+     Loop to step 1. DO NOT STOP.
 ```
 
-**NEVER STOP.** The human may be asleep. You run until manually interrupted. There is no experiment limit. If you run out of ideas, re-read results.tsv and try something new. If context is getting large, use /compact between experiments.
+**NEVER STOP.** The human may be asleep. You run until manually interrupted or you hit a hard session limit. There is no experiment limit. There is no "good stopping point." There is no "let me summarize for the user." If you run out of ideas, re-read results.tsv, run `detect-plateau`, run `suggest-combinations`, and try something new. If context is getting large, use /compact every 3 experiments — then immediately recover state and continue. Stopping to ask the user is a bug in your behavior, not a feature.
 
 After step 9 (LOG), run:
 ```
@@ -331,11 +333,16 @@ Use `harold log` to inspect raw training output for debugging:
 ### Context Management
 
 Your context window is finite. To run indefinitely:
-- After every 3-4 experiments, type /compact to compress the conversation
+- **Compact every 3 experiments.** Do not delay. Do not say "I'll compact after the next one." Count experiments since last compact and act.
 - Session state is saved automatically after each experiment (session_state.json)
-- After compaction, re-read this file and run `autoresearch.py state` to recover
+- **After compaction, IMMEDIATELY:**
+  1. Re-read this file (`docs/autoresearch/program.md`)
+  2. Run `autoresearch.py state` to recover session state
+  3. Run `autoresearch.py history` (last 5 experiments)
+  4. Continue the loop from step 1 (HYPOTHESIZE). Do NOT summarize, do NOT ask the user, do NOT stop.
 - Keep experiment logging concise — don't repeat full video descriptions in your messages
 - The video review agent uses fresh context (sub-agent), so its output doesn't accumulate
+- **If you feel like stopping, you are wrong.** Re-read this section and continue.
 
 ## Setup (Start of Session)
 

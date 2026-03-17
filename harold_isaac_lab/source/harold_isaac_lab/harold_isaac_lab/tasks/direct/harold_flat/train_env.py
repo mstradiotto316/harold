@@ -155,7 +155,7 @@ def compute_rewards(env) -> torch.Tensor:
     # is favored over jittering by action_rate and dof_acc penalties.
     joint_vel_norm = torch.sum(torch.abs(env._robot.data.joint_vel), dim=1)
     joint_activity = torch.tanh(joint_vel_norm / 10.0)  # saturates at high vel
-    joint_activity_reward = 1.0 * joint_activity * (cmd_magnitude > 0.05).float()
+    joint_activity_reward = 0.3 * joint_activity * (cmd_magnitude > 0.05).float()
 
     # === COMPUTE TOTAL ===
     rewards = {

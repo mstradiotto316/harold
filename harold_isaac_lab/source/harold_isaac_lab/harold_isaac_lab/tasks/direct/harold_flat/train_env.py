@@ -157,14 +157,6 @@ def compute_rewards(env) -> torch.Tensor:
     joint_activity = torch.tanh(joint_vel_norm / 10.0)  # saturates at high vel
     joint_activity_reward = 1.0 * joint_activity * (cmd_magnitude > 0.05).float()
 
-    # === CONTACT DIVERSITY REWARD ===
-    # Bootstrap foot lifting: reward having 1-3 feet on ground (not all 4).
-    # Air_time reward has zero gradient when all feet are on ground (no first_contact).
-    # This provides gradient FROM the all-feet-down state toward lifting at least one foot.
-    num_feet_in_contact = torch.sum(foot_contact.float(), dim=1)
-    contact_diversity = ((num_feet_in_contact >= 1) & (num_feet_in_contact <= 3)).float()
-    contact_diversity_reward = 0.5 * contact_diversity * (cmd_magnitude > 0.05).float()
-
     # === COMPUTE TOTAL ===
     rewards = {
         "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
@@ -181,7 +173,6 @@ def compute_rewards(env) -> torch.Tensor:
         "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,
         "joint_activity_reward": joint_activity_reward,
-        "contact_diversity_reward": contact_diversity_reward,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

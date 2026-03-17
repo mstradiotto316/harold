@@ -78,7 +78,7 @@ class RewardsCfg:
     # Session 36 fix: -2.0 caused -43800/ep, -0.05 caused -1149/ep
     # Harold produces higher body-frame vertical velocities than larger robots
     # Session 36h: -0.0005 still limits movement, trying -0.0001
-    lin_vel_z_weight: float = -0.001         # Allow more vertical movement
+    lin_vel_z_weight: float = -0.0001         # Allow more vertical movement
     ang_vel_xy_weight: float = -0.01        # Also reduced for consistency
 
     # === SMOOTHNESS PENALTIES ===
@@ -232,7 +232,7 @@ class TerminationCfg:
     # EXP-002: 10N kept body contact low (-0.04) but didn't prevent elbow pose
     # EXP-013: Root cause - elbow contact ~5N per point, below 10N threshold = undetected
     # Lowering to 3N should make elbow contact visible to the reward system
-    body_contact_threshold: float = 3.0
+    body_contact_threshold: float = 5.0
 
     # Joint-angle termination: detect elbow pose via front leg joint angles
     # EXP-009: thigh>1.0, calf>-0.8 too loose - robot still found elbow pose (height=1.50)

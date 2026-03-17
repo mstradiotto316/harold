@@ -154,7 +154,7 @@ def compute_rewards(env) -> torch.Tensor:
     # The existing height_reward is too soft (0.75 even at belly-on-ground).
     min_height = 0.60 * target_height  # ~0.165m
     height_deficit = torch.clamp(min_height - current_height, min=0.0)
-    height_floor_penalty = -10.0 * height_deficit
+    height_floor_penalty = -3.0 * height_deficit
 
     # === COMPUTE TOTAL ===
     rewards = {

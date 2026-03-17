@@ -146,12 +146,6 @@ def compute_rewards(env) -> torch.Tensor:
     # === STANCE HEIGHT REWARD ===
     stance_height = 3.0 * height_reward
 
-    # === PITCH PENALTY ===
-    # Penalize nose-down pitch (positive projected_gravity_b X = forward pitch).
-    # Addresses front-end collapse cascade seen in video reviews.
-    pitch_component = projected_gravity[:, 0]  # positive when nose-down
-    pitch_penalty = -1.0 * pitch_component.clamp(min=0.0)  # only penalize forward pitch
-
     # === FOOT SLIP PENALTY ===
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
 
@@ -188,7 +182,6 @@ def compute_rewards(env) -> torch.Tensor:
         "forward_motion": forward_motion,
         "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,
-        "pitch_penalty": pitch_penalty,
         "joint_activity_reward": joint_activity_reward,
         "foot_lift_reward": foot_lift_reward,
     }

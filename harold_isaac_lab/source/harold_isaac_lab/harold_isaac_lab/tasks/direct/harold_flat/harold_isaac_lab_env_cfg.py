@@ -95,14 +95,14 @@ class RewardsCfg:
     undesired_contacts_threshold: float = 1.0 # Force threshold (Newtons)
 
     # === STABILITY REWARD ===
-    upright_weight: float = 3.0               # Stay upright (uses projected gravity)
+    upright_weight: float = 4.0               # Stay upright (uses projected gravity)
 
     # === FORWARD MOTION BONUS ===
     # Session 36e: Direct reward for positive vx to bootstrap walking
     # Without this, policy converges to standing still (local minimum)
     # Session 36f-g: Weight sweep: 3.0→+0.01, 5.0→+0.001, 10.0→-0.017
     # 3.0 is optimal, trying longer training (4000 iter) to see if vx improves
-    forward_motion_weight: float = 5.0        # Optimal weight (verified by sweep)
+    forward_motion_weight: float = 3.0        # Optimal weight (verified by sweep)
 
 
 @configclass
@@ -219,7 +219,7 @@ class TerminationCfg:
 
     base_contact_force_threshold: float = math.inf
     undesired_contact_force_threshold: float = math.inf
-    orientation_threshold: float = -0.7
+    orientation_threshold: float = -0.6
     # Height termination: terminate if base height < threshold
     # EXP-002: 10N contact alone wasn't enough - robot stayed low (height=1.76)
     # EXP-003-007: Height termination has issues - scanner returns bad values

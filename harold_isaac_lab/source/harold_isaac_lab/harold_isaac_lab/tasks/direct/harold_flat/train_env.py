@@ -167,6 +167,15 @@ def compute_rewards(env) -> torch.Tensor:
     airborne_mult = 1.0 + (~foot_contact).float()  # 1.0 on ground, 2.0 airborne
     foot_lift_reward = 0.3 * torch.sum(base_lift * airborne_mult, dim=1) * (cmd_magnitude > 0.05).float()
 
+    # === BODY PITCH PENALTY ===
+    # Penalize nose-down (or nose-up) pitch angle. projected_gravity[:, 0] is the
+    # X component of gravity in body frame — zero when level, grows with pitch.
+    # The existing upright reward captures overall tilt but doesn't distinguish
+    # pitch from roll. Video review (EXP-395) showed chronic nose-down pitch as
+    # the dominant failure mode — front legs fail to extend, body sags forward.
+    pitch_gravity = projected_gravity[:, 0]
+    pitch_penalty = -1.5 * torch.square(pitch_gravity)
+
     # === COMPUTE TOTAL ===
     rewards = {
         "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
@@ -184,6 +193,7 @@ def compute_rewards(env) -> torch.Tensor:
         "foot_slip_penalty": foot_slip_penalty,
         "joint_activity_reward": joint_activity_reward,
         "foot_lift_reward": foot_lift_reward,
+        "pitch_penalty": pitch_penalty,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

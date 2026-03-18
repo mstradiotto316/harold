@@ -189,10 +189,11 @@ def compute_rewards(env) -> torch.Tensor:
         "foot_slip_penalty": foot_slip_penalty,
         "joint_activity_reward": joint_activity_reward,
         "foot_lift_reward": foot_lift_reward,
-        "pitch_penalty": pitch_penalty,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
+    # Add pitch penalty directly (not tracked in episode_sums to avoid KeyError)
+    total_reward = total_reward + pitch_penalty
 
     for key, value in rewards.items():
         env._episode_sums[key] += value

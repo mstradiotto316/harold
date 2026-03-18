@@ -125,6 +125,11 @@ def compute_rewards(env) -> torch.Tensor:
     # === STABILITY: UPRIGHT ===
     upright = -projected_gravity[:, 2]
 
+    # === PITCH PENALTY ===
+    # projected_gravity[:, 0] is the forward component of gravity in body frame.
+    # Positive = nose-down pitch. Penalize quadratically to discourage nose-diving.
+    pitch_penalty = -3.0 * torch.square(projected_gravity[:, 0])
+
     # === HEIGHT METRIC (terrain-relative) ===
     pos_z = env._height_scanner.data.pos_w[:, 2].unsqueeze(1)
     ray_z = env._height_scanner.data.ray_hits_w[..., 2]
@@ -184,6 +189,7 @@ def compute_rewards(env) -> torch.Tensor:
         "foot_slip_penalty": foot_slip_penalty,
         "joint_activity_reward": joint_activity_reward,
         "foot_lift_reward": foot_lift_reward,
+        "pitch_penalty": pitch_penalty,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

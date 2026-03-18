@@ -146,6 +146,13 @@ def compute_rewards(env) -> torch.Tensor:
     upright_gate = upright.clamp(0.0, 1.0) ** 2
     forward_motion = cfg.forward_motion_weight * vx_b * upright_gate * (cmd_vx > 0.05).float()
 
+    # === BODY PITCH PENALTY ===
+    # Penalize nose-down pitch oscillation (EXP-419 showed rocking behavior).
+    # projected_gravity[:, 0] is the X component of gravity in body frame — 0 when level.
+    # Gentle weight (-0.3) to avoid degenerate crouch seen with -1.5 (EXP-397).
+    pitch_gravity = projected_gravity[:, 0]
+    pitch_penalty = -0.3 * torch.square(pitch_gravity)
+
     # === STANCE HEIGHT REWARD ===
     stance_height = 4.0 * height_reward
 
@@ -187,6 +194,7 @@ def compute_rewards(env) -> torch.Tensor:
         "foot_slip_penalty": foot_slip_penalty,
         "joint_activity_reward": joint_activity_reward,
         "foot_lift_reward": foot_lift_reward,
+        "pitch_penalty": pitch_penalty,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

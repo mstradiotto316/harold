@@ -132,6 +132,26 @@ signal. Areas to watch as training continues: gait smoothness,
 front/rear balance, heading control.
 ```
 
+## Visual Conventions
+
+Training videos include built-in visual annotations to aid analysis:
+
+### HUD Overlay (side and iso views only)
+A text strip in the bottom-left corner shows:
+- **F:** Frame number within this recording clip (0-249)
+- **S:** Training step at which this recording started
+- **R:** Episode reset count — how many times env 0 has reset during this clip
+
+### Reset Flash
+When an episode reset occurs (termination or timeout), all camera views display a **red border with a "RESET" label** for that frame. This makes resets unambiguous even when the robot hasn't moved far from its spawn position (e.g., during early training death loops).
+
+When analyzing videos, count the "RESET" frames to determine how many episodes occurred within the clip. A high reset count in a short clip indicates frequent termination (unstable policy). The R counter in the HUD also tracks this.
+
+### Scene Colors
+- **Robot:** Orange (high contrast)
+- **Ground:** Dark grey
+- **Background:** Neighboring environment robots are clipped from view — only the primary robot (env 0) is visible
+
 ## Video File Locations
 
 Training videos follow this path convention:

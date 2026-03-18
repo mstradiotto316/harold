@@ -483,6 +483,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self.scene.clone_environments(copy_from_source=False)
         self.scene.filter_collisions(global_prim_paths=[self.cfg.terrain.prim_path])
 
+        # --- Robot Color for Video Contrast ---
+        # Apply orange material to env_0 robot so it stands out against the dark ground
+        # in multi-camera training videos. Only env 0 is recorded.
+        self._apply_robot_color("/World/envs/env_0/Robot", (0.9, 0.45, 0.05))
+
         # --- Lighting Setup ---
         # Add a dome light to illuminate the scene
         light_cfg = sim_utils.DomeLightCfg(intensity=1000.0, color=(0.8, 0.85, 0.9))  # Softer light for better contrast
@@ -1414,6 +1419,36 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 forces, torques, body_ids=[self._base_id[0]]
             )
 
+    # ── Robot visual material ────────────────────────────────────────────
+
+    def _apply_robot_color(self, robot_prim_path: str, color: tuple[float, float, float]):
+        """Apply a solid color material to all mesh prims under the given robot.
+
+        Used to make the recorded robot visually distinct in training videos.
+        """
+        from pxr import UsdShade, UsdGeom, Sdf, Gf
+
+        stage = self.sim.stage
+        robot_prim = stage.GetPrimAtPath(robot_prim_path)
+        if not robot_prim.IsValid():
+            print(f"WARNING: Cannot color robot — prim not found: {robot_prim_path}")
+            return
+
+        # Create a single shared material
+        mat_path = f"{robot_prim_path}/VideoContrastMaterial"
+        material = UsdShade.Material.Define(stage, mat_path)
+        shader = UsdShade.Shader.Define(stage, f"{mat_path}/Shader")
+        shader.CreateIdAttr("UsdPreviewSurface")
+        shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*color))
+        shader.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.5)
+        shader.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.0)
+        material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
+
+        # Bind to all mesh prims under this robot
+        for prim in stage.Traverse():
+            if prim.GetPath().HasPrefix(robot_prim.GetPath()) and prim.IsA(UsdGeom.Mesh):
+                UsdShade.MaterialBindingAPI.Apply(prim).Bind(material)
+
     # ── Multi-camera capture ─────────────────────────────────────────────
 
     # Camera offsets relative to robot root position.
@@ -1437,7 +1472,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             prim_path = f"/World/MultiCam_{name}"
             if not stage.GetPrimAtPath(prim_path).IsValid():
                 cam_prim = UsdGeom.Camera.Define(stage, prim_path)
-                cam_prim.GetClippingRangeAttr().Set(Gf.Vec2f(0.01, 100.0))
+                cam_prim.GetClippingRangeAttr().Set(Gf.Vec2f(0.01, 3.0))
                 cam_prim.GetFocalLengthAttr().Set(18.0)
             rp = rep.create.render_product(prim_path, self.MULTI_CAM_RESOLUTION)
             annotator = rep.AnnotatorRegistry.get_annotator("rgb", device="cpu")

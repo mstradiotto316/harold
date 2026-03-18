@@ -55,7 +55,7 @@ agent:
   entropy_loss_scale: 0.01  # standard exploration
   value_loss_scale: 1.0      # stronger critic weight for stable learning
   kl_threshold: 0.0         # disable early-stop for policy updates
-  rewards_shaper_scale: 0.8  # increase reward shaping scale
+  rewards_shaper_scale: 0.9  # increase reward shaping scale
   time_limit_bootstrap: False
   experiment:
     directory: "harold_direct"

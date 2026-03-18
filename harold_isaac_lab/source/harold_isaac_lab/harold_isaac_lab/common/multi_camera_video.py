@@ -1,4 +1,8 @@
-"""Gymnasium wrapper that records separate video files for each camera view."""
+"""Gymnasium wrapper that records separate video files for each camera view.
+
+Includes HUD overlay (frame/step/reset count) and red-border reset flash
+so video review agents can easily parse training progress.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +11,75 @@ import subprocess
 
 import gymnasium as gym
 import numpy as np
+
+# HUD views that get the text overlay (skip top/front to keep them clean)
+_HUD_VIEWS = {"side", "iso"}
+
+# Reset flash: red border thickness in pixels
+_RESET_BORDER_PX = 6
+_RESET_COLOR = np.array([220, 40, 40], dtype=np.uint8)
+
+# Number of warmup render calls before recording to avoid first-frame artifacts
+_WARMUP_RENDERS = 2
+
+
+def _draw_text_pil(frame: np.ndarray, text: str) -> np.ndarray:
+    """Burn white text on a semi-transparent dark strip into bottom-left of frame."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        return frame  # PIL not available — skip overlay silently
+
+    img = Image.fromarray(frame)
+    draw = ImageDraw.Draw(img, "RGBA")
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 14)
+    except (OSError, IOError):
+        font = ImageFont.load_default()
+
+    # Measure text
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    padding = 4
+    h = frame.shape[0]
+    x, y = padding, h - th - padding * 3
+
+    # Dark background strip
+    draw.rectangle(
+        [x - padding, y - padding, x + tw + padding, y + th + padding],
+        fill=(0, 0, 0, 180),
+    )
+    draw.text((x, y), text, fill=(255, 255, 255, 255), font=font)
+    return np.array(img)
+
+
+def _draw_reset_border(frame: np.ndarray) -> np.ndarray:
+    """Draw a red border and 'RESET' label on the frame."""
+    f = frame.copy()
+    b = _RESET_BORDER_PX
+    # Top/bottom borders
+    f[:b, :] = _RESET_COLOR
+    f[-b:, :] = _RESET_COLOR
+    # Left/right borders
+    f[:, :b] = _RESET_COLOR
+    f[:, -b:] = _RESET_COLOR
+
+    # Burn "RESET" text into top-left corner
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+
+        img = Image.fromarray(f)
+        draw = ImageDraw.Draw(img)
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf", 16)
+        except (OSError, IOError):
+            font = ImageFont.load_default()
+        draw.text((b + 4, b + 2), "RESET", fill=(255, 255, 255), font=font)
+        f = np.array(img)
+    except ImportError:
+        pass  # PIL not available — border alone is still useful
+
+    return f
 
 
 class MultiCameraRecordVideo(gym.Wrapper):
@@ -18,6 +91,11 @@ class MultiCameraRecordVideo(gym.Wrapper):
 
     The wrapper does **not** call ``env.render()`` — it goes directly to the
     multi-camera capture method on the unwrapped Isaac Lab environment.
+
+    Visual enhancements for review agents:
+        - **HUD overlay** (side/iso views): frame number, training step, reset count
+        - **Red border + "RESET" label**: flashed on frames where an episode reset is detected
+        - **Warmup renders**: first few render calls are discarded to avoid pipeline artifacts
     """
 
     def __init__(
@@ -43,6 +121,10 @@ class MultiCameraRecordVideo(gym.Wrapper):
         self._frames_recorded = 0
         self._video_writers: dict[str, subprocess.Popen] = {}
 
+        # Reset detection state
+        self._prev_episode_len: int | None = None
+        self._reset_count = 0
+
     def step(self, action):
         obs, reward, terminated, truncated, info = super().step(action)
 
@@ -64,11 +146,37 @@ class MultiCameraRecordVideo(gym.Wrapper):
 
     # ── internal ──────────────────────────────────────────────────────
 
+    def _get_episode_length(self) -> int | None:
+        """Read episode_length_buf[0] from the unwrapped env, if available."""
+        env = self.unwrapped
+        buf = getattr(env, "episode_length_buf", None)
+        if buf is not None and len(buf) > 0:
+            return int(buf[0].item()) if hasattr(buf[0], "item") else int(buf[0])
+        return None
+
+    def _detect_reset(self) -> bool:
+        """Return True if env 0 was just reset (episode length dropped)."""
+        cur = self._get_episode_length()
+        if cur is None:
+            return False
+        was_reset = self._prev_episode_len is not None and cur < self._prev_episode_len
+        self._prev_episode_len = cur
+        if was_reset:
+            self._reset_count += 1
+        return was_reset
+
     def _start_recording(self):
         self._recording = True
         self._record_start_step = self._step_count
         self._frames_recorded = 0
         self._video_writers = {}
+        self._reset_count = 0
+        self._prev_episode_len = self._get_episode_length()
+
+        # Warmup renders to avoid first-frame artifacts
+        if hasattr(self.unwrapped, "capture_multi_cameras"):
+            for _ in range(_WARMUP_RENDERS):
+                self.unwrapped.capture_multi_cameras()
 
     def _capture_frame(self):
         if hasattr(self.unwrapped, "capture_multi_cameras"):
@@ -78,7 +186,20 @@ class MultiCameraRecordVideo(gym.Wrapper):
             if frame is None:
                 raise RuntimeError("Video recording requested, but the environment did not return an rgb frame.")
             frames = {"main": np.asarray(frame)}
+
+        # Detect reset for this frame
+        is_reset = self._detect_reset()
+
         for name, frame in frames.items():
+            # Apply reset flash border
+            if is_reset:
+                frame = _draw_reset_border(frame)
+
+            # Apply HUD overlay on selected views
+            if name in _HUD_VIEWS:
+                hud_text = f"F:{self._frames_recorded}  S:{self._record_start_step}  R:{self._reset_count}"
+                frame = _draw_text_pil(frame, hud_text)
+
             writer = self._video_writers.get(name)
             if writer is None:
                 filename = f"rl-video-step-{self._record_start_step}-{name}.mp4"

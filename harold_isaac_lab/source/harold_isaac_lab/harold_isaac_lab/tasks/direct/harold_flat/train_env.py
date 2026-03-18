@@ -139,13 +139,12 @@ def compute_rewards(env) -> torch.Tensor:
     body_contact_penalty = -undesired_contacts
 
     # === FORWARD MOTION BONUS ===
-    # Uses world-frame X velocity gated by foot contact to prevent rocking exploit.
-    # Body-frame vx can be gamed by pitch oscillation (EXP-426 showed vx=0.034 with
-    # near-zero displacement). World-frame + foot-contact gate ensures only actual
-    # ground-driven locomotion earns reward.
-    vx_w = root_lin_vel_w[:, 0]
+    # Body-frame vx (command-aligned) gated by foot contact to prevent rocking exploit.
+    # EXP-426 showed body-frame vx can be gamed by pitch oscillation. The foot-contact
+    # gate ensures reward only when feet are grounded — rocking with airborne feet gets 0.
+    # EXP-427 showed world-frame vx breaks command alignment (BUG-1), so keep body-frame.
     any_foot_grounded = foot_contact.any(dim=1).float()
-    forward_motion = cfg.forward_motion_weight * vx_w * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float() * any_foot_grounded
+    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float() * any_foot_grounded
 
     # === STANCE HEIGHT REWARD ===
     stance_height = 4.0 * height_reward

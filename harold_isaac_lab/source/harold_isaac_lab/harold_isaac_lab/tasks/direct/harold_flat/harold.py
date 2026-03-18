@@ -73,7 +73,10 @@ HAROLD_V4_CFG = ArticulationCfg(
     init_state=ArticulationCfg.InitialStateCfg(
         # Spawn height slightly above target standing height
         pos=(0.0, 0.0, 0.30),
-        rot=(1.0, 0.0, 0.0, 0.0),
+        # 180-degree Z rotation so the front legs (FL, FR at -X in URDF) face +X.
+        # The URDF has front legs at negative X; this aligns the robot's visual
+        # "front" with the body-frame +X used for forward_motion reward.
+        rot=(0.0, 0.0, 0.0, 1.0),
         joint_pos=load_ready_pose_dict()
     ),
 

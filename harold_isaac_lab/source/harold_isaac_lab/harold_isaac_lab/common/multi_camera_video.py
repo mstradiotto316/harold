@@ -26,16 +26,16 @@ _WARMUP_RENDERS = 2
 # Isaac Sim world: +X = forward, +Y = left, +Z = up.
 # Each entry maps axis label -> (dx, dy) in pixel space (right=+dx, down=+dy).
 # Arrow length is scaled by _AXIS_LENGTH.
-_AXIS_LENGTH = 30
+_AXIS_LENGTH = 36
 _AXIS_PROJECTIONS: dict[str, dict[str, tuple[int, int]]] = {
     # Side camera looks from -Y: image right = +X (fwd), image up = +Z (up)
-    "side":  {"+X fwd": (1, 0), "+Z up": (0, -1)},
+    "side":  {"X fwd": (1, 0), "Z up": (0, -1)},
     # Front camera looks from +X: image left = +Y (left), image up = +Z (up)
-    "front": {"+Y left": (-1, 0), "+Z up": (0, -1)},
-    # Top camera looks from +Z down: image right = +X (fwd), image up = -Y (right)
-    "top":   {"+X fwd": (1, 0), "+Y left": (0, 1)},
+    "front": {"Y left": (-1, 0), "Z up": (0, -1)},
+    # Top camera looks from +Z down: image right = +X (fwd), image down = +Y (left)
+    "top":   {"X fwd": (1, 0), "Y left": (0, 1)},
     # Iso camera from (+X, -Y, +Z) — approximate projected directions
-    "iso":   {"+X fwd": (-3, 1), "+Z up": (0, -4), "+Y left": (-3, -1)},
+    "iso":   {"X fwd": (-3, 1), "Z up": (0, -4), "Y left": (-3, -1)},
 }
 
 
@@ -98,16 +98,16 @@ def _draw_reset_border(frame: np.ndarray) -> np.ndarray:
     return f
 
 
-# Axis colors: X=red, Y=green, Z=blue (standard RGB convention)
+# Axis colors: X=red, Y=green, Z=blue (standard RGB convention) — bright for visibility
 _AXIS_COLORS = {
-    "+X fwd": (220, 60, 60),
-    "+Y left": (60, 180, 60),
-    "+Z up": (60, 100, 220),
+    "X": (255, 80, 80),
+    "Y": (80, 220, 80),
+    "Z": (80, 130, 255),
 }
 
 
 def _draw_axes(frame: np.ndarray, cam_name: str) -> np.ndarray:
-    """Draw a small axis indicator widget in the bottom-right corner of the frame."""
+    """Draw an axis orientation widget in the bottom-right corner of the frame."""
     projections = _AXIS_PROJECTIONS.get(cam_name)
     if projections is None:
         return frame
@@ -120,19 +120,20 @@ def _draw_axes(frame: np.ndarray, cam_name: str) -> np.ndarray:
     img = Image.fromarray(frame)
     draw = ImageDraw.Draw(img, "RGBA")
     try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf", 11)
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf", 13)
     except (OSError, IOError):
         font = ImageFont.load_default()
 
     h, w = frame.shape[:2]
-    # Origin of the axis widget: bottom-right corner with padding
-    ox, oy = w - 70, h - 50
+    # Origin of the axis widget — inset enough so labels never clip
+    ox, oy = w - 90, h - 70
 
-    # Semi-transparent background circle
-    radius = 45
-    draw.ellipse(
-        [ox - radius, oy - radius, ox + radius, oy + radius],
-        fill=(0, 0, 0, 120),
+    # Semi-transparent background rounded rectangle
+    pad = 55
+    draw.rounded_rectangle(
+        [ox - pad, oy - pad, ox + pad, oy + pad],
+        radius=10,
+        fill=(0, 0, 0, 150),
     )
 
     for label, (dx, dy) in projections.items():
@@ -140,18 +141,38 @@ def _draw_axes(frame: np.ndarray, cam_name: str) -> np.ndarray:
         length = (dx * dx + dy * dy) ** 0.5
         if length < 1e-6:
             continue
-        ex = int(ox + dx / length * _AXIS_LENGTH)
-        ey = int(oy + dy / length * _AXIS_LENGTH)
-        color = _AXIS_COLORS.get(label, (200, 200, 200))
+        ndx, ndy = dx / length, dy / length
+        ex = int(ox + ndx * _AXIS_LENGTH)
+        ey = int(oy + ndy * _AXIS_LENGTH)
+        # Color lookup by first character (X/Y/Z)
+        color = _AXIS_COLORS.get(label[0], (200, 200, 200))
 
-        # Draw arrow line (thick)
+        # Draw arrow shaft
         draw.line([(ox, oy), (ex, ey)], fill=color, width=3)
-        # Draw arrowhead dot
-        draw.ellipse([ex - 3, ey - 3, ex + 3, ey + 3], fill=color)
-        # Draw label at the tip
-        tx = int(ox + dx / length * (_AXIS_LENGTH + 12))
-        ty = int(oy + dy / length * (_AXIS_LENGTH + 12))
-        draw.text((tx - 8, ty - 6), label, fill=color, font=font)
+        # Draw arrowhead
+        draw.polygon(
+            [
+                (ex, ey),
+                (int(ex - 5 * ndy - 4 * ndx), int(ey + 5 * ndx - 4 * ndy)),
+                (int(ex + 5 * ndy - 4 * ndx), int(ey - 5 * ndx - 4 * ndy)),
+            ],
+            fill=color,
+        )
+
+        # Draw label with white outline for readability
+        tx = int(ox + ndx * (_AXIS_LENGTH + 14))
+        ty = int(oy + ndy * (_AXIS_LENGTH + 14))
+        # Center the text roughly on the label point
+        bbox = draw.textbbox((0, 0), label, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        lx, ly = tx - tw // 2, ty - th // 2
+        # White outline (draw in 4 offset positions)
+        for odx, ody in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            draw.text((lx + odx, ly + ody), label, fill=(255, 255, 255, 200), font=font)
+        draw.text((lx, ly), label, fill=color, font=font)
+
+    # Small dot at origin
+    draw.ellipse([ox - 3, oy - 3, ox + 3, oy + 3], fill=(255, 255, 255, 200))
 
     return np.array(img)
 

@@ -128,7 +128,8 @@ def compute_rewards(env) -> torch.Tensor:
     # === PITCH PENALTY ===
     # projected_gravity[:, 0] is the forward component of gravity in body frame.
     # Positive = nose-down pitch. Penalize quadratically to discourage nose-diving.
-    pitch_penalty = -3.0 * torch.square(projected_gravity[:, 0])
+    # -3.0 was too weak (EXP-433 gamed it by sinking lower). Use -8.0.
+    pitch_penalty = -8.0 * torch.square(projected_gravity[:, 0])
 
     # === HEIGHT METRIC (terrain-relative) ===
     pos_z = env._height_scanner.data.pos_w[:, 2].unsqueeze(1)
@@ -139,6 +140,11 @@ def compute_rewards(env) -> torch.Tensor:
     target_height = env.cfg.gait.target_height
     height_error = torch.abs(current_height - target_height)
     height_reward = torch.tanh(3.0 * torch.exp(-5.0 * height_error))
+
+    # === MINIMUM HEIGHT FLOOR ===
+    # Prevent gaming the pitch penalty by sinking overall.
+    # Penalize when body is below 60% of target height.
+    height_floor_penalty = -5.0 * torch.clamp(0.6 * target_height - current_height, min=0.0)
 
     # === BODY CONTACT METRIC ===
     body_contact_penalty = -undesired_contacts
@@ -192,8 +198,8 @@ def compute_rewards(env) -> torch.Tensor:
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
-    # Add pitch penalty directly (not tracked in episode_sums to avoid KeyError)
-    total_reward = total_reward + pitch_penalty
+    # Add penalties directly (not tracked in episode_sums to avoid KeyError)
+    total_reward = total_reward + pitch_penalty + height_floor_penalty
 
     for key, value in rewards.items():
         env._episode_sums[key] += value

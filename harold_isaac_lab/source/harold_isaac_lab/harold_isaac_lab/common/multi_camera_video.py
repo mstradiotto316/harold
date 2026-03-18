@@ -120,36 +120,87 @@ def _draw_axes(frame: np.ndarray, cam_name: str) -> np.ndarray:
     img = Image.fromarray(frame)
     draw = ImageDraw.Draw(img, "RGBA")
     try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf", 13)
+        label_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf", 14)
     except (OSError, IOError):
-        font = ImageFont.load_default()
+        label_font = ImageFont.load_default()
 
     h, w = frame.shape[:2]
-    # Origin of the axis widget — inset enough so labels never clip
-    ox, oy = w - 90, h - 70
 
-    # Semi-transparent background rounded rectangle
-    pad = 55
-    draw.rounded_rectangle(
-        [ox - pad, oy - pad, ox + pad, oy + pad],
-        radius=10,
-        fill=(0, 0, 0, 150),
-    )
+    # First pass: compute all label positions to determine bounding box
+    arrow_len = _AXIS_LENGTH
+    label_offset = arrow_len + 16  # gap between arrowhead and label start
 
+    # Tentative origin (will adjust to ensure nothing clips)
+    base_ox, base_oy = w - 100, h - 80
+
+    label_extents = []  # list of (lx, ly, lx+tw, ly+th) relative to origin
     for label, (dx, dy) in projections.items():
-        # Normalize direction and scale to _AXIS_LENGTH
         length = (dx * dx + dy * dy) ** 0.5
         if length < 1e-6:
             continue
         ndx, ndy = dx / length, dy / length
-        ex = int(ox + ndx * _AXIS_LENGTH)
-        ey = int(oy + ndy * _AXIS_LENGTH)
-        # Color lookup by first character (X/Y/Z)
+        tx = ndx * label_offset
+        ty = ndy * label_offset
+        bbox = draw.textbbox((0, 0), label, font=label_font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        lx, ly = tx - tw // 2, ty - th // 2
+        label_extents.append((lx, ly, lx + tw, ly + th))
+
+    # Compute the full extent of arrows + labels relative to origin
+    all_points_x = [0]
+    all_points_y = [0]
+    for label, (dx, dy) in projections.items():
+        length = (dx * dx + dy * dy) ** 0.5
+        if length < 1e-6:
+            continue
+        ndx, ndy = dx / length, dy / length
+        all_points_x.append(ndx * arrow_len)
+        all_points_y.append(ndy * arrow_len)
+    for lx, ly, rx, ry in label_extents:
+        all_points_x.extend([lx, rx])
+        all_points_y.extend([ly, ry])
+
+    min_x, max_x = min(all_points_x), max(all_points_x)
+    min_y, max_y = min(all_points_y), max(all_points_y)
+
+    # Background box with padding around all content
+    bg_pad = 10
+    box_l = base_ox + min_x - bg_pad
+    box_t = base_oy + min_y - bg_pad
+    box_r = base_ox + max_x + bg_pad
+    box_b = base_oy + max_y + bg_pad
+
+    # Shift origin if the box would extend past the frame edges
+    shift_x = max(0, box_r - (w - 4)) + min(0, box_l - 4)
+    shift_y = max(0, box_b - (h - 4)) + min(0, box_t - 4)
+    ox = int(base_ox - shift_x)
+    oy = int(base_oy - shift_y)
+
+    # Recompute box with adjusted origin
+    box_l = ox + min_x - bg_pad
+    box_t = oy + min_y - bg_pad
+    box_r = ox + max_x + bg_pad
+    box_b = oy + max_y + bg_pad
+
+    draw.rounded_rectangle(
+        [box_l, box_t, box_r, box_b],
+        radius=8,
+        fill=(0, 0, 0, 160),
+    )
+
+    # Draw arrows and labels
+    for label, (dx, dy) in projections.items():
+        length = (dx * dx + dy * dy) ** 0.5
+        if length < 1e-6:
+            continue
+        ndx, ndy = dx / length, dy / length
+        ex = int(ox + ndx * arrow_len)
+        ey = int(oy + ndy * arrow_len)
         color = _AXIS_COLORS.get(label[0], (200, 200, 200))
 
-        # Draw arrow shaft
+        # Arrow shaft
         draw.line([(ox, oy), (ex, ey)], fill=color, width=3)
-        # Draw arrowhead
+        # Arrowhead triangle
         draw.polygon(
             [
                 (ex, ey),
@@ -159,20 +210,18 @@ def _draw_axes(frame: np.ndarray, cam_name: str) -> np.ndarray:
             fill=color,
         )
 
-        # Draw label with white outline for readability
-        tx = int(ox + ndx * (_AXIS_LENGTH + 14))
-        ty = int(oy + ndy * (_AXIS_LENGTH + 14))
-        # Center the text roughly on the label point
-        bbox = draw.textbbox((0, 0), label, font=font)
+        # Label with white outline for readability
+        tx = int(ox + ndx * label_offset)
+        ty = int(oy + ndy * label_offset)
+        bbox = draw.textbbox((0, 0), label, font=label_font)
         tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
         lx, ly = tx - tw // 2, ty - th // 2
-        # White outline (draw in 4 offset positions)
         for odx, ody in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            draw.text((lx + odx, ly + ody), label, fill=(255, 255, 255, 200), font=font)
-        draw.text((lx, ly), label, fill=color, font=font)
+            draw.text((lx + odx, ly + ody), label, fill=(255, 255, 255, 220), font=label_font)
+        draw.text((lx, ly), label, fill=color, font=label_font)
 
-    # Small dot at origin
-    draw.ellipse([ox - 3, oy - 3, ox + 3, oy + 3], fill=(255, 255, 255, 200))
+    # Origin dot
+    draw.ellipse([ox - 3, oy - 3, ox + 3, oy + 3], fill=(255, 255, 255, 220))
 
     return np.array(img)
 

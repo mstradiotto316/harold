@@ -141,10 +141,13 @@ def compute_rewards(env) -> torch.Tensor:
     # === FORWARD MOTION BONUS ===
     # Direct reward for body-frame forward velocity, gated by posture quality.
     # Bug fixes applied: uses vx_b (body-frame), upright.clamp(0.0, 1.0) (proper gate).
-    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
+    # Quadratic upright gate: reward drops steeply when upright decreases,
+    # preventing the policy from trading upright for vx (EXP-416).
+    upright_gate = upright.clamp(0.0, 1.0) ** 2
+    forward_motion = cfg.forward_motion_weight * vx_b * upright_gate * (cmd_vx > 0.05).float()
 
     # === STANCE HEIGHT REWARD ===
-    stance_height = 5.0 * height_reward
+    stance_height = 4.0 * height_reward
 
     # === FOOT SLIP PENALTY ===
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)

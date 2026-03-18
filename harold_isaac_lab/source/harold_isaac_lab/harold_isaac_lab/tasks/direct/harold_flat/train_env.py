@@ -146,6 +146,11 @@ def compute_rewards(env) -> torch.Tensor:
     # === STANCE HEIGHT REWARD ===
     stance_height = 4.0 * height_reward
 
+    # === YAW DAMPING ===
+    # Gentle penalty for yaw rotation. Video shows 55-deg drift per episode.
+    # Fixes wasted energy and improves forward velocity direction.
+    yaw_damping = -0.1 * wz * wz
+
     # === FOOT SLIP PENALTY ===
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
 
@@ -182,6 +187,7 @@ def compute_rewards(env) -> torch.Tensor:
         "forward_motion": forward_motion,
         "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,
+        "yaw_damping": yaw_damping,
         "joint_activity_reward": joint_activity_reward,
         "foot_lift_reward": foot_lift_reward,
     }

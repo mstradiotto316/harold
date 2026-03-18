@@ -141,10 +141,7 @@ def compute_rewards(env) -> torch.Tensor:
     # === FORWARD MOTION BONUS ===
     # Direct reward for body-frame forward velocity, gated by posture quality.
     # Bug fixes applied: uses vx_b (body-frame), upright.clamp(0.0, 1.0) (proper gate).
-    # Quadratic upright gate: reward drops steeply when upright decreases,
-    # preventing the policy from trading upright for vx (EXP-416).
-    upright_gate = upright.clamp(0.0, 1.0) ** 2
-    forward_motion = cfg.forward_motion_weight * vx_b * upright_gate * (cmd_vx > 0.05).float()
+    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
 
     # === STANCE HEIGHT REWARD ===
     stance_height = 4.0 * height_reward
@@ -158,7 +155,7 @@ def compute_rewards(env) -> torch.Tensor:
     # is favored over jittering by action_rate and dof_acc penalties.
     joint_vel_norm = torch.sum(torch.abs(env._robot.data.joint_vel), dim=1)
     joint_activity = torch.tanh(joint_vel_norm / 10.0)  # saturates at high vel
-    joint_activity_reward = 0.5 * joint_activity * (cmd_magnitude > 0.05).float()
+    joint_activity_reward = 0.3 * joint_activity * (cmd_magnitude > 0.05).float()
 
     # === FOOT LIFT REWARD ===
     # Reward upward (Z+) velocity of feet with 2x bonus when foot is airborne.
@@ -168,7 +165,7 @@ def compute_rewards(env) -> torch.Tensor:
     foot_lift_speed = torch.clamp(foot_vel_z, min=0.0)  # only upward
     base_lift = torch.tanh(foot_lift_speed / 0.5)
     airborne_mult = 1.0 + (~foot_contact).float()  # 1.0 on ground, 2.0 airborne
-    foot_lift_reward = 0.5 * torch.sum(base_lift * airborne_mult, dim=1) * (cmd_magnitude > 0.05).float()
+    foot_lift_reward = 0.3 * torch.sum(base_lift * airborne_mult, dim=1) * (cmd_magnitude > 0.05).float()
 
     # === COMPUTE TOTAL ===
     rewards = {

@@ -147,10 +147,18 @@ When an episode reset occurs (termination or timeout), all camera views display 
 
 When analyzing videos, count the "RESET" frames to determine how many episodes occurred within the clip. A high reset count in a short clip indicates frequent termination (unstable policy). The R counter in the HUD also tracks this.
 
+### Axis Orientation Widget
+Each camera view displays a small axis indicator in the bottom-right corner showing how the world coordinate axes project into that view. The color convention is:
+- **Red:** +X (forward direction of travel)
+- **Green:** +Y (leftward)
+- **Blue:** +Z (upward)
+
+Use this to determine which direction the robot is moving, leaning, or drifting in each camera view.
+
 ### Scene Colors
 - **Robot:** Orange (high contrast)
 - **Ground:** Dark grey
-- **Background:** Neighboring environment robots are clipped from view — only the primary robot (env 0) is visible
+- **Background:** Neighboring environment robots are hidden — only the primary robot (env 0) is visible
 
 ## Video File Locations
 

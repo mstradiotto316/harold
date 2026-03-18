@@ -22,6 +22,22 @@ _RESET_COLOR = np.array([220, 40, 40], dtype=np.uint8)
 # Number of warmup render calls before recording to avoid first-frame artifacts
 _WARMUP_RENDERS = 2
 
+# Axis widget: 2D projections of world X/Y/Z axes for each camera view.
+# Isaac Sim world: +X = forward, +Y = left, +Z = up.
+# Each entry maps axis label -> (dx, dy) in pixel space (right=+dx, down=+dy).
+# Arrow length is scaled by _AXIS_LENGTH.
+_AXIS_LENGTH = 30
+_AXIS_PROJECTIONS: dict[str, dict[str, tuple[int, int]]] = {
+    # Side camera looks from -Y: image right = +X (fwd), image up = +Z (up)
+    "side":  {"+X fwd": (1, 0), "+Z up": (0, -1)},
+    # Front camera looks from +X: image left = +Y (left), image up = +Z (up)
+    "front": {"+Y left": (-1, 0), "+Z up": (0, -1)},
+    # Top camera looks from +Z down: image right = +X (fwd), image up = -Y (right)
+    "top":   {"+X fwd": (1, 0), "+Y left": (0, 1)},
+    # Iso camera from (+X, -Y, +Z) — approximate projected directions
+    "iso":   {"+X fwd": (-3, 1), "+Z up": (0, -4), "+Y left": (-3, -1)},
+}
+
 
 def _draw_text_pil(frame: np.ndarray, text: str) -> np.ndarray:
     """Burn white text on a semi-transparent dark strip into bottom-left of frame."""
@@ -80,6 +96,64 @@ def _draw_reset_border(frame: np.ndarray) -> np.ndarray:
         pass  # PIL not available — border alone is still useful
 
     return f
+
+
+# Axis colors: X=red, Y=green, Z=blue (standard RGB convention)
+_AXIS_COLORS = {
+    "+X fwd": (220, 60, 60),
+    "+Y left": (60, 180, 60),
+    "+Z up": (60, 100, 220),
+}
+
+
+def _draw_axes(frame: np.ndarray, cam_name: str) -> np.ndarray:
+    """Draw a small axis indicator widget in the bottom-right corner of the frame."""
+    projections = _AXIS_PROJECTIONS.get(cam_name)
+    if projections is None:
+        return frame
+
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        return frame
+
+    img = Image.fromarray(frame)
+    draw = ImageDraw.Draw(img, "RGBA")
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf", 11)
+    except (OSError, IOError):
+        font = ImageFont.load_default()
+
+    h, w = frame.shape[:2]
+    # Origin of the axis widget: bottom-right corner with padding
+    ox, oy = w - 70, h - 50
+
+    # Semi-transparent background circle
+    radius = 45
+    draw.ellipse(
+        [ox - radius, oy - radius, ox + radius, oy + radius],
+        fill=(0, 0, 0, 120),
+    )
+
+    for label, (dx, dy) in projections.items():
+        # Normalize direction and scale to _AXIS_LENGTH
+        length = (dx * dx + dy * dy) ** 0.5
+        if length < 1e-6:
+            continue
+        ex = int(ox + dx / length * _AXIS_LENGTH)
+        ey = int(oy + dy / length * _AXIS_LENGTH)
+        color = _AXIS_COLORS.get(label, (200, 200, 200))
+
+        # Draw arrow line (thick)
+        draw.line([(ox, oy), (ex, ey)], fill=color, width=3)
+        # Draw arrowhead dot
+        draw.ellipse([ex - 3, ey - 3, ex + 3, ey + 3], fill=color)
+        # Draw label at the tip
+        tx = int(ox + dx / length * (_AXIS_LENGTH + 12))
+        ty = int(oy + dy / length * (_AXIS_LENGTH + 12))
+        draw.text((tx - 8, ty - 6), label, fill=color, font=font)
+
+    return np.array(img)
 
 
 class MultiCameraRecordVideo(gym.Wrapper):
@@ -199,6 +273,9 @@ class MultiCameraRecordVideo(gym.Wrapper):
             if name in _HUD_VIEWS:
                 hud_text = f"F:{self._frames_recorded}  S:{self._record_start_step}  R:{self._reset_count}"
                 frame = _draw_text_pil(frame, hud_text)
+
+            # Draw axis orientation widget
+            frame = _draw_axes(frame, name)
 
             writer = self._video_writers.get(name)
             if writer is None:

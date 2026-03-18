@@ -1483,6 +1483,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 "annotator": annotator,
             }
 
+        # Hide all non-env-0 robots so only the primary robot appears in videos.
+        # MakeInvisible only affects rendering, not physics.
+        for env_idx in range(1, self.num_envs):
+            robot_prim = stage.GetPrimAtPath(f"/World/envs/env_{env_idx}/Robot")
+            if robot_prim.IsValid():
+                UsdGeom.Imageable(robot_prim).MakeInvisible()
+
     def _set_camera_transform(self, prim_path: str, eye: np.ndarray, target: np.ndarray):
         """Set a USD camera prim's transform so it looks from *eye* toward *target*."""
         from pxr import UsdGeom, Gf

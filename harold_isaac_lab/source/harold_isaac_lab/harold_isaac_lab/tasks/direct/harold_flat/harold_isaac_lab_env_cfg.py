@@ -118,7 +118,7 @@ class CommandCfg:
     # Forward velocity range (m/s)
     # Session 36: Reverted to conservative for stability
     vx_min: float = 0.0
-    vx_max: float = 0.3
+    vx_max: float = 0.5
 
     # Lateral velocity range (m/s)
     vy_min: float = -0.15

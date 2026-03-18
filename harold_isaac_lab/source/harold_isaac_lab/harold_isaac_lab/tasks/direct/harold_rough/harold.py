@@ -72,7 +72,10 @@ HAROLD_V4_CFG = ArticulationCfg(
     ),
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.20),
-        rot=(1.0, 0.0, 0.0, 0.0), 
+        # 180° Z rotation: URDF has front legs at -X, so identity quat makes
+        # body +X point backward. This rotation aligns body +X with visual forward.
+        # Isaac Lab uses (w, x, y, z) quaternion format.
+        rot=(0.0, 0.0, 0.0, 1.0),
         joint_pos=load_ready_pose_dict()
     ),
 

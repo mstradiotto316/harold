@@ -1,5 +1,34 @@
 # Harold Observations & Insights
 
+## 2026-03-18: Coordinate Frame & Quaternion Convention (CRITICAL)
+
+### Isaac Lab Quaternion Convention
+- **Isaac Lab uses (w, x, y, z) quaternion format.** Confirmed from official API docs.
+- Identity quaternion = `(1.0, 0.0, 0.0, 0.0)` (w=1, no rotation)
+- 180° Z rotation = `(0.0, 0.0, 0.0, 1.0)` (w=0, z=1)
+- This applies to `ArticulationCfg.InitialStateCfg.rot`, `write_root_pose_to_sim()`, and all pose/state APIs.
+
+### Robot Facing Direction Bug (Fixed in EXP-429)
+- **The URDF places front legs (FL, FR) at negative X and back legs (BL, BR) at positive X.**
+- With identity quaternion `(1,0,0,0)`, body-frame +X pointed toward the BACK of the robot.
+- The `forward_motion` reward rewarded positive `vx_b` → rewarded BACKWARD motion.
+- **Fix**: 180° Z rotation `rot=(0.0, 0.0, 0.0, 1.0)` aligns body +X with the robot's visual forward.
+- After fix: positive `vx_b` = forward motion = correct reward direction.
+- **This bug affected all experiments from project start through EXP-428.**
+
+### Body-Frame Velocity (`root_lin_vel_b`)
+- Computed via `quat_apply_inverse(root_quat_w, root_lin_vel_w)` — always relative to CURRENT body orientation.
+- With 180° Z rotation: `vx_b = -vx_w`, `vy_b = -vy_w`, `vz_b = vz_w` (at spawn; dynamic during walking).
+- Commands (`cmd_vx`, `cmd_vy`) are body-frame — they automatically align with the rotated body.
+- No code changes needed to rewards or observations after the quaternion fix; the body-frame transform handles it.
+
+### Consequences of 180° Z Rotation
+- **Upright/termination**: NOT affected (uses gravity Z component, invariant to Z rotation).
+- **Joint positions**: NOT affected (local joint angles, not frame-dependent).
+- **Camera names**: "front" camera at world +X now views the robot's BACK. Names are cosmetic.
+- **Rough terrain**: Uses same robot config (`HAROLD_V4_CFG`), fix must be applied there too.
+- **Hardware deployment**: IMU body-frame must match sim body-frame. If IMU +X = physical forward, alignment is correct. If IMU +X = URDF +X (toward back legs), deployment will need sign flip on vx/vy in observation_builder.py.
+
 ## 2026-03-15: Repo Secret Hygiene
 - A tracked `*.nmconnection` file is still a secret leak even if `.gitignore` already lists `*.nmconnection`; ignore rules do not retroactively untrack files.
 - Public-secret cleanup for git requires both steps: remove the file from `HEAD` and rewrite history. Deleting only the current file is insufficient once the repo has been pushed.

@@ -143,7 +143,10 @@ def compute_rewards(env) -> torch.Tensor:
     forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
 
     # === STANCE HEIGHT REWARD ===
-    stance_height = 4.0 * height_reward
+    # Reduced from 4.0: stability rewards were dominating, making standing
+    # always preferred over walking. With 0.5 + upright_weight=0.5,
+    # standing reward ~1.3/step vs walking ~6.7/step.
+    stance_height = 0.5 * height_reward
 
     # === FOOT SLIP PENALTY ===
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)

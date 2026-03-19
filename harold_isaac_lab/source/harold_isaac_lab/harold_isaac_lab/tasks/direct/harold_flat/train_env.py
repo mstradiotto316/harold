@@ -138,9 +138,11 @@ def compute_rewards(env) -> torch.Tensor:
     body_contact_penalty = -undesired_contacts
 
     # === FORWARD MOTION BONUS ===
-    # Direct reward for body-frame forward velocity, gated by posture quality.
-    # Bug fixes applied: uses vx_b (body-frame), upright.clamp(0.0, 1.0) (proper gate).
-    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
+    # Saturating velocity reward — tanh caps incentive so robot gets 76% of max
+    # at vx=0.1, removing incentive to lean aggressively for higher speeds.
+    # EXP-452 showed forward_motion=0 gives best stability (ep_len=178);
+    # this provides gentle walking gradient without the tipping incentive.
+    forward_motion = cfg.forward_motion_weight * torch.tanh(vx_b / 0.1) * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
 
     # === STANCE HEIGHT REWARD ===
     stance_height = 4.0 * height_reward

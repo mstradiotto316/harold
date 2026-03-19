@@ -142,7 +142,7 @@ def compute_rewards(env) -> torch.Tensor:
     # at vx=0.1, removing incentive to lean aggressively for higher speeds.
     # EXP-452 showed forward_motion=0 gives best stability (ep_len=178);
     # this provides gentle walking gradient without the tipping incentive.
-    forward_motion = cfg.forward_motion_weight * torch.tanh(vx_b / 0.1) * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
+    forward_motion = cfg.forward_motion_weight * torch.tanh(vx_b / 0.3) * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
 
     # === STANCE HEIGHT REWARD ===
     stance_height = 4.0 * height_reward

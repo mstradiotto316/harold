@@ -140,9 +140,7 @@ def compute_rewards(env) -> torch.Tensor:
     # === FORWARD MOTION BONUS ===
     # Direct reward for body-frame forward velocity, gated by posture quality.
     # Bug fixes applied: uses vx_b (body-frame), upright.clamp(0.0, 1.0) (proper gate).
-    # Saturating velocity reward: tanh(vx/0.1) gives 76% of max at vx=0.1,
-    # removing incentive to lean aggressively for higher speed.
-    forward_motion = cfg.forward_motion_weight * torch.tanh(vx_b / 0.1) * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
+    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
 
     # === STANCE HEIGHT REWARD ===
     stance_height = 4.0 * height_reward

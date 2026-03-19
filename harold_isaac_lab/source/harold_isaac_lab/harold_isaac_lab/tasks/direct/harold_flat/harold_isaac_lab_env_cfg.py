@@ -101,7 +101,7 @@ class RewardsCfg:
     # Session 36e: Direct reward for positive vx to bootstrap walking
     # EXP-350: 5.0 redirected stepping forward (was 3.0). Confirmed essential.
     # EXP-362: 4.0 lost direction, EXP-366: 7.0 too aggressive. 5.0 is sweet spot.
-    forward_motion_weight: float = 8.0        # EXP-350 winning value
+    forward_motion_weight: float = 5.0        # EXP-350 winning value
 
 
 @configclass
@@ -446,7 +446,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # Action filtering (EMA low-pass)
     # Session 35: beta=0.40 is optimal (0.50 prevented walking)
     # Lower beta = more smoothing (60% carryover from previous action)
-    action_filter_beta: float = 0.2
+    action_filter_beta: float = 0.35
 
     # Reward configuration
     rewards = RewardsCfg()

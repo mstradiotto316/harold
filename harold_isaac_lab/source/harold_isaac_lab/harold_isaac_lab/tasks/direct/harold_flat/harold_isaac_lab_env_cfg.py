@@ -101,7 +101,7 @@ class RewardsCfg:
     # Session 36e: Direct reward for positive vx to bootstrap walking
     # EXP-350: 5.0 redirected stepping forward (was 3.0). Confirmed essential.
     # EXP-362: 4.0 lost direction, EXP-366: 7.0 too aggressive. 5.0 is sweet spot.
-    forward_motion_weight: float = 0        # EXP-350 winning value
+    forward_motion_weight: float = 5.0        # EXP-350 winning value
 
 
 @configclass
@@ -224,14 +224,14 @@ class TerminationCfg:
     # EXP-003-007: Height termination has issues - scanner returns bad values
     # EXP-008: Disable height termination, rely on height_reward=30.0 to incentivize
     # Spawn height is ~0.24m, elbow pose is ~0.15-0.18m
-    height_threshold: float = 0.15
+    height_threshold: float = 0.0
     # Warmup: skip height termination for first N steps after reset (sensor initialization)
     height_termination_warmup_steps: int = 20
     # Body contact termination: terminate if body/thigh/shoulder contact > threshold (N)
     # EXP-002: 10N kept body contact low (-0.04) but didn't prevent elbow pose
     # EXP-013: Root cause - elbow contact ~5N per point, below 10N threshold = undetected
     # Lowering to 3N should make elbow contact visible to the reward system
-    body_contact_threshold: float = 3.0
+    body_contact_threshold: float = 10.0
 
     # Joint-angle termination: detect elbow pose via front leg joint angles
     # EXP-009: thigh>1.0, calf>-0.8 too loose - robot still found elbow pose (height=1.50)

@@ -10,7 +10,7 @@ Project-level instructions for Claude Code sessions in this repository.
 
 ## Key Rules
 
-- **Video is mandatory** for all training runs (`--video` flag).
+- **Video is mandatory** for every experiment — captured post-hoc via `harold record` (not during training). Training runs without video at high envs for throughput.
 - **Don't commit without asking first** — EXCEPT during `/autoresearch` sessions, where commits are part of the autonomous loop.
 - Use `python scripts/harold.py` for all training/monitoring -- no ad-hoc scripts.
 - Read `docs/memory/HARDWARE_CONSTRAINTS.md` before changing sim parameters.

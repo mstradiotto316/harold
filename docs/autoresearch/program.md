@@ -8,7 +8,7 @@ Staff Engineer overseeing Harold's autonomous RL training pipeline. Methodical, 
 
 Harold is a 12-DOF quadruped robot (4 legs x 3 joints: shoulder, thigh, calf) built with FeeTech ST3215 servos, controlled by ESP32, inference on Raspberry Pi 5. Training in NVIDIA Isaac Sim on desktop with RTX 4080. Policies exported to ONNX for deployment.
 
-The sim-to-real gap is the central challenge. 227+ experiments have been run. Every frozen parameter was set through painful empirical work.
+The sim-to-real gap is the central challenge. Every frozen parameter was set through painful empirical work.
 
 ## Product Roadmap
 
@@ -44,90 +44,10 @@ If you think a frozen parameter needs to change, STOP and document why. Do not c
 
 Edit via `python scripts/autoresearch.py apply '{"param": value}'`
 
-#### Reward Weights (harold_isaac_lab_env_cfg.py)
+Full parameter tables (current values, ranges, categories): `docs/autoresearch/PARAMETER_REGISTRY.md`
+Live registry: `python scripts/autoresearch.py load-registry`
 
-| Parameter | Current | Range | Notes |
-|-----------|---------|-------|-------|
-| track_lin_vel_xy_weight | 5.0 | [0.5, 20.0] | Primary velocity tracking |
-| track_lin_vel_xy_std | 0.25 | [0.1, 1.0] | Kernel sharpness |
-| track_ang_vel_z_weight | 2.0 | [0.0, 10.0] | Yaw rate tracking |
-| track_ang_vel_z_std | 0.25 | [0.1, 1.0] | Kernel sharpness |
-| lin_vel_z_weight | -0.0001 | [-1.0, 0.0] | Vertical bobbing penalty |
-| ang_vel_xy_weight | -0.0001 | [-1.0, 0.0] | Roll/pitch penalty |
-| dof_torques_weight | -0.0001 | [-0.01, 0.0] | Torque smoothness |
-| dof_acc_weight | -2.5e-7 | [-1e-5, 0.0] | Acceleration smoothness |
-| action_rate_weight | -0.01 | [-0.1, 0.0] | Action smoothness |
-| feet_air_time_weight | 1.0 | [0.0, 5.0] | Stepping encouragement |
-| feet_air_time_threshold | 0.3 | [0.1, 0.6] | Target air time (s) |
-| undesired_contacts_weight | -1.0 | [-5.0, 0.0] | Body contact penalty |
-| undesired_contacts_threshold | 1.0 | [0.1, 10.0] | Contact force threshold (N) |
-| upright_weight | 2.0 | [0.0, 10.0] | Upright stability |
-| forward_motion_weight | 3.0 | [0.0, 10.0] | Forward velocity bootstrap |
-
-#### Command Config
-
-| Parameter | Current | Range | Notes |
-|-----------|---------|-------|-------|
-| vx_min | 0.0 | [0.0, 0.2] | Forward velocity min (m/s) |
-| vx_max | 0.3 | [0.1, 1.0] | Forward velocity max (m/s) |
-| vy_min | -0.15 | [-0.5, 0.0] | Lateral velocity min |
-| vy_max | 0.15 | [0.0, 0.5] | Lateral velocity max |
-| yaw_min | -0.30 | [-1.0, 0.0] | Yaw rate min (rad/s) |
-| yaw_max | 0.30 | [0.0, 1.0] | Yaw rate max (rad/s) |
-| zero_velocity_prob | 0.02 | [0.0, 0.2] | Standing training probability |
-| command_change_interval | 10.0 | [2.0, 30.0] | Command update interval (s) |
-
-#### Termination Config
-
-| Parameter | Current | Range | Notes |
-|-----------|---------|-------|-------|
-| orientation_threshold | -0.5 | [-0.8, -0.2] | Tipping threshold |
-| height_threshold | 0.0 | [0.0, 0.2] | Height termination (0=disabled) |
-| body_contact_threshold | 3.0 | [1.0, 20.0] | Body contact termination (N) |
-| elbow_pose_termination | False | [True, False] | Joint-angle termination |
-
-#### Domain Randomization
-
-| Parameter | Current | Range | Notes |
-|-----------|---------|-------|-------|
-| enable_randomization | True | [True, False] | Master switch |
-| add_imu_noise | True | [True, False] | IMU noise |
-| add_joint_noise | True | [True, False] | Joint sensor noise |
-| add_lin_vel_noise | True | [True, False] | Linear velocity noise |
-| randomize_friction | False | [True, False] | CAUTION: caused vx=0.005 |
-| randomize_mass | False | [True, False] | CAUTION: robot stood still |
-| add_action_noise | False | [True, False] | CAUTION: hurts learning |
-| apply_external_forces | False | [True, False] | CAUTION: breaks training |
-
-#### Env-Level Parameters
-
-| Parameter | Current | Range | Constraint | Notes |
-|-----------|---------|-------|------------|-------|
-| episode_length_s | 30.0 | [15.0, 60.0] | CONSTRAINED | |
-| action_scale | 0.5 | [0.3, 0.7] | CONSTRAINED | 0.7 was worse |
-| action_filter_beta | 0.40 | [0.1, 0.5] | CONSTRAINED | 0.50 prevented walking |
-
-#### PPO Hyperparameters (skrl_ppo_cfg.yaml)
-
-| Parameter | Current | Range | Notes |
-|-----------|---------|-------|-------|
-| learning_rate | 5.0e-4 | [4e-4, 1e-3] | CONSTRAINED; 3e-4 is SANITY_FAIL |
-| rollouts | 24 | [8, 48] | Samples per update |
-| learning_epochs | 5 | [3, 10] | Passes per rollout |
-| mini_batches | 8 | [4, 16] | Mini-batch count |
-| discount_factor | 0.99 | [0.95, 0.999] | Gamma |
-| lambda | 0.95 | [0.9, 0.99] | GAE tau |
-| ratio_clip | 0.2 | [0.1, 0.3] | PPO epsilon |
-| value_clip | 0.2 | [0.1, 0.3] | Value function clip |
-| grad_norm_clip | 1.0 | [0.5, 2.0] | Gradient clipping |
-| entropy_loss_scale | 0.01 | [0.001, 0.05] | Exploration bonus |
-| value_loss_scale | 1.0 | [0.5, 2.0] | Critic weight |
-| rewards_shaper_scale | 0.6 | [0.1, 2.0] | Reward scaling |
-| min_log_std | -0.36 | [-2.0, 0.0] | Floor std for exploration |
-| seed | 38 | [0, 9999] | Random seed |
-| timesteps | 15000 | [5000, 50000] | Training duration |
-| policy_layers | [512, 256, 128] | - | Network architecture |
-| value_layers | [512, 256, 128] | - | Network architecture |
+Parameter categories: reward weights, command ranges, termination thresholds, domain randomization toggles, env-level params (episode_length_s, action_scale, action_filter_beta), and PPO hyperparameters.
 
 ### Research Code (train_env.py)
 
@@ -141,28 +61,31 @@ RULES for editing train_env.py:
 - reward tensor must be shape [num_envs]
 - observation dict must have key 'policy' with shape [num_envs, 48]
 
-## Objective: walk_score
+## Objective: score
 
 One number, 0-100. Higher = better walking.
 
 ```
-walk_score = gate * tanh(vx / 0.05) * 100
+score = survival * posture * velocity * 100
 
 where:
-  gate = min(upright_gate, height_gate, contact_gate)
+  survival     = tanh(ep_len / 150)
+  posture      = min(upright_gate, height_gate, contact_gate)
+  velocity     = tanh(max(0, vx) / 0.05)
+
   upright_gate = clamp((upright - 0.85) / 0.10, 0, 1)
   height_gate  = clamp((height - 0.3) / 0.3, 0, 1)
   contact_gate = clamp((contact + 0.3) / 0.3, 0, 1)
-
-  Hard gate: walk_score = 0 if episode_length < 300
 ```
 
 Properties:
-- Monotonic in forward velocity once gates pass
+- Soft survival gate: ep_len=174 -> 0.82, ep_len=300 -> 0.97 (no hard cutoff)
+- Monotonic in forward velocity once posture gates pass
 - Zero if on elbows (height ~0.15 -> gate=0)
 - Zero if tipping (upright < 0.85 -> gate=0)
 - Zero if body dragging (contact < -0.3 -> gate=0)
-- No video analysis needed for keep/discard
+
+Current baseline: ~37.4 (ep_len=174, vx=0.057, upright=0.906)
 
 All 5 metrics are still logged to results.tsv for diagnostics.
 
@@ -177,51 +100,49 @@ LOOP FOREVER:
   2. EDIT: config param (autoresearch.py apply) or train_env.py code
   3. COMMIT: git commit -m "autoresearch: <hypothesis>"
   4. TRAIN: harold train --hypothesis "..." --tags "autoresearch,..." --duration fast
+     Training runs WITHOUT video at high envs (16384) for ~3.7x throughput.
   5. WAIT: harold status --json (check at 5 min, then every 5 min)
      Early stop: SANITY_FAIL after 5 min -> harold stop, score=0, DISCARD
      Early stop: height FAIL + negative vx after 10 min -> harold stop, DISCARD
-  6. SCORE: harold validate -> walk_score (via autoresearch.py score)
-  7. VIDEO REVIEW (BLOCKING): Launch video review agent and WAIT for result
-     - Do NOT proceed to step 8 until video review is complete
-     - Read the FULL video description — it is the primary success/failure signal
-     - Metrics can lie (vx from falling, ep_len from standing); video cannot
-  8. DECIDE: Based on video verdict FIRST, then metrics
-     - KEEP only if video shows WALKING or STEPPING with forward progress
-       AND walk_score > baseline + 2.0
-     - DISCARD if video shows STANDING, FALLING, or DEGENERATE
-       regardless of metric improvements
-     - Record the video analyst's specific recommendations for next experiment
-  9. LOG: autoresearch.py log -> results.tsv
-     - video_description field is MANDATORY (not "pending")
-     - Include the video verdict (WALKING/STEPPING/STANDING/FALLING/DEGENERATE)
+  6. EVALUATE: Video is truth. Metrics are secondary.
+     a. SCORE: harold validate -> autoresearch.py score
+     b. RECORD: harold record (post-hoc multi-camera video from best checkpoint, ~30-45s)
+     c. VIDEO REVIEW (BLOCKING): Launch video review agent in foreground. WAIT.
+        Read the FULL response. This is the primary success/failure signal.
+        Metrics can lie (vx from falling, ep_len from standing); video cannot.
+     d. DECIDE: Video verdict overrides metrics. Always.
+        KEEP only if:
+          - Video shows WALKING or STEPPING with forward progress, AND
+          - score > baseline + 2.0
+        DISCARD if:
+          - Video shows STANDING, FALLING, or DEGENERATE
+            — regardless of metric improvements
+     e. Record the video analyst's specific recommendations for next experiment
+  7. LOG: autoresearch.py log -> results.tsv
+     - video_verdict field is MANDATORY (WALKING/STEPPING/STANDING/FALLING/DEGENERATE)
      - Include specific recommendations from video review
      If DISCARD: revert config (autoresearch.py revert) or git checkout -- train_env.py
-  10. COMPACT CHECK: If 3+ experiments since last /compact, run /compact NOW.
-     After compaction: re-read program.md, run `autoresearch.py state`, continue.
-  11. PLAN NEXT: Before looping to step 1, explicitly state:
-     - What the video review revealed about robot behavior
-     - What specific recommendation from the video analyst you are following
-     - Why you believe the next hypothesis addresses the identified issue
+  8. POST-EXPERIMENT:
+     a. Save state:
+        python3 scripts/autoresearch.py save-state '{
+          "baseline_score": ...,
+          "consecutive_discards": ...,
+          "current_strategy": "...",
+          "current_bottleneck": "...",
+          "experiments_since_last_keep": ...,
+          "strategic_direction": "what to try next"
+        }'
+     b. COMPACT CHECK: If 3+ experiments since last /compact, run /compact NOW.
+        After compaction: re-read program.md, run autoresearch.py state, continue.
+     c. PLAN NEXT: State what the video review revealed, what recommendation
+        you are following, and why the next hypothesis addresses the issue.
      Loop to step 1. DO NOT STOP.
 ```
 
 **NEVER STOP.** The human may be asleep. You run until manually interrupted or you hit a hard session limit. There is no experiment limit. There is no "good stopping point." There is no "let me summarize for the user." If you run out of ideas, re-read results.tsv, run `detect-plateau`, run `suggest-combinations`, and try something new. If context is getting large, use /compact every 3 experiments — then immediately recover state and continue. Stopping to ask the user is a bug in your behavior, not a feature.
 
-After step 9 (LOG), run:
-```
-python3 scripts/autoresearch.py save-state '{
-  "baseline_walk_score": ...,
-  "consecutive_discards": ...,
-  "current_strategy": "...",
-  "current_bottleneck": "...",
-  "experiments_since_last_keep": ...,
-  "strategic_direction": "what to try next"
-}'
-```
+### Fallback Rules (3+ Consecutive DISCARDs)
 
-### Consecutive DISCARD Fallback Rules
-
-If 3+ consecutive DISCARDs:
 1. Run `autoresearch.py detect-plateau` — get a structured view of what's been tried and what hasn't.
 2. Read results.tsv — what was the last KEEP? What has been tried since?
 3. Try a DIFFERENT axis: if you've been tuning rewards, try PPO hyperparameters.
@@ -230,26 +151,17 @@ If 3+ consecutive DISCARDs:
 4. Try the OPPOSITE: if increasing X failed, try decreasing X.
 5. Try COMBINING: run `autoresearch.py suggest-combinations` for data-driven proposals from near-miss DISCARDs.
 6. Try a LONGER RUN: if fast (15 min) isn't enough, try short (30 min) or standard (60 min).
-7. Try a DIFFERENT SEED: the results may be seed-sensitive at 512 envs.
+7. Try a DIFFERENT SEED: the results may be seed-sensitive.
 8. If `detect-plateau` reports 15+ experiments since improvement, make a QUALITATIVELY DIFFERENT change (new axis, code change, or combination). Do not keep tuning the same axis.
 9. DO NOT STOP. These are fallback strategies, not reasons to pause.
 
-### Video Review Agent (Step 7) — THE MOST IMPORTANT STEP
+### Video Review Agent
 
-After every experiment completes, launch a **fresh-context sub-agent** to analyze the latest training video. **The video review is the PRIMARY success/failure signal — it outranks all metrics.**
-
-Why video review matters more than metrics:
-- vx=0.068 can mean "walking forward" or "falling forward slowly" — only video tells which
-- ep_len=195 can mean "stable walking" or "standing still" — only video tells which
-- upright=0.9 can mean "level body while stepping" or "level body while crouching" — only video tells which
-- Every metric-based "improvement" in Session 48 was revealed by video to be a degenerate exploit
-
-**BLOCKING RULE: You MUST read the video review output before planning the next experiment. Do NOT launch the next experiment while the video review is still pending. The video review agent should NOT be run in background — run it in foreground and wait for the result.**
+After every experiment, launch a **fresh-context sub-agent** to analyze the latest training video. **The video review is the PRIMARY success/failure signal — it outranks all metrics.** Run it in foreground and wait for the result. Do NOT proceed until complete.
 
 **Procedure:**
 
 1. Extract frames: `python3 scripts/harold.py frames --json`
-   This outputs the frame paths and run metadata.
 
 2. Launch a video review agent using the Agent tool:
 
@@ -262,7 +174,7 @@ Agent(
 The robot is Harold, a 12-DOF quadruped (4 legs x 3 joints). Frames are extracted at 2fps from 4 camera angles.
 
 EXPERIMENT: {alias} - {hypothesis}
-METRICS: walk_score={score}, vx={vx}, upright={upright}, height={height}, contact={contact}, ep_len={ep_len}
+METRICS: score={score}, vx={vx}, upright={upright}, height={height}, contact={contact}, ep_len={ep_len}
 
 Frames are organized by camera view in {frame_dir}/:
   side/frame_0001.jpg ... side/frame_NNNN.jpg   — Sagittal plane (gait cycle, pitch, leg extension)
@@ -298,12 +210,10 @@ Be specific. Reference frame numbers and camera view. Describe what you actually
 
 5. **Use the video analyst's RECOMMENDATION** to design the next experiment. The analyst has seen what the robot is actually doing — their suggested fix is more informed than metric-driven guessing.
 
-5. You can **resume the agent** to ask follow-up questions:
+6. You can **resume the agent** to ask follow-up questions:
    - "Look at frames 15-20 more carefully -- is the front-left leg making ground contact?"
    - "Compare the first 5 frames to the last 5 -- is there any improvement?"
    - "Is the robot actually walking or just falling forward repeatedly?"
-
-**The video review agent is NOT optional.** It runs after every experiment. The walk_score is the quantitative signal; the video description is the qualitative signal. Both inform the keep/discard decision.
 
 ### Training Logs
 
@@ -328,7 +238,7 @@ Use `harold log` to inspect raw training output for debugging:
 - duration_per_experiment: fast (~15 min)
 - mode: rl
 - task: flat
-- num_envs: 512 (when Claude Code is running concurrently; 1024 standalone)
+- num_envs: 16384
 
 ### Context Management
 
@@ -346,15 +256,18 @@ Your context window is finite. To run indefinitely:
 
 ## Setup (Start of Session)
 
-1. Read this file (program.md) -- this is the only file you need
-2. Run `python3 scripts/autoresearch.py state` -- recover session state (baseline, bottleneck, strategy). If no state exists, this is a fresh session.
-3. Run `python3 scripts/autoresearch.py synthesize` -- get strategic summary of cross-session patterns (parameter sensitivity, winning config, untried params)
-4. Run `python3 scripts/autoresearch.py history` -- check prior results
-5. Read `docs/memory/OBSERVATIONS.md` -- accumulated insights
-6. Run `python3 scripts/harold.py ps` -- check for orphan processes
-7. Create branch: `git checkout -b autoresearch/session-$(date +%Y-%m-%d)`
-8. Run baseline if no prior score in results.tsv
-9. Begin the loop. Do not stop.
+Experiments are numbered sequentially from EXP-479. Experiments 1-478 are archived in `results_archive_2026-03-19.tsv`.
+
+1. Read this file (program.md)
+2. Read `docs/autoresearch/PARAMETER_REGISTRY.md` -- current values, ranges, categories
+3. Run `python3 scripts/autoresearch.py state` -- recover session state (baseline, bottleneck, strategy). If no state exists, this is a fresh session.
+4. Run `python3 scripts/autoresearch.py synthesize` -- cross-session patterns (parameter sensitivity, winning config, untried params)
+5. Run `python3 scripts/autoresearch.py history` -- check prior results
+6. Read `docs/memory/OBSERVATIONS.md` -- accumulated insights
+7. Run `python3 scripts/harold.py ps` -- check for orphan processes
+8. Create branch: `git checkout -b autoresearch/session-$(date +%Y-%m-%d)`
+9. Run baseline if no prior score in results.tsv
+10. Begin the loop. Do not stop.
 
 ## Quick Reference
 
@@ -363,7 +276,7 @@ Your context window is finite. To run indefinitely:
 | Check config | `python scripts/harold.py snapshot-config` |
 | Apply param change | `python scripts/autoresearch.py apply '{"param": value}'` |
 | Revert config | `python scripts/autoresearch.py revert` |
-| Start training | `python scripts/harold.py train --hypothesis "..." --tags "autoresearch,..." --duration fast --num-envs 512` |
+| Start training | `python scripts/harold.py train --hypothesis "..." --tags "autoresearch,..." --duration fast` |
 | Check status | `python scripts/harold.py status --json` |
 | Validate | `python scripts/harold.py validate` |
 | Score | `python scripts/autoresearch.py score '{"metrics": ...}'` |
@@ -375,6 +288,7 @@ Your context window is finite. To run indefinitely:
 | Detect plateau | `python scripts/autoresearch.py detect-plateau` |
 | Synthesize patterns | `python scripts/autoresearch.py synthesize` |
 | Suggest combinations | `python scripts/autoresearch.py suggest-combinations` |
+| Record video | `python scripts/harold.py record` |
 | Extract video frames | `python scripts/harold.py frames --json` |
 | View training log | `python scripts/harold.py log` |
 | Stop training | `python scripts/harold.py stop` |

@@ -82,8 +82,7 @@ TASK_IDS = {
 }
 DEFAULT_TASK = 'flat'
 TRAINING_DEFAULTS = {
-    'num_envs': 8192,
-    'video_interval': 3200,
+    'num_envs': 16384,  # no-video training; video captured post-hoc via `harold record`
     'video_length': 250,
     'rendering_mode': 'balanced',
 }
@@ -733,13 +732,13 @@ def build_train_command(
 
     Encapsulates command construction and benchmark-based defaults.
     """
-    # Benchmark results (2025-12-25, 64GB RAM):
-    #   4096 envs: 18.0 it/s, 1.77M samples/s, GPU 4.3GB, RAM  8GB
-    #   6144 envs: 15.2 it/s, 2.25M samples/s, GPU 5.0GB, RAM  9GB
-    #   8192 envs: 12.9 it/s, 2.54M samples/s, GPU 5.6GB, RAM  9GB  <- DEFAULT
-    #  10000 envs: 11.3 it/s, 2.71M samples/s, GPU 6.0GB, RAM 10GB
-    #  12000 envs: 10.6 it/s, 3.05M samples/s, GPU 6.4GB, RAM 10GB
-    #  16384 envs:  8.7 it/s, 3.43M samples/s, GPU 7.6GB, RAM 11GB  <- MAX THROUGHPUT
+    # Benchmark results (2026-03-19, RTX 4080 16GB, 63GB RAM):
+    # Training runs WITHOUT video (video captured post-hoc via `harold record`):
+    #   1024 envs: 18.1 it/s, 0.45M samples/s, GPU  6.2GB, RAM  8.6GB
+    #   4096 envs: 16.0 it/s, 1.58M samples/s, GPU  7.2GB, RAM  9.3GB
+    #   8192 envs: 11.5 it/s, 2.26M samples/s, GPU  8.3GB, RAM 10.3GB
+    #  16384 envs:  7.3 it/s, 2.88M samples/s, GPU 10.3GB, RAM 12.3GB  <- DEFAULT
+    #  24576 envs:  5.4 it/s, 3.18M samples/s, GPU 12.3GB, RAM 14.6GB
     cmd = [
         str(ISAACLAB_PYTHON), str(PROJECT_ROOT / 'harold_isaac_lab' / 'scripts' / 'skrl' / 'train.py'),
         f'--task={task_id}',
@@ -747,9 +746,6 @@ def build_train_command(
         '--max_iterations', str(iterations),
         '--headless',
         '--rendering_mode', TRAINING_DEFAULTS['rendering_mode'],
-        '--video',
-        '--video_interval', str(TRAINING_DEFAULTS['video_interval']),
-        '--video_length', str(TRAINING_DEFAULTS['video_length']),
     ]
     if checkpoint:
         cmd.extend(['--checkpoint', str(checkpoint)])
@@ -1417,6 +1413,89 @@ def cmd_snapshot_config(args):
     return 0
 
 
+def find_best_checkpoint(run_path: Path) -> Path | None:
+    """Find the best checkpoint in a run directory.
+
+    Priority: best_agent.pt > highest-numbered agent_*.pt.
+    """
+    ckpt_dir = run_path / "checkpoints"
+    if not ckpt_dir.exists():
+        return None
+    best = ckpt_dir / "best_agent.pt"
+    if best.exists():
+        return best
+    numbered = sorted(ckpt_dir.glob("agent_*.pt"))
+    return numbered[-1] if numbered else None
+
+
+def build_record_command(
+    run_path: Path,
+    task_id: str,
+    checkpoint: Path,
+    video_length: int,
+) -> list[str]:
+    """Build command to invoke record.py for post-hoc video recording."""
+    output_dir = run_path / "videos" / "train"
+    return [
+        str(ISAACLAB_PYTHON), str(PROJECT_ROOT / 'harold_isaac_lab' / 'scripts' / 'skrl' / 'record.py'),
+        f'--task={task_id}',
+        '--checkpoint', str(checkpoint),
+        '--output_dir', str(output_dir),
+        '--video_length', str(video_length),
+    ]
+
+
+def cmd_record(args):
+    """Record multi-camera video from a trained checkpoint."""
+    run_path = resolve_experiment(args.run) if args.run else get_latest_run()
+    if not run_path or not run_path.exists():
+        print("ERROR: No run found")
+        return 1
+
+    manifest = get_or_create_manifest(run_path)
+    task_key = manifest.get('task', DEFAULT_TASK)
+    task_id = TASK_IDS.get(task_key, TASK_IDS[DEFAULT_TASK])
+
+    # find checkpoint
+    if args.checkpoint:
+        checkpoint = Path(args.checkpoint)
+        if not checkpoint.exists():
+            print(f"ERROR: Checkpoint not found: {checkpoint}")
+            return 1
+    else:
+        checkpoint = find_best_checkpoint(run_path)
+        if not checkpoint:
+            print(f"ERROR: No checkpoint found in {run_path / 'checkpoints'}")
+            return 1
+
+    video_length = args.video_length or TRAINING_DEFAULTS['video_length']
+    print(f"Recording video from {manifest.get('alias', run_path.name)}")
+    print(f"  Checkpoint: {checkpoint.name}")
+    print(f"  Video length: {video_length} steps")
+
+    cmd = build_record_command(run_path, task_id, checkpoint, video_length)
+    result = subprocess.run(cmd, capture_output=False)
+    if result.returncode != 0:
+        print("ERROR: Video recording failed")
+        return 1
+
+    # verify output
+    video_dir = run_path / "videos" / "train"
+    cam_names = ["side", "front", "top", "iso"]
+    found = [c for c in cam_names if list(video_dir.glob(f"rl-video-step-0-{c}.mp4"))]
+    if found:
+        print(f"  Recorded {len(found)} camera views: {', '.join(found)}")
+        for cam in found:
+            vids = sorted(video_dir.glob(f"rl-video-step-0-{cam}.mp4"))
+            if vids:
+                print(f"    {vids[0].name}")
+    else:
+        print("WARNING: No video files found after recording")
+        return 1
+
+    return 0
+
+
 def _extract_step_number(filename: str) -> int:
     """Extract the step number from a video filename like 'rl-video-step-3200-side.mp4'."""
     m = re.search(r'rl-video-step-(\d+)', filename)
@@ -1581,7 +1660,7 @@ def main():
     train_parser.add_argument('--hypothesis', type=str, help='Hypothesis being tested (stored with experiment)')
     train_parser.add_argument('--tags', type=str, help='Comma-separated tags for categorization')
     train_parser.add_argument('--no-watchdog', action='store_true', help='Disable memory watchdog (not recommended)')
-    train_parser.add_argument('--num-envs', type=int, default=None, help='Number of environments (advanced override; default: 8192, pushup: 1)')
+    train_parser.add_argument('--num-envs', type=int, default=None, help='Number of environments (advanced override; default: 16384, pushup: 1)')
     train_parser.add_argument('--mode', choices=MODE_CHOICES, default='rl', help='Control mode: rl, cpg (open-loop), scripted (default: rl)')
     train_parser.add_argument('--gait-scale', type=float, help='Scale scripted/CPG gait amplitude (diagnostic)')
 
@@ -1624,6 +1703,12 @@ def main():
     log_parser.add_argument('--grep', type=str, help='Filter log lines by pattern')
     log_parser.add_argument('--tail', type=int, help='Number of lines to show (default: 20)')
 
+    # record
+    record_parser = subparsers.add_parser('record', help='Record multi-camera video from trained checkpoint')
+    record_parser.add_argument('run', nargs='?', help='Run name or alias (default: latest)')
+    record_parser.add_argument('--checkpoint', type=str, help='Path to checkpoint (default: best in run)')
+    record_parser.add_argument('--video-length', type=int, help='Steps to record (default: 250)')
+
     # snapshot-config
     subparsers.add_parser('snapshot-config', help='Dump current training config as JSON (for autoresearch)')
 
@@ -1645,6 +1730,8 @@ def main():
         return cmd_stop(args)
     elif args.command == 'ps':
         return cmd_ps(args)
+    elif args.command == 'record':
+        return cmd_record(args)
     elif args.command == 'frames':
         return cmd_frames(args)
     elif args.command == 'log':

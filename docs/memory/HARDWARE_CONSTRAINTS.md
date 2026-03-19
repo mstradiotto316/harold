@@ -177,6 +177,30 @@ st.WritePosEx(ID, Position, Speed, ACC);
 
 ---
 
+## Training Workstation
+
+| Component | Spec |
+|-----------|------|
+| GPU | NVIDIA GeForce RTX 4080 (16 GB VRAM) |
+| RAM | 63 GB |
+| CPU | Intel Core i7-8700K @ 3.70GHz |
+
+### Training Throughput (benchmarked 2026-03-19)
+
+**Two-phase approach**: Training runs without video at high envs; video captured post-hoc via `harold record` (~30-45s from best checkpoint at 1 env). This removes video as the RAM bottleneck.
+
+| Envs | it/s | Samples/s | GPU | RAM | Status |
+|------|------|-----------|-----|-----|--------|
+|  1024 | 18.1 | 0.45M |  6.2 GB |  8.6 GB | OK |
+|  4096 | 16.0 | 1.58M |  7.2 GB |  9.3 GB | OK |
+|  8192 | 11.5 | 2.26M |  8.3 GB | 10.3 GB | OK |
+| 16384 |  7.3 | 2.88M | 10.3 GB | 12.3 GB | **Default** (20% RAM) |
+| 24576 |  5.4 | 3.18M | 12.3 GB | 14.6 GB | OK |
+
+**Default: 16384 envs** (2.88M samples/s, 3.7x faster than previous 4096+video setup).
+
+---
+
 ## References
 
 - Servo datasheet: `docs/hardware/servos/ST3215_Servo.pdf`

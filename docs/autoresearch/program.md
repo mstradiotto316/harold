@@ -238,7 +238,7 @@ Use `harold log` to inspect raw training output for debugging:
 - duration_per_experiment: fast (~15 min)
 - mode: rl
 - task: flat
-- num_envs: 4096
+- num_envs: 16384
 
 ### Context Management
 

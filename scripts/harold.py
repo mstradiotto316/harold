@@ -82,7 +82,7 @@ TASK_IDS = {
 }
 DEFAULT_TASK = 'flat'
 TRAINING_DEFAULTS = {
-    'num_envs': 4096,  # proven walking env count; 2x faster without video (16 it/s vs 8 it/s)
+    'num_envs': 16384,  # max throughput; PPO rollouts=8 tuned for this batch size
     'video_length': 250,
     'rendering_mode': 'balanced',
 }
@@ -1663,7 +1663,7 @@ def main():
     train_parser.add_argument('--hypothesis', type=str, help='Hypothesis being tested (stored with experiment)')
     train_parser.add_argument('--tags', type=str, help='Comma-separated tags for categorization')
     train_parser.add_argument('--no-watchdog', action='store_true', help='Disable memory watchdog (not recommended)')
-    train_parser.add_argument('--num-envs', type=int, default=None, help='Number of environments (advanced override; default: 4096, pushup: 1)')
+    train_parser.add_argument('--num-envs', type=int, default=None, help='Number of environments (advanced override; default: 16384, pushup: 1)')
     train_parser.add_argument('--mode', choices=MODE_CHOICES, default='rl', help='Control mode: rl, cpg (open-loop), scripted (default: rl)')
     train_parser.add_argument('--gait-scale', type=float, help='Scale scripted/CPG gait amplitude (diagnostic)')
 

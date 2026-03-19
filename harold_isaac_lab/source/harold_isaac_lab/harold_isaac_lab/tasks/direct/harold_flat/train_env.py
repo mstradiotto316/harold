@@ -124,6 +124,17 @@ def compute_rewards(env) -> torch.Tensor:
     # === STABILITY: UPRIGHT ===
     upright = -projected_gravity[:, 2]
 
+    # === VELOCITY GATE ===
+    # 15% stability reward at rest, 100% at vx>=0.05 m/s.
+    # Midpoint between 0% (EXP-440, falling) and 30% (EXP-439, standing).
+    vx_gate = 0.15 + 0.85 * torch.clamp(vx_b / 0.05, 0.0, 1.0)
+    # Don't gate when not commanded to move (full stability reward when standing is correct)
+    vx_gate = torch.where(cmd_vx > 0.05, vx_gate, torch.ones_like(vx_gate))
+
+    # === PITCH PENALTY ===
+    # Penalize nose-down pitch (projected_gravity x > 0 = nose-down).
+    pitch_penalty = -5.0 * torch.clamp(projected_gravity[:, 0], min=0.0)
+
     # === HEIGHT METRIC (terrain-relative) ===
     pos_z = env._height_scanner.data.pos_w[:, 2].unsqueeze(1)
     ray_z = env._height_scanner.data.ray_hits_w[..., 2]
@@ -177,9 +188,10 @@ def compute_rewards(env) -> torch.Tensor:
         "action_rate": cfg.action_rate_weight * action_rate,
         "feet_air_time": cfg.feet_air_time_weight * air_time_reward,
         "undesired_contacts": cfg.undesired_contacts_weight * undesired_contacts,
-        "upright": cfg.upright_weight * upright,
+        "upright": cfg.upright_weight * upright * vx_gate,
         "forward_motion": forward_motion,
-        "stance_height": stance_height,
+        "stance_height": stance_height * vx_gate,
+        "pitch_penalty": pitch_penalty,
         "foot_slip_penalty": foot_slip_penalty,
         "joint_activity_reward": joint_activity_reward,
         "foot_lift_reward": foot_lift_reward,

@@ -237,7 +237,7 @@ class TerminationCfg:
     # EXP-009: thigh>1.0, calf>-0.8 too loose - robot still found elbow pose (height=1.50)
     # EXP-010: Tighter thresholds still didn't work
     # EXP-011: Disable, use low_height_penalty instead
-    elbow_pose_termination: bool = False
+    elbow_pose_termination: bool = True
     front_thigh_threshold: float = 0.85   # Terminate if front thigh > 0.85 rad
     front_calf_threshold: float = -1.0    # AND front calf > -1.0 rad
 

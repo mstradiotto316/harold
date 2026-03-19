@@ -143,7 +143,13 @@ def compute_rewards(env) -> torch.Tensor:
     forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
 
     # === STANCE HEIGHT REWARD ===
-    stance_height = 1.0 * height_reward
+    stance_height = 4.0 * height_reward
+
+    # === STANDING PENALTY ===
+    # Directly penalize being stationary when commanded to move.
+    # Makes the reward landscape clearly favor walking over standing.
+    moving_slow = (torch.abs(vx_b) < 0.02).float()
+    standing_penalty = -3.0 * moving_slow * (cmd_vx > 0.05).float()
 
     # === FOOT SLIP PENALTY ===
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
@@ -183,6 +189,7 @@ def compute_rewards(env) -> torch.Tensor:
         "foot_slip_penalty": foot_slip_penalty,
         "joint_activity_reward": joint_activity_reward,
         "foot_lift_reward": foot_lift_reward,
+        "standing_penalty": standing_penalty,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

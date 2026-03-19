@@ -15,6 +15,10 @@ Project-level instructions for Claude Code sessions in this repository.
 - Use `python scripts/harold.py` for all training/monitoring -- no ad-hoc scripts.
 - Read `docs/memory/HARDWARE_CONSTRAINTS.md` before changing sim parameters.
 
+## Known Issues
+
+- **Coordinate frame bug** (PATCHED): The USD asset has a baked-in axis flip that misaligns body-frame +X with the robot's visual forward direction. Currently patched with a 180° Z rotation on the spawn quaternion. See `COORDINATE_FRAME_BUG.md` for full details before touching robot orientation, body-frame velocities, or the USD asset.
+
 ## Autoresearch (Autonomous Experimentation)
 
 Harold has an autoresearch system for running RL experiments autonomously, inspired by Karpathy's autoresearch.

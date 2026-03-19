@@ -177,9 +177,7 @@ def compute_rewards(env) -> torch.Tensor:
         "action_rate": cfg.action_rate_weight * action_rate,
         "feet_air_time": cfg.feet_air_time_weight * air_time_reward,
         "undesired_contacts": cfg.undesired_contacts_weight * undesired_contacts,
-        # Height-gated upright: only reward uprightness when at sufficient height.
-        # Prevents crouching-flat exploit (EXP-458: high upright by laying flat).
-        "upright": cfg.upright_weight * upright * height_reward,
+        "upright": cfg.upright_weight * upright,
         "forward_motion": forward_motion,
         "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,

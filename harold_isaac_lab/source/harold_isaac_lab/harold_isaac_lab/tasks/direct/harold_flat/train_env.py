@@ -145,11 +145,10 @@ def compute_rewards(env) -> torch.Tensor:
     body_contact_penalty = -undesired_contacts
 
     # === VELOCITY GATE FOR STABILITY REWARDS ===
-    # Standing still gets only 30% of upright/height rewards; walking gets 100%.
-    # Eliminates standing equilibrium while keeping some upright gradient at rest.
-    # EXP-436: low forward_motion_weight → standing. EXP-438: pitch penalty → standing.
-    # Both failed because stability rewards dominate when standing is "free."
-    vx_gate = 0.3 + 0.7 * torch.clamp(vx_b / 0.03, 0.0, 1.0)
+    # Standing gives ZERO upright/height reward. Must move forward to earn stability.
+    # EXP-439: 30% standing fraction was too generous, created safe local optimum.
+    # Now: 0% standing, ramps to 100% at vx_b >= 0.05 m/s.
+    vx_gate = torch.clamp(vx_b / 0.05, 0.0, 1.0)
 
     # === FORWARD MOTION BONUS ===
     # Direct reward for body-frame forward velocity, gated by posture quality.

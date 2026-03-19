@@ -169,7 +169,7 @@ def compute_rewards(env) -> torch.Tensor:
     # === ALIVE BONUS ===
     # Explicit per-step survival reward. Makes the value function assign higher
     # value to alive states, encouraging conservative (non-tipping) actions.
-    alive_bonus = 5.0 * torch.ones(env.num_envs, device=env.device)
+    alive_bonus = 2.0 * torch.ones(env.num_envs, device=env.device)
 
     # === COMPUTE TOTAL ===
     rewards = {

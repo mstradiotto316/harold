@@ -82,7 +82,7 @@ TASK_IDS = {
 }
 DEFAULT_TASK = 'flat'
 TRAINING_DEFAULTS = {
-    'num_envs': 16384,  # no-video training; video captured post-hoc via `harold record`
+    'num_envs': 4096,  # proven walking env count; 2x faster without video (16 it/s vs 8 it/s)
     'video_length': 250,
     'rendering_mode': 'balanced',
 }
@@ -735,9 +735,9 @@ def build_train_command(
     # Benchmark results (2026-03-19, RTX 4080 16GB, 63GB RAM):
     # Training runs WITHOUT video (video captured post-hoc via `harold record`):
     #   1024 envs: 18.1 it/s, 0.45M samples/s, GPU  6.2GB, RAM  8.6GB
-    #   4096 envs: 16.0 it/s, 1.58M samples/s, GPU  7.2GB, RAM  9.3GB
+    #   4096 envs: 16.0 it/s, 1.58M samples/s, GPU  7.2GB, RAM  9.3GB  <- DEFAULT
     #   8192 envs: 11.5 it/s, 2.26M samples/s, GPU  8.3GB, RAM 10.3GB
-    #  16384 envs:  7.3 it/s, 2.88M samples/s, GPU 10.3GB, RAM 12.3GB  <- DEFAULT
+    #  16384 envs:  7.3 it/s, 2.88M samples/s, GPU 10.3GB, RAM 12.3GB  <- standing policy (batch too large)
     #  24576 envs:  5.4 it/s, 3.18M samples/s, GPU 12.3GB, RAM 14.6GB
     cmd = [
         str(ISAACLAB_PYTHON), str(PROJECT_ROOT / 'harold_isaac_lab' / 'scripts' / 'skrl' / 'train.py'),
@@ -851,7 +851,7 @@ def cmd_train(args):
     else:
         print(f"  Iterations: {iterations}")
     print(f"  Environments: {num_envs}")
-    print(f"  Video recording: enabled")
+    print(f"  Video: post-hoc (harold record)")
     if args.checkpoint:
         print(f"  Checkpoint: {args.checkpoint}")
     print(f"  Mode: {mode}")
@@ -1435,7 +1435,7 @@ def build_record_command(
     video_length: int,
 ) -> list[str]:
     """Build command to invoke record.py for post-hoc video recording."""
-    output_dir = run_path / "videos" / "train"
+    output_dir = run_path / "videos" / "record"
     return [
         str(ISAACLAB_PYTHON), str(PROJECT_ROOT / 'harold_isaac_lab' / 'scripts' / 'skrl' / 'record.py'),
         f'--task={task_id}',
@@ -1480,7 +1480,7 @@ def cmd_record(args):
         return 1
 
     # verify output
-    video_dir = run_path / "videos" / "train"
+    video_dir = run_path / "videos" / "record"
     cam_names = ["side", "front", "top", "iso"]
     found = [c for c in cam_names if list(video_dir.glob(f"rl-video-step-0-{c}.mp4"))]
     if found:
@@ -1527,9 +1527,12 @@ def cmd_frames(args):
         print("ERROR: No run found")
         return 1
 
-    video_dir = run_path / "videos" / "train"
+    # Check record/ first (post-hoc recordings), fall back to train/ (legacy training-time videos)
+    video_dir = run_path / "videos" / "record"
     if not video_dir.exists():
-        print(f"ERROR: No videos directory at {video_dir}")
+        video_dir = run_path / "videos" / "train"
+    if not video_dir.exists():
+        print(f"ERROR: No videos directory found in {run_path / 'videos'}")
         return 1
 
     fps = args.fps or 2
@@ -1660,7 +1663,7 @@ def main():
     train_parser.add_argument('--hypothesis', type=str, help='Hypothesis being tested (stored with experiment)')
     train_parser.add_argument('--tags', type=str, help='Comma-separated tags for categorization')
     train_parser.add_argument('--no-watchdog', action='store_true', help='Disable memory watchdog (not recommended)')
-    train_parser.add_argument('--num-envs', type=int, default=None, help='Number of environments (advanced override; default: 16384, pushup: 1)')
+    train_parser.add_argument('--num-envs', type=int, default=None, help='Number of environments (advanced override; default: 4096, pushup: 1)')
     train_parser.add_argument('--mode', choices=MODE_CHOICES, default='rl', help='Control mode: rl, cpg (open-loop), scripted (default: rl)')
     train_parser.add_argument('--gait-scale', type=float, help='Scale scripted/CPG gait amplitude (diagnostic)')
 

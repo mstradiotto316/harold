@@ -100,7 +100,7 @@ LOOP FOREVER:
   2. EDIT: config param (autoresearch.py apply) or train_env.py code
   3. COMMIT: git commit -m "autoresearch: <hypothesis>"
   4. TRAIN: harold train --hypothesis "..." --tags "autoresearch,..." --duration fast
-     Training runs WITHOUT video at high envs (16384) for ~3.7x throughput.
+     Training runs WITHOUT video at 4096 envs for ~2x throughput vs old video setup.
   5. WAIT: harold status --json (check at 5 min, then every 5 min)
      Early stop: SANITY_FAIL after 5 min -> harold stop, score=0, DISCARD
      Early stop: height FAIL + negative vx after 10 min -> harold stop, DISCARD
@@ -238,7 +238,7 @@ Use `harold log` to inspect raw training output for debugging:
 - duration_per_experiment: fast (~15 min)
 - mode: rl
 - task: flat
-- num_envs: 16384
+- num_envs: 4096
 
 ### Context Management
 

@@ -125,6 +125,12 @@ def compute_rewards(env) -> torch.Tensor:
     # === STABILITY: UPRIGHT ===
     upright = -projected_gravity[:, 2]
 
+    # === PITCH PENALTY ===
+    # projected_gravity[:, 0] measures nose-down pitch in body frame.
+    # upright metric (gravity Z) barely penalizes pitch: cos(30°)=0.87.
+    # -3.0 too weak (EXP-433), -8.0 too aggressive (EXP-434). Try -5.0.
+    pitch_penalty = -5.0 * torch.square(projected_gravity[:, 0])
+
     # === HEIGHT METRIC (terrain-relative) ===
     pos_z = env._height_scanner.data.pos_w[:, 2].unsqueeze(1)
     ray_z = env._height_scanner.data.ray_hits_w[..., 2]
@@ -187,6 +193,7 @@ def compute_rewards(env) -> torch.Tensor:
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
+    total_reward = total_reward + pitch_penalty
 
     for key, value in rewards.items():
         env._episode_sums[key] += value

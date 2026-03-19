@@ -22,7 +22,9 @@ _RESET_COLOR = np.array([220, 40, 40], dtype=np.uint8)
 # Number of warmup render calls before recording to avoid first-frame artifacts
 _WARMUP_RENDERS = 2
 
-# Axis widget: 2D projections of world X/Y/Z axes for each camera view.
+# Axis widget: 2D projections of the ROBOT's axes as seen on screen.
+# Shows the robot's own forward/left/up from the viewer's perspective,
+# so "left" always points toward the robot's left side on screen.
 # Isaac Sim world: +X = forward, +Y = left, +Z = up.
 # Each entry maps axis label -> (dx, dy) in pixel space (right=+dx, down=+dy).
 # Arrow length is scaled by _AXIS_LENGTH.
@@ -30,12 +32,15 @@ _AXIS_LENGTH = 36
 _AXIS_PROJECTIONS: dict[str, dict[str, tuple[int, int]]] = {
     # Side camera looks from -Y: image right = +X (fwd), image up = +Z (up)
     "side":  {"X fwd": (1, 0), "Z up": (0, -1)},
-    # Front camera looks from +X: image left = +Y (left), image up = +Z (up)
-    "front": {"Y left": (-1, 0), "Z up": (0, -1)},
-    # Top camera looks from +Z down: image right = +X (fwd), image down = +Y (left)
-    "top":   {"X fwd": (1, 0), "Y left": (0, 1)},
-    # Iso camera from (+X, -Y, +Z) — approximate projected directions
-    "iso":   {"X fwd": (-3, 1), "Z up": (0, -4), "Y left": (-3, -1)},
+    # Front camera looks from +X (face-to-face): robot's left (+Y) appears
+    # on the viewer's RIGHT. Axes show robot's perspective, not camera's.
+    "front": {"Y left": (1, 0), "Z up": (0, -1)},
+    # Top camera looks from +Z down: image right = +X (fwd).
+    # Robot's left (+Y) appears UP on screen (robot's perspective looking down).
+    "top":   {"X fwd": (1, 0), "Y left": (0, -1)},
+    # Iso camera at (+X, -Y, +Z) viewing robot from front-right.
+    # +X (fwd) toward screen right, +Y (robot left) toward upper-right.
+    "iso":   {"X fwd": (3, 1), "Z up": (0, -4), "Y left": (3, -1)},
 }
 
 

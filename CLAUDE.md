@@ -17,7 +17,7 @@ Project-level instructions for Claude Code sessions in this repository.
 
 ## Known Issues
 
-- **Coordinate frame bug** (PATCHED): The USD asset has a baked-in axis flip that misaligns body-frame +X with the robot's visual forward direction. Currently patched with a 180° Z rotation on the spawn quaternion. See `COORDINATE_FRAME_BUG.md` for full details before touching robot orientation, body-frame velocities, or the USD asset.
+- **Coordinate frame** (RESOLVED): Investigated 2026-03-18/19 — no bug found. Identity quaternion `(1,0,0,0)` is correct; body +X = world +X = visual forward. A temporary 180° Z rotation (EXP-429) was reverted. See `COORDINATE_FRAME_BUG.md` for investigation details. Isaac Lab uses **(w, x, y, z)** quaternion format.
 
 ## Autoresearch (Autonomous Experimentation)
 

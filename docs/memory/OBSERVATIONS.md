@@ -1,6 +1,6 @@
 # Harold Observations & Insights
 
-## 2026-03-18: Coordinate Frame & Quaternion Convention (CRITICAL)
+## 2026-03-18: Coordinate Frame & Quaternion Convention
 
 ### Isaac Lab Quaternion Convention
 - **Isaac Lab uses (w, x, y, z) quaternion format.** Confirmed from official API docs.
@@ -8,26 +8,18 @@
 - 180° Z rotation = `(0.0, 0.0, 0.0, 1.0)` (w=0, z=1)
 - This applies to `ArticulationCfg.InitialStateCfg.rot`, `write_root_pose_to_sim()`, and all pose/state APIs.
 
-### Robot Facing Direction Bug (Fixed in EXP-429)
-- **The URDF places front legs (FL, FR) at negative X and back legs (BL, BR) at positive X.**
-- With identity quaternion `(1,0,0,0)`, body-frame +X pointed toward the BACK of the robot.
-- The `forward_motion` reward rewarded positive `vx_b` → rewarded BACKWARD motion.
-- **Fix**: 180° Z rotation `rot=(0.0, 0.0, 0.0, 1.0)` aligns body +X with the robot's visual forward.
-- After fix: positive `vx_b` = forward motion = correct reward direction.
-- **This bug affected all experiments from project start through EXP-428.**
+### Coordinate Frame Investigation (RESOLVED 2026-03-19)
+- **No bug found.** Identity quaternion is correct: body +X = world +X = visual forward.
+- A 180° Z rotation was temporarily applied (EXP-429) based on incorrect URDF joint analysis. Reverted after diagnostic testing proved the original setup was correct.
+- Diagnostic: pushing env 0 at +2.0 m/s world +X confirmed `vx_b ≈ vx_w` (positive) with identity quat. Forward rewards correctly tracked positive body-frame velocity.
+- The performance improvement attributed to the rotation was likely coincidental.
+- See `COORDINATE_FRAME_BUG.md` for full investigation details.
 
 ### Body-Frame Velocity (`root_lin_vel_b`)
 - Computed via `quat_apply_inverse(root_quat_w, root_lin_vel_w)` — always relative to CURRENT body orientation.
-- With 180° Z rotation: `vx_b = -vx_w`, `vy_b = -vy_w`, `vz_b = vz_w` (at spawn; dynamic during walking).
-- Commands (`cmd_vx`, `cmd_vy`) are body-frame — they automatically align with the rotated body.
-- No code changes needed to rewards or observations after the quaternion fix; the body-frame transform handles it.
-
-### Consequences of 180° Z Rotation
-- **Upright/termination**: NOT affected (uses gravity Z component, invariant to Z rotation).
-- **Joint positions**: NOT affected (local joint angles, not frame-dependent).
-- **Camera names**: "front" camera at world +X now views the robot's BACK. Names are cosmetic.
-- **Rough terrain**: Uses same robot config (`HAROLD_V4_CFG`), fix must be applied there too.
-- **Hardware deployment**: IMU body-frame must match sim body-frame. If IMU +X = physical forward, alignment is correct. If IMU +X = URDF +X (toward back legs), deployment will need sign flip on vx/vy in observation_builder.py.
+- With identity quaternion: `vx_b = vx_w`, `vy_b = vy_w` (at spawn; diverges during yaw rotation).
+- Commands (`cmd_vx`, `cmd_vy`) are body-frame — reward is rotation-invariant.
+- **Hardware deployment**: IMU +X must point toward the robot's visual forward for alignment with sim.
 
 ## 2026-03-15: Repo Secret Hygiene
 - A tracked `*.nmconnection` file is still a secret leak even if `.gitignore` already lists `*.nmconnection`; ignore rules do not retroactively untrack files.

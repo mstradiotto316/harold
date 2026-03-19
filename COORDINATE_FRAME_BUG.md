@@ -1,102 +1,53 @@
-# Harold Coordinate Frame Bug
+# Harold Coordinate Frame Investigation
 
-## Status: PATCHED (not fully resolved)
+## Status: RESOLVED — No Bug Found
 
-The robot's body-frame coordinate system is misaligned with its visual mesh orientation. This document explains the bug, the current patch, and what needs to happen for a proper fix.
+Investigation on 2026-03-18/19 determined that the original identity quaternion setup was correct. A 180° Z rotation was temporarily applied (EXP-429) based on incorrect analysis, then reverted after diagnostic testing proved the original setup was sound.
 
-## The Problem in Plain English
+## Timeline
 
-When Harold stands in the simulator facing to the right (+X direction), his internal coordinate system thinks "forward" is to the LEFT (-X direction). So when the reward function says "good job moving forward," it's actually rewarding the robot for walking backward.
+1. **Pre-EXP-429**: Robot trained with identity quaternion `(1,0,0,0)`. Performance appeared poor — robot seemed to walk backward in some video views.
+2. **EXP-429**: 180° Z rotation applied based on URDF joint naming analysis (FL/FR at -X in URDF → assumed body +X pointed backward). Performance appeared to improve.
+3. **2026-03-18 diagnostic**: Velocity push test (+2.0 m/s world +X) showed `vx_b = +vx_w` with identity quaternion — body +X *does* align with world +X. The URDF analysis was wrong because the USD file (converted from URDF) has FL/FR at +X, not -X.
+4. **2026-03-19 reward diagnostic**: Logged `forward_motion` and `track_lin_vel_xy` rewards alongside velocity during the push test. Rewards correctly increase with positive body-frame velocity. No misalignment found.
+5. **Resolution**: Reverted all quaternion rotations to identity. The performance difference attributed to the rotation was likely coincidental (other reward/config changes were made simultaneously).
 
-## Technical Details
+## What Was Investigated
 
-### What We Know
+### USD Asset Inspection
+Used `pxr.Usd` API from Isaac Sim packages to inspect `part_files/V4/harold_8.usd`:
+- FL/FR joints are at +X in the USD (opposite from URDF convention)
+- All `orient` values are identity — no hidden rotations baked in
+- The URDF-to-USD conversion flipped the joint positions but this is consistent — body +X still aligns with visual forward
 
-1. **The URDF joint naming**: FL/FR ("front-left"/"front-right") shoulder joints are at URDF -X. BL/BR ("back-left"/"back-right") are at URDF +X. However, the robot's visual front (the end that looks like the "head") is at URDF +X — the BL/BR end.
-
-2. **The USD asset** (`part_files/V4/harold_8.usd`): There appears to be a coordinate frame transformation baked into the USD file (binary USDC format, not human-readable) that causes body-frame +X to map to world -X motion, even with an identity quaternion. This hidden transform is the root cause.
-
-3. **Isaac Lab convention**: Uses (w, x, y, z) quaternion format. Identity = `(1.0, 0.0, 0.0, 0.0)`. Body-frame velocity (`root_lin_vel_b`) is computed via `quat_apply_inverse(root_quat_w, root_lin_vel_w)`.
-
-### Observed Behavior
-
-| Quaternion | Robot Faces | Reward Direction | Forward Walking? |
-|---|---|---|---|
-| Identity `(1,0,0,0)` | +X (correct) | -X (wrong!) | No — trained backward |
-| 180° Z `(0,0,0,1)` | -X (wrong) | -X (now correct!) | Yes — but faces wrong way |
-
-The reward function uses `vx_b` (body-frame X velocity) to reward forward motion. Due to the USD coordinate flip, positive `vx_b` produces -X world motion. With identity quaternion, the robot visually faces +X but is rewarded for moving -X — walking backward.
-
-### The Hidden USD Transform
-
-The USD file likely contains an internal rotation or axis remapping that was introduced during the SolidWorks → URDF → USD conversion pipeline. This transform is invisible in the simulation config (it's baked into the binary USD) but affects the physics frame orientation.
-
-**This needs to be confirmed** by inspecting the USD file directly with `usdcat` or USD Composer.
-
-## Current Patch
-
-**Applied in EXP-429 (2026-03-18)**: 180° Z rotation on the spawn quaternion.
-
-```python
-# In harold.py InitialStateCfg:
-rot=(0.0, 0.0, 0.0, 1.0),  # 180° Z rotation (Isaac Lab w,x,y,z format)
+### Diagnostic Test Results
+With identity quaternion, pushing env 0 at +2.0 m/s in world +X:
 ```
-
-This makes the robot face -X (visually wrong) but aligns the reward direction with the robot's visual forward. The robot now walks forward relative to itself, which is what matters for learning locomotion.
-
-**Trade-offs of this patch:**
-- Training works correctly (robot walks forward)
-- Robot faces -X instead of +X in world frame (cosmetic issue)
-- Camera names are misleading ("front" camera shows the back)
-- World-frame telemetry (`vx_w_mean`, `x_displacement`) has inverted sign for forward motion
-
-## Proper Fix (Future Work)
-
-### Option A: Fix the USD Asset (Recommended)
-Edit `part_files/V4/harold_8.usd` directly to align the physics frame with the visual mesh. The body-frame +X should point in the same direction as the robot's visual front. This fixes the root cause and requires no code patches.
-
-**Steps:**
-1. Open `harold_8.usd` in USD Composer or equivalent tool
-2. Identify the root transform that causes the axis flip
-3. Correct it so body-frame +X = visual forward = world +X at identity quaternion
-4. Revert the quaternion patch back to identity `(1,0,0,0)`
-5. Verify: with identity quat, positive `vx_b` should produce +X world motion
-
-### Option B: Negate Body-Frame Velocity in Rewards
-Keep identity quaternion (robot faces +X) and negate `vx_b` in `train_env.py`:
-```python
-vx_b = -root_lin_vel_b[:, 0]  # Compensate for USD body frame orientation
+step=  1 | vx_w=+2.002 vx_b=+1.994 | cmd_vx=0.194 | fwd_reward=+9.966 track_reward=+0.000
+step=  3 | vx_w=+1.533 vx_b=+1.530 | cmd_vx=0.194 | fwd_reward=+7.649 track_reward=+0.000
+step= 24 | vx_w=+0.274 vx_b=+0.272 | cmd_vx=0.297 | fwd_reward=+1.360 track_reward=+3.590
 ```
-This is a cleaner patch than the quaternion rotation but still doesn't fix the root cause.
+- `vx_b ≈ vx_w` (identity quaternion, no yaw rotation)
+- `forward_motion` reward is positive when vx_b is positive (correct)
+- `track_lin_vel_xy` peaks when velocity matches command (correct)
 
-### Option C: Current Patch (Keep 180° Z Rotation)
-What we have now. Works for training, but the robot faces the wrong direction in world frame.
+## Key Facts
 
-## Areas for Further Investigation
+- **Isaac Lab uses (w, x, y, z) quaternion format.** Identity = `(1.0, 0.0, 0.0, 0.0)`.
+- **Body-frame velocity** (`root_lin_vel_b`) is computed via `quat_apply_inverse(root_quat_w, root_lin_vel_w)`.
+- **Commands are body-frame.** `cmd_vx` range: [0.0, 0.3] m/s. Both commands and rewards use body-frame velocity, making the reward system rotation-invariant.
+- **With identity quaternion**: body +X = world +X = robot visual forward. Positive `vx_b` = moving forward = positive reward. Everything aligns.
 
-1. **USD internal transforms**: Use `usdcat` or Python USD API (`pxr.Usd`) to inspect the root transform in `harold_8.usd`. Look for rotation on the root prim or any xformOp that could cause the axis flip.
+## Files Changed During This Investigation
 
-2. **URDF-to-USD conversion pipeline**: How was the USD created from the URDF? Was `urdf_to_usd` or a manual process used? The conversion step may have introduced the axis flip.
-
-3. **URDF joint naming**: Verify whether FL/FR truly correspond to the robot's visual front or if the naming was arbitrary in the SolidWorks export. The visual front appears to be at the BL/BR end (+X in URDF).
-
-4. **Hardware IMU alignment**: The MPU6050 IMU on the physical robot has its own axis orientation. When deploying trained policies, `deployment/inference/observation_builder.py` reads IMU body-frame velocity directly. The IMU's +X axis direction on the physical robot must match the simulation's body-frame +X convention. A TODO comment has been added to `observation_builder.py` flagging this.
-
-5. **Rough terrain task**: The same patch has been applied to `harold_rough/harold.py`. Any USD fix must be validated on both flat and rough tasks.
-
-## Files Involved
-
-| File | Role |
+| File | Change |
 |---|---|
-| `part_files/V4/harold_8.usd` | USD asset with suspected baked-in transform (ROOT CAUSE) |
-| `harold_isaac_lab/.../harold_flat/harold.py` | Spawn quaternion (PATCHED) |
-| `harold_isaac_lab/.../harold_rough/harold.py` | Spawn quaternion (PATCHED) |
-| `harold_isaac_lab/.../harold_flat/train_env.py` | Reward computation using `vx_b` |
-| `deployment/inference/observation_builder.py` | Hardware IMU → observation mapping (TODO added) |
-| `docs/memory/OBSERVATIONS.md` | Quaternion convention documentation |
+| `harold_flat/harold.py` | Kept at identity quaternion `(1,0,0,0)`, cleaned up diagnostic comment |
+| `harold_rough/harold.py` | Reverted from 180° Z rotation back to identity quaternion |
+| `harold_flat/train_env.py` | Removed diagnostic velocity push and reward logging code |
+| `deployment/inference/observation_builder.py` | Updated comment — no sign flip needed with identity quat |
+| `common/multi_camera_video.py` | Fixed axis overlay gizmos to show robot-relative directions |
 
-## History
+## Camera Axis Overlays
 
-- **Pre-EXP-429**: All experiments trained with identity quaternion. Robot was rewarded for walking backward. Walk_score baseline of 29.8 was achieved by a backward-walking robot.
-- **EXP-429**: Applied 180° Z rotation. Robot walked forward for the first time with correct reward alignment. Walk_score ~55 at 10-min peak.
-- **2026-03-18**: Bug documented. Patch applied to both flat and rough terrain tasks.
+During this investigation, the camera axis overlay gizmos in `multi_camera_video.py` were corrected to show **robot-relative** directions (not camera-relative). The overlays now show where the robot's own +X (forward), +Y (left), and +Z (up) project onto each camera view.

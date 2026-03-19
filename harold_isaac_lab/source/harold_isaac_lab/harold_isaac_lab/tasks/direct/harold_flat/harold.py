@@ -73,12 +73,8 @@ HAROLD_V4_CFG = ArticulationCfg(
     init_state=ArticulationCfg.InitialStateCfg(
         # Spawn height slightly above target standing height
         pos=(0.0, 0.0, 0.30),
-        # 180° Z rotation: URDF has front legs (FL, FR) at -X and back legs at +X.
-        # With identity quat (1,0,0,0), body +X points toward back legs — the
-        # forward_motion reward (positive vx_b) would reward backward motion.
-        # This rotation makes body +X point toward front legs (visual forward).
-        # Isaac Lab uses (w, x, y, z) quaternion format.
-        rot=(0.0, 0.0, 0.0, 1.0),
+        # Identity quaternion — no rotation. Isaac Lab uses (w, x, y, z) format.
+        rot=(1.0, 0.0, 0.0, 0.0),
         joint_pos=load_ready_pose_dict()
     ),
 

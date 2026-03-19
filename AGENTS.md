@@ -438,8 +438,8 @@ Robot falls forward onto elbows with back elevated. Passes `upright_mean > 0.9` 
 ### Height Termination Bug
 If using height-based termination, check height above terrain, NOT world Z coordinate. Spawn pose must be above threshold.
 
-### Coordinate Frame Bug (PATCHED)
-The USD asset has a baked-in axis flip: body-frame +X does NOT align with the robot's visual forward direction. Currently patched with a 180° Z rotation on spawn quaternion. **Read `COORDINATE_FRAME_BUG.md` before touching robot orientation, velocity rewards, or the USD asset.** Isaac Lab uses (w, x, y, z) quaternion format — identity is `(1,0,0,0)`.
+### Coordinate Frame (RESOLVED)
+Investigated 2026-03-18/19 — no bug found. Identity quaternion `(1,0,0,0)` is correct; body +X = world +X = visual forward. A temporary 180° Z rotation was applied and reverted. See `COORDINATE_FRAME_BUG.md` for details. Isaac Lab uses **(w, x, y, z)** quaternion format.
 
 ### Context Overflow
 Long training runs flood context with tqdm output. Always use `python scripts/harold.py train` which runs training in background.

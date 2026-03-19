@@ -139,12 +139,8 @@ class ObservationBuilder:
         self.last_imu_data = imu_data
 
         # [0:3] Body linear velocity (m/s)
-        # TODO(deploy): Verify IMU +X axis direction on physical robot.
-        # Sim trains with 180° Z rotation (body +X = visual forward).
-        # If IMU +X points toward back legs (URDF convention), need:
-        #   obs[0] = -imu_data.lin_vel[0]; obs[1] = -imu_data.lin_vel[1]
-        # If IMU +X points toward visual front, no change needed.
-        # See docs/memory/OBSERVATIONS.md "Coordinate Frame" section.
+        # Sim trains with identity quaternion (no rotation). Body +X = world +X.
+        # IMU +X must point toward the robot's visual forward for alignment.
         obs[0:3] = imu_data.lin_vel if imu_data.valid else np.zeros(3)
 
         # [3:6] Body angular velocity (rad/s)

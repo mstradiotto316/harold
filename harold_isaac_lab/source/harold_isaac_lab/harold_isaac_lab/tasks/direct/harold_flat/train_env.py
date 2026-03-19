@@ -166,11 +166,6 @@ def compute_rewards(env) -> torch.Tensor:
     airborne_mult = 1.0 + (~foot_contact).float()  # 1.0 on ground, 2.0 airborne
     foot_lift_reward = 0.3 * torch.sum(base_lift * airborne_mult, dim=1) * (cmd_magnitude > 0.05).float()
 
-    # === ALIVE BONUS ===
-    # Explicit per-step survival reward. Makes the value function assign higher
-    # value to alive states, encouraging conservative (non-tipping) actions.
-    alive_bonus = 2.0 * torch.ones(env.num_envs, device=env.device)
-
     # === COMPUTE TOTAL ===
     rewards = {
         "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
@@ -188,7 +183,6 @@ def compute_rewards(env) -> torch.Tensor:
         "foot_slip_penalty": foot_slip_penalty,
         "joint_activity_reward": joint_activity_reward,
         "foot_lift_reward": foot_lift_reward,
-        "alive_bonus": alive_bonus,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

@@ -92,7 +92,7 @@ class RewardsCfg:
     feet_air_time_threshold: float = 0.3      # Target air time (seconds)
 
     undesired_contacts_weight: float = -1.0   # Penalize body contact
-    undesired_contacts_threshold: float = 1.0 # Force threshold (Newtons)
+    undesired_contacts_threshold: float = 0.5 # Force threshold (Newtons)
 
     # === STABILITY REWARD ===
     upright_weight: float = 3.0               # Stay upright (uses projected gravity). Session 47/48 winning config.
@@ -237,7 +237,7 @@ class TerminationCfg:
     # EXP-009: thigh>1.0, calf>-0.8 too loose - robot still found elbow pose (height=1.50)
     # EXP-010: Tighter thresholds still didn't work
     # EXP-011: Disable, use low_height_penalty instead
-    elbow_pose_termination: bool = True
+    elbow_pose_termination: bool = False
     front_thigh_threshold: float = 0.85   # Terminate if front thigh > 0.85 rad
     front_calf_threshold: float = -1.0    # AND front calf > -1.0 rad
 

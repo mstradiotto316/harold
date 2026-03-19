@@ -82,7 +82,7 @@ def main():
     """Record multi-camera video from a trained checkpoint."""
     # parse configuration
     env_cfg = parse_env_cfg(
-        args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs, use_fabric=False
+        args_cli.task, device=args_cli.device, num_envs=args_cli.num_envs, use_fabric=True
     )
 
     try:

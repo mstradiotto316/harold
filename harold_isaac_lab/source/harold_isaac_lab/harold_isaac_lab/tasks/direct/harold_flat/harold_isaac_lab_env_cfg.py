@@ -71,7 +71,7 @@ class RewardsCfg:
     track_lin_vel_xy_weight: float = 5.0      # Primary: velocity tracking (was 1.5)
     track_lin_vel_xy_std: float = 0.25        # Steeper gradient (was 0.5)
 
-    track_ang_vel_z_weight: float = 0       # Yaw rate tracking (was 0.75)
+    track_ang_vel_z_weight: float = 2.0       # Yaw rate tracking (was 0.75)
     track_ang_vel_z_std: float = 0.25         # Steeper gradient
 
     # === MOTION QUALITY PENALTIES ===
@@ -101,7 +101,7 @@ class RewardsCfg:
     # Session 36e: Direct reward for positive vx to bootstrap walking
     # EXP-350: 5.0 redirected stepping forward (was 3.0). Confirmed essential.
     # EXP-362: 4.0 lost direction, EXP-366: 7.0 too aggressive. 5.0 is sweet spot.
-    forward_motion_weight: float = 5.0        # EXP-350 winning value
+    forward_motion_weight: float = 0        # EXP-350 winning value
 
 
 @configclass
@@ -121,12 +121,12 @@ class CommandCfg:
     vx_max: float = 0.3
 
     # Lateral velocity range (m/s)
-    vy_min: float = 0
-    vy_max: float = 0
+    vy_min: float = -0.15
+    vy_max: float = 0.15
 
     # Yaw rate range (rad/s) - about ±17 deg/s
-    yaw_min: float = 0
-    yaw_max: float = 0
+    yaw_min: float = -0.30
+    yaw_max: float = 0.30
 
     # Probability of sampling zero velocity (for stopping behavior)
     zero_velocity_prob: float = 0.02  # 2% standing training

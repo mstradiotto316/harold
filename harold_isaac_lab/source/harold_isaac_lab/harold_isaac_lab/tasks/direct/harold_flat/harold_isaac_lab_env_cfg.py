@@ -133,7 +133,7 @@ class CommandCfg:
 
     # Dynamic command updates during episode
     dynamic_commands: bool = True
-    command_change_interval: float = 10.0  # seconds
+    command_change_interval: float = 3.0  # seconds
     command_change_prob: float = 1.0
 
 

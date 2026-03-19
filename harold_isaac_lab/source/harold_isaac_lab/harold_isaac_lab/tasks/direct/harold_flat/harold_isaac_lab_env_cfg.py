@@ -79,7 +79,7 @@ class RewardsCfg:
     # Harold produces higher body-frame vertical velocities than larger robots
     # Session 36h: -0.0005 still limits movement, trying -0.0001
     lin_vel_z_weight: float = -0.0001         # Allow more vertical movement
-    ang_vel_xy_weight: float = -0.01        # Also reduced for consistency
+    ang_vel_xy_weight: float = -0.0001        # Also reduced for consistency
 
     # === SMOOTHNESS PENALTIES ===
     dof_torques_weight: float = -0.0001       # Smooth torques
@@ -101,7 +101,7 @@ class RewardsCfg:
     # Session 36e: Direct reward for positive vx to bootstrap walking
     # EXP-350: 5.0 redirected stepping forward (was 3.0). Confirmed essential.
     # EXP-362: 4.0 lost direction, EXP-366: 7.0 too aggressive. 5.0 is sweet spot.
-    forward_motion_weight: float = 1.5        # EXP-350 winning value
+    forward_motion_weight: float = 5.0        # EXP-350 winning value
 
 
 @configclass

@@ -55,6 +55,24 @@ def compute_rewards(env) -> torch.Tensor:
     joint_acc = env._robot.data.joint_acc
     applied_torque = env._robot.data.applied_torque
 
+    # === DIAGNOSTIC: Log body-frame vs world-frame velocity to check axis alignment ===
+    # TEMPORARY — remove after confirming sign convention.
+    # On first reset, env 0 gets a 2.0 m/s push in world +X.
+    # If vx_b is positive → body +X = world +X. If negative → they're flipped.
+    step = getattr(env, '_diag_step_count', 0)
+    if step == 0:
+        # Apply a big +X world velocity to env 0 on first step
+        vel = env._robot.data.root_vel_w.clone()  # [num_envs, 6]
+        vel[0, 0] = 2.0  # 2 m/s in world +X
+        env._robot.write_root_velocity_to_sim(vel)
+    if step < 20:
+        quat = env._robot.data.root_quat_w[0].tolist()
+        print(f"DIAG step={step:3d} | vx_w={root_lin_vel_w[0,0]:+.4f} vy_w={root_lin_vel_w[0,1]:+.4f} | "
+              f"vx_b={root_lin_vel_b[0,0]:+.4f} vy_b={root_lin_vel_b[0,1]:+.4f} | "
+              f"quat(wxyz)=[{quat[0]:.3f},{quat[1]:.3f},{quat[2]:.3f},{quat[3]:.3f}]")
+    env._diag_step_count = step + 1
+    # === END DIAGNOSTIC ===
+
     # Body-frame velocities for reward computation (commands are body-frame).
     # BUG-1 fix: was using root_lin_vel_w which diverges from commands after yaw.
     vx_b = root_lin_vel_b[:, 0]
@@ -125,12 +143,6 @@ def compute_rewards(env) -> torch.Tensor:
     # === STABILITY: UPRIGHT ===
     upright = -projected_gravity[:, 2]
 
-    # === PITCH PENALTY ===
-    # projected_gravity[:, 0] measures nose-down pitch in body frame.
-    # upright metric (gravity Z) barely penalizes pitch: cos(30°)=0.87.
-    # -3.0 too weak (EXP-433), -8.0 too aggressive (EXP-434). Try -5.0.
-    pitch_penalty = -5.0 * torch.square(projected_gravity[:, 0])
-
     # === HEIGHT METRIC (terrain-relative) ===
     pos_z = env._height_scanner.data.pos_w[:, 2].unsqueeze(1)
     ray_z = env._height_scanner.data.ray_hits_w[..., 2]
@@ -144,19 +156,13 @@ def compute_rewards(env) -> torch.Tensor:
     # === BODY CONTACT METRIC ===
     body_contact_penalty = -undesired_contacts
 
-    # === VELOCITY GATE FOR STABILITY REWARDS ===
-    # Standing gives ZERO upright/height reward. Must move forward to earn stability.
-    # EXP-439: 30% standing fraction was too generous, created safe local optimum.
-    # Now: 0% standing, ramps to 100% at vx_b >= 0.05 m/s.
-    vx_gate = torch.clamp(vx_b / 0.05, 0.0, 1.0)
-
     # === FORWARD MOTION BONUS ===
     # Direct reward for body-frame forward velocity, gated by posture quality.
     # Bug fixes applied: uses vx_b (body-frame), upright.clamp(0.0, 1.0) (proper gate).
     forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
 
     # === STANCE HEIGHT REWARD ===
-    stance_height = 4.0 * height_reward * vx_gate
+    stance_height = 4.0 * height_reward
 
     # === FOOT SLIP PENALTY ===
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
@@ -190,7 +196,7 @@ def compute_rewards(env) -> torch.Tensor:
         "action_rate": cfg.action_rate_weight * action_rate,
         "feet_air_time": cfg.feet_air_time_weight * air_time_reward,
         "undesired_contacts": cfg.undesired_contacts_weight * undesired_contacts,
-        "upright": cfg.upright_weight * upright * vx_gate,
+        "upright": cfg.upright_weight * upright,
         "forward_motion": forward_motion,
         "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,
@@ -199,7 +205,6 @@ def compute_rewards(env) -> torch.Tensor:
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
-    total_reward = total_reward + pitch_penalty
 
     for key, value in rewards.items():
         env._episode_sums[key] += value

@@ -89,7 +89,7 @@ class RewardsCfg:
     # === GAIT REWARDS ===
     # Session 36i: Increased 0.2 → 1.0 to force stepping behavior
     feet_air_time_weight: float = 1.0         # Strongly encourage stepping
-    feet_air_time_threshold: float = 0.3      # Target air time (seconds)
+    feet_air_time_threshold: float = 0.2      # Target air time (seconds)
 
     undesired_contacts_weight: float = -1.0   # Penalize body contact
     undesired_contacts_threshold: float = 1.0 # Force threshold (Newtons)
@@ -218,7 +218,7 @@ class TerminationCfg:
 
     base_contact_force_threshold: float = math.inf
     undesired_contact_force_threshold: float = math.inf
-    orientation_threshold: float = -0.7
+    orientation_threshold: float = -0.6
     # Height termination: terminate if base height < threshold
     # EXP-002: 10N contact alone wasn't enough - robot stayed low (height=1.76)
     # EXP-003-007: Height termination has issues - scanner returns bad values

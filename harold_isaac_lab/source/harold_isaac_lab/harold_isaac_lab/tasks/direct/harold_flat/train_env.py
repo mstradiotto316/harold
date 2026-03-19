@@ -124,17 +124,6 @@ def compute_rewards(env) -> torch.Tensor:
     # === STABILITY: UPRIGHT ===
     upright = -projected_gravity[:, 2]
 
-    # === VELOCITY GATE ===
-    # 15% stability reward at rest, 100% at vx>=0.05 m/s.
-    # Midpoint between 0% (EXP-440, falling) and 30% (EXP-439, standing).
-    vx_gate = 0.15 + 0.85 * torch.clamp(vx_b / 0.05, 0.0, 1.0)
-    # Don't gate when not commanded to move (full stability reward when standing is correct)
-    vx_gate = torch.where(cmd_vx > 0.05, vx_gate, torch.ones_like(vx_gate))
-
-    # === PITCH PENALTY ===
-    # Penalize nose-down pitch (projected_gravity x > 0 = nose-down).
-    pitch_penalty = -5.0 * torch.clamp(projected_gravity[:, 0], min=0.0)
-
     # === HEIGHT METRIC (terrain-relative) ===
     pos_z = env._height_scanner.data.pos_w[:, 2].unsqueeze(1)
     ray_z = env._height_scanner.data.ray_hits_w[..., 2]
@@ -156,28 +145,10 @@ def compute_rewards(env) -> torch.Tensor:
     # === STANCE HEIGHT REWARD ===
     stance_height = 4.0 * height_reward
 
-    # === FOOT SLIP PENALTY ===
-    foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
-
-    # === JOINT ACTIVITY REWARD ===
-    # Incentivize joint movement when commanded to move. Provides gradient from
-    # standing (zero joint vel = 0) toward motion. Smooth periodic motion (gait)
-    # is favored over jittering by action_rate and dof_acc penalties.
-    joint_vel_norm = torch.sum(torch.abs(env._robot.data.joint_vel), dim=1)
-    joint_activity = torch.tanh(joint_vel_norm / 10.0)  # saturates at high vel
-    joint_activity_reward = 0.3 * joint_activity * (cmd_magnitude > 0.05).float()
-
-    # === FOOT LIFT REWARD ===
-    # Reward upward (Z+) velocity of feet with 2x bonus when foot is airborne.
-    # Ground gradient: provides initial nudge to start lifting.
-    # Airborne bonus: makes actual lifting 2x more rewarding than ground vibration.
-    foot_vel_z = env._robot.data.body_lin_vel_w[:, env._feet_body_ids, 2]
-    foot_lift_speed = torch.clamp(foot_vel_z, min=0.0)  # only upward
-    base_lift = torch.tanh(foot_lift_speed / 0.5)
-    airborne_mult = 1.0 + (~foot_contact).float()  # 1.0 on ground, 2.0 airborne
-    foot_lift_reward = 0.3 * torch.sum(base_lift * airborne_mult, dim=1) * (cmd_magnitude > 0.05).float()
-
     # === COMPUTE TOTAL ===
+    # Zero-out removed rewards for telemetry compatibility
+    zero_reward = torch.zeros(env.num_envs, device=env.device)
+
     rewards = {
         "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
         "track_ang_vel_z": cfg.track_ang_vel_z_weight * track_ang_vel_z,
@@ -188,13 +159,12 @@ def compute_rewards(env) -> torch.Tensor:
         "action_rate": cfg.action_rate_weight * action_rate,
         "feet_air_time": cfg.feet_air_time_weight * air_time_reward,
         "undesired_contacts": cfg.undesired_contacts_weight * undesired_contacts,
-        "upright": cfg.upright_weight * upright * vx_gate,
+        "upright": cfg.upright_weight * upright,
         "forward_motion": forward_motion,
-        "stance_height": stance_height * vx_gate,
-        "pitch_penalty": pitch_penalty,
-        "foot_slip_penalty": foot_slip_penalty,
-        "joint_activity_reward": joint_activity_reward,
-        "foot_lift_reward": foot_lift_reward,
+        "stance_height": stance_height,
+        "foot_slip_penalty": zero_reward,
+        "joint_activity_reward": zero_reward,
+        "foot_lift_reward": zero_reward,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

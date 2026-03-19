@@ -92,7 +92,7 @@ class RewardsCfg:
     feet_air_time_threshold: float = 0.3      # Target air time (seconds)
 
     undesired_contacts_weight: float = -1.0   # Penalize body contact
-    undesired_contacts_threshold: float = 0.5 # Force threshold (Newtons)
+    undesired_contacts_threshold: float = 1.0 # Force threshold (Newtons)
 
     # === STABILITY REWARD ===
     upright_weight: float = 3.0               # Stay upright (uses projected gravity). Session 47/48 winning config.

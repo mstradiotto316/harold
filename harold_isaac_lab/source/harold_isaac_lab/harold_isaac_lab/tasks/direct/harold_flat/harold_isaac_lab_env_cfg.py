@@ -68,7 +68,7 @@ class RewardsCfg:
     # Session 36d: Increased weights for stronger velocity incentive
     # With std=0.5, standing gives ~0.91 reward, walking gives ~1.0
     # Increasing weight amplifies this difference
-    track_lin_vel_xy_weight: float = 5.0      # Primary: velocity tracking (was 1.5)
+    track_lin_vel_xy_weight: float = 10.0      # Primary: velocity tracking (was 1.5)
     track_lin_vel_xy_std: float = 0.25        # Steeper gradient (was 0.5)
 
     track_ang_vel_z_weight: float = 2.0       # Yaw rate tracking (was 0.75)
@@ -117,7 +117,7 @@ class CommandCfg:
 
     # Forward velocity range (m/s)
     # Session 36: Reverted to conservative for stability
-    vx_min: float = 0.15
+    vx_min: float = 0.0
     vx_max: float = 0.3
 
     # Lateral velocity range (m/s)

@@ -148,12 +148,6 @@ def compute_rewards(env) -> torch.Tensor:
     # === FOOT SLIP PENALTY ===
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
 
-    # === MOVING BONUS ===
-    # Positive reward for forward velocity, gated by upright to prevent collapse exploit.
-    # Increases walking-vs-standing differential from ~1.5 to ~3.0/step.
-    # tanh smoothing provides gradient from 0, saturates at ~1.5 for vx > 0.15.
-    moving_bonus = 1.5 * torch.tanh(vx_b / 0.1).clamp(min=0.0) * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
-
     # === JOINT ACTIVITY REWARD ===
     # Incentivize joint movement when commanded to move. Provides gradient from
     # standing (zero joint vel = 0) toward motion. Smooth periodic motion (gait)
@@ -189,7 +183,6 @@ def compute_rewards(env) -> torch.Tensor:
         "foot_slip_penalty": foot_slip_penalty,
         "joint_activity_reward": joint_activity_reward,
         "foot_lift_reward": foot_lift_reward,
-        "moving_bonus": moving_bonus,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

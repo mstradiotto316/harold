@@ -1,5 +1,33 @@
 # Harold Observations & Insights
 
+## 2026-03-20: Session 50 — Breaking the 16384-env Standing Attractor
+
+### 16384 envs structurally prevents walking (8 experiments, all standing/degenerate)
+- Tested: PPO mini_batches, rollouts, entropy, seed changes, standstill penalty, moving bonus, height termination, reward weight combinations
+- The standing attractor is too strong at 16384 envs. The smooth optimization landscape prevents the policy from discovering walking. This is NOT seed-dependent (seed 42 also stands).
+- Standing is genuinely the global optimum under any tested reward function at 16384 envs.
+
+### 4096 envs breaks the standing attractor
+- Immediately produces shuffling/stepping behavior (EXP-508 baseline at 4096)
+- The noisier optimization at 4096 envs allows the policy to explore beyond standing
+
+### Mid-training walking peak followed by regression
+- At 4096 envs with forward_motion=7.0+air_time=3.0, vx peaks at 0.086-0.090 around 10 min then collapses to negative
+- Longer training (30 min) does NOT prevent regression
+- The walking basin is a saddle point, not a stable equilibrium
+
+### Diagonal gait alternation reward stabilizes walking (KEEP: EXP-514)
+- Reward: 0.5 * |diagonal_pair_A_contact - diagonal_pair_B_contact| when commanded to move
+- Diagonal pairs: FL+BR vs FR+BL (standard trot pattern)
+- This stabilized the mid-training walking peak — vx went from 0.074 at 93% to 0.064 at 100% (only 13.5% drop vs 100%+ collapse without it)
+- Video confirmed genuine stepping with leg alternation and positive forward displacement
+- Config: forward_motion=7.0, air_time=2.0, upright=3.0, num_envs=4096
+
+### Current failure mode: forward pitch collapse
+- Robot steps for 2-4 seconds then nose-dives forward
+- 5 episode resets in 12.5s of video
+- Next step: reduce forward_motion to combat nose-dive, possibly increase upright
+
 ## 2026-03-18: Coordinate Frame & Quaternion Convention
 
 ### Isaac Lab Quaternion Convention

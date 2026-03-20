@@ -95,13 +95,13 @@ class RewardsCfg:
     undesired_contacts_threshold: float = 1.0 # Force threshold (Newtons)
 
     # === STABILITY REWARD ===
-    upright_weight: float = 3.0               # Stay upright (uses projected gravity). Session 47/48 winning config.
+    upright_weight: float = 2.0               # Stay upright (uses projected gravity). Session 47/48 winning config.
 
     # === FORWARD MOTION BONUS ===
     # Session 36e: Direct reward for positive vx to bootstrap walking
     # EXP-350: 5.0 redirected stepping forward (was 3.0). Confirmed essential.
     # EXP-362: 4.0 lost direction, EXP-366: 7.0 too aggressive. 5.0 is sweet spot.
-    forward_motion_weight: float = 5.0        # EXP-350 winning value
+    forward_motion_weight: float = 7.0        # EXP-350 winning value
 
 
 @configclass
@@ -224,7 +224,7 @@ class TerminationCfg:
     # EXP-003-007: Height termination has issues - scanner returns bad values
     # EXP-008: Disable height termination, rely on height_reward=30.0 to incentivize
     # Spawn height is ~0.24m, elbow pose is ~0.15-0.18m
-    height_threshold: float = 0.15
+    height_threshold: float = 0.0
     # Warmup: skip height termination for first N steps after reset (sensor initialization)
     height_termination_warmup_steps: int = 20
     # Body contact termination: terminate if body/thigh/shoulder contact > threshold (N)

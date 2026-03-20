@@ -139,10 +139,8 @@ def compute_rewards(env) -> torch.Tensor:
 
     # === FORWARD MOTION BONUS ===
     # Direct reward for body-frame forward velocity, gated by posture quality.
-    # Velocity capped at commanded velocity to prevent nose-dive velocity spike reward.
-    # Without cap: falling forward generates vx spikes → outsized reward → reinforces nose-dive.
-    capped_vx = torch.clamp(vx_b, max=cmd_vx.clamp(min=0.05))
-    forward_motion = cfg.forward_motion_weight * capped_vx * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
+    # Bug fixes applied: uses vx_b (body-frame), upright.clamp(0.0, 1.0) (proper gate).
+    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
 
     # === STANCE HEIGHT REWARD ===
     stance_height = 4.0 * height_reward

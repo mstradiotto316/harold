@@ -143,14 +143,7 @@ def compute_rewards(env) -> torch.Tensor:
     forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
 
     # === STANCE HEIGHT REWARD ===
-    stance_height = 4.0 * height_reward
-
-    # === PITCH PENALTY ===
-    # Penalize forward body pitch (nose-dive). projected_gravity[:, 0] is positive
-    # when the robot is pitched forward (gravity has a component along body +X).
-    # Penalty ramps up above 10 degrees of pitch.
-    pitch_component = projected_gravity[:, 0].clamp(min=0.0)  # only penalize forward pitch
-    pitch_penalty = -1.5 * torch.square(pitch_component)  # quadratic penalty
+    stance_height = 6.0 * height_reward
 
     # === FOOT SLIP PENALTY ===
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
@@ -203,7 +196,6 @@ def compute_rewards(env) -> torch.Tensor:
         "joint_activity_reward": joint_activity_reward,
         "foot_lift_reward": foot_lift_reward,
         "gait_alternation": gait_alternation,
-        "pitch_penalty": pitch_penalty,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

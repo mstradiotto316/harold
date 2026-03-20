@@ -38,6 +38,22 @@
 - `omni.*` import failures from a plain shell are usually runtime-context failures, not missing-package failures.
 - For simulator-backed checks, agents should prefer `python scripts/harold.py ...` or Isaac Lab launcher entrypoints over ad hoc import probes.
 
+## 2026-03-19: Session 49 (16384 envs) — Damage Control Findings
+
+### All 10 experiments produced standing/falling — not walking
+- EXP-488 through EXP-498 all showed the robot standing still or falling forward in video, despite positive vx metrics.
+- **vx metric is unreliable at 16384 envs**: falling forward generates positive vx that looks like locomotion in metrics. Video verdict overrides metrics — always.
+- Metrics were repeatedly trusted over video agent verdicts during the session, leading to a falsely-KEPTed config (EXP-493) and 4 follow-up experiments against a wrong baseline. All corrections applied post-session.
+
+### Two-phase training infrastructure works
+- `harold record` post-hoc video recording works correctly at 1 env from best checkpoint.
+- `use_fabric=True` is required in record.py — `False` causes frozen T-pose rendering.
+- The 16384-env throughput (2.88M samples/s) is real, but walking has not been achieved at this env count yet.
+
+### PPO hyperparameters may need tuning for 16384 envs
+- Walking was previously confirmed at 1024 and 4096 envs. Jumping to 16384 without adjusting PPO rollouts/learning-rate/mini-batches may explain the standing policies.
+- The batch size at 16384 envs is 4x larger than at 4096 — PPO effective learning rate and advantage estimation change significantly.
+
 ## 2026-03-16: Autoresearch Session 47 - Key Findings
 - **1024 envs is transformative**: Doubled environments from 512 to 1024 increased ep_len from ~123 to ~170-191 without any reward changes. More diverse training data produces much more stable policies.
 - **Walking basin is extremely fragile at 512 envs**: ANY reward function change at 512 envs (even 5x increase in near-zero lin_vel_z penalty) pushes policy to standing/crouching. The walking equilibrium is narrow.
@@ -104,14 +120,39 @@
 - Sim validation logs are gitignored under `deployment/validation/sim_logs/`.
 
 ## Evergreen Guardrails
-- Use the 5-metric protocol (episode_length, upright_mean, height_reward, body_contact_penalty, vx_w_mean).
-- Do not rely on video for success/failure; base conclusions on metrics only.
+- Video is the primary signal for success/failure. Metrics can lie (vx from falling, ep_len from standing). Run video review after every experiment.
+- Use the 5-metric protocol (episode_length, upright_mean, height_reward, body_contact_penalty, vx_w_mean) as the quantitative complement to video, not a replacement.
 - "On elbows" exploit remains a risk; always check height_reward and body_contact_penalty.
 
 ## Hardware Session Logs
 - RPi logs: `/home/pi/harold/deployment/sessions/session_YYYY-MM-DD_HH-MM-SS.csv`
 - Desktop copies: `logs/hardware_sessions/session_YYYY-MM-DD_HH-MM-SS.csv`
 - Logged at 5 Hz during 20 Hz control; includes cmd_pos, measured positions, currents, temps, and system stats.
+
+## 2026-03-19: Scoring Consolidation & Session 48 Findings
+
+### walk_score was blind — 200+ experiments optimized without signal
+- `compute_walk_score()` had a hard gate: `if ep_len < 300: return 0.0`. No experiment ever reached ep_len=300 (best was ~195), so walk_score was 0 for every experiment ever run.
+- `compute_progress_score()` (soft gate via `tanh(ep_len/150)`) was computed and logged but never used for decisions. The system was optimizing blind.
+- Consolidated to single `compute_score()` using the soft-gate formula. Baseline score: ~37.4 (ep_len=174, vx=0.057, upright=0.906).
+- Results.tsv migrated from `walk_score`/`progress_score` columns to single `score` column.
+
+### Session 48 key findings
+- **alive_bonus=2.0 is promising**: EXP-474 showed improved ep_len but front legs still passive. Worth combining with other changes.
+- **forward_motion_weight increase causes tipping**: EXP-473 (forward_motion_weight:5.0->8.0) caused robot to tip forward aggressively.
+- **undesired_contacts_threshold=0.5 + alive_bonus=2.0**: EXP-476 showed front legs shifting but not stepping. Contact penalty tightening alone doesn't break the passive-front-legs equilibrium.
+- **elbow_pose_termination + alive_bonus=2.0**: EXP-475 showed standing with minimal movement. Joint-angle termination too aggressive for current policy.
+- **episode_length_s=15**: EXP-477/478 tested shorter episodes. Results pending.
+
+### Parameter drift found
+5 parameter values in program.md and PARAMETER_REGISTRY.md had drifted from actual config:
+- `ang_vel_xy_weight`: documented -0.0001, actual -0.01
+- `upright_weight`: documented 2.0, actual 3.0
+- `forward_motion_weight`: documented 3.0, actual 5.0
+- `orientation_threshold`: documented -0.5, actual -0.6
+- `action_filter_beta`: documented 0.40, actual 0.2
+
+All corrected to match `harold_isaac_lab_env_cfg.py` (source of truth).
 
 ## Archives
 Historical observations are moved to `docs/memory/archives/index.md` to keep this file short.

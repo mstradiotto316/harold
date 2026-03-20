@@ -69,7 +69,7 @@ class RewardsCfg:
     # With std=0.5, standing gives ~0.91 reward, walking gives ~1.0
     # Increasing weight amplifies this difference
     track_lin_vel_xy_weight: float = 5.0      # Primary: velocity tracking (was 1.5)
-    track_lin_vel_xy_std: float = 0.1        # Steeper gradient (was 0.5)
+    track_lin_vel_xy_std: float = 0.25        # Steeper gradient (was 0.5)
 
     track_ang_vel_z_weight: float = 2.0       # Yaw rate tracking (was 0.75)
     track_ang_vel_z_std: float = 0.25         # Steeper gradient
@@ -218,7 +218,7 @@ class TerminationCfg:
 
     base_contact_force_threshold: float = math.inf
     undesired_contact_force_threshold: float = math.inf
-    orientation_threshold: float = -0.7
+    orientation_threshold: float = -0.6
     # Height termination: terminate if base height < threshold
     # EXP-002: 10N contact alone wasn't enough - robot stayed low (height=1.76)
     # EXP-003-007: Height termination has issues - scanner returns bad values

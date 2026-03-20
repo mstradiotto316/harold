@@ -79,7 +79,7 @@ class RewardsCfg:
     # Harold produces higher body-frame vertical velocities than larger robots
     # Session 36h: -0.0005 still limits movement, trying -0.0001
     lin_vel_z_weight: float = -0.0001         # Allow more vertical movement
-    ang_vel_xy_weight: float = -0.1        # Also reduced for consistency
+    ang_vel_xy_weight: float = -0.03        # Also reduced for consistency
 
     # === SMOOTHNESS PENALTIES ===
     dof_torques_weight: float = -0.0001       # Smooth torques

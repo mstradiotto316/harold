@@ -138,9 +138,11 @@ def compute_rewards(env) -> torch.Tensor:
     body_contact_penalty = -undesired_contacts
 
     # === FORWARD MOTION BONUS ===
-    # Direct reward for body-frame forward velocity, gated by posture quality.
-    # Bug fixes applied: uses vx_b (body-frame), upright.clamp(0.0, 1.0) (proper gate).
-    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
+    # Direct reward for body-frame forward velocity, gated by posture quality AND height.
+    # Height gate prevents nose-dive exploit: robot must maintain proper height to earn
+    # forward reward. At half height → half reward, collapsed → near-zero reward.
+    height_factor = torch.clamp(current_height / target_height, 0.0, 1.0)
+    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * height_factor * (cmd_vx > 0.05).float()
 
     # === STANCE HEIGHT REWARD ===
     stance_height = 4.0 * height_reward

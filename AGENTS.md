@@ -68,7 +68,7 @@ Start with `docs/index.md` for the full map, then use the role-specific lists be
 - `docs/memory/OBSERVABILITY.md`: Metrics and validation protocol.
 - `docs/memory/REFERENCE_ANALYSIS.md`: Isaac Lab reference implementation analysis.
 - `docs/reference/sim_reference.md`: Simulation task and config reference.
-- `docs/sim/isaac_lab_extension.md`: Isaac Lab extension template details.
+- `docs/sim/isaac_lab_extension.md`: Harold Isaac Lab extension setup.
 - `docs/overview.md`: Repo overview and installation notes.
 
 ### Hardware walking tests (RPi)

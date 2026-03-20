@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 """
-Python module serving as a project/extension template.
+Isaac Lab extension for the Harold quadruped robot.
 """
 
 # Register Gym environments.

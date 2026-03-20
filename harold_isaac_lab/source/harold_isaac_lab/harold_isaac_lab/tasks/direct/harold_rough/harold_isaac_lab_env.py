@@ -1265,7 +1265,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             )
             
             # Apply forces to robot base
-            self._robot.set_external_force_and_torque(
+            self._robot.permanent_wrench_composer.set_forces_and_torques(
                 forces, torques, body_ids=[self._base_id[0]]
             )
 

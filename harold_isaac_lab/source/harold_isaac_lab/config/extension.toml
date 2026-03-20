@@ -7,17 +7,16 @@ version = "0.1.0"
 category = "isaaclab"
 readme  = "../../../docs/sim/isaac_lab_extension.md"
 
-title = "Extension Template"
-author = "Isaac Lab Project Developers"
-maintainer = "Isaac Lab Project Developers"
-description="Extension Template for Isaac Lab"
+title = "Harold Isaac Lab"
+author = "Matteo"
+maintainer = "Matteo"
+description="Isaac Lab extension for Harold quadruped robot training"
 repository = "https://github.com/isaac-sim/IsaacLab.git"
-keywords = ["extension", "template", "isaaclab"]
+keywords = ["quadruped", "locomotion", "isaaclab", "reinforcement-learning"]
 
 [dependencies]
 "isaaclab" = {}
 "isaaclab_assets" = {}
-"isaaclab_mimic" = {}
 "isaaclab_rl" = {}
 "isaaclab_tasks" = {}
 # NOTE: Add additional dependencies here

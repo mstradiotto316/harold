@@ -967,12 +967,8 @@ def cmd_status(args):
                 result['orphan_pids'] = [p['pid'] for p in find_training_processes()]
         if run_path:
             result['metrics'] = get_metrics(run_path)
-            diag = get_diagnosis(result['metrics'])
-            result['status'] = diag.status
-            result['diagnosis'] = diag.diagnosis
-            result['exit_code'] = diag.exit_code
         print(json.dumps(result, indent=2, default=str))
-        return result.get('exit_code', 4)
+        return 0
 
     # Compact output with alias
     if run_path:

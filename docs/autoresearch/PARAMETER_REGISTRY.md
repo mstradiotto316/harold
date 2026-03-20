@@ -20,7 +20,7 @@ Used by `scripts/autoresearch.py` to validate proposed changes before applying t
 | `track_ang_vel_z_weight` | TUNABLE | 2.0 | [0.0, 10.0] | Yaw rate tracking |
 | `track_ang_vel_z_std` | TUNABLE | 0.25 | [0.1, 1.0] | Kernel sharpness |
 | `lin_vel_z_weight` | TUNABLE | -0.0001 | [-1.0, 0.0] | Vertical bobbing penalty |
-| `ang_vel_xy_weight` | TUNABLE | -0.0001 | [-1.0, 0.0] | Roll/pitch penalty |
+| `ang_vel_xy_weight` | TUNABLE | -0.01 | [-1.0, 0.0] | Roll/pitch penalty |
 | `dof_torques_weight` | TUNABLE | -0.0001 | [-0.01, 0.0] | Torque smoothness |
 | `dof_acc_weight` | TUNABLE | -2.5e-7 | [-1e-5, 0.0] | Acceleration smoothness |
 | `action_rate_weight` | TUNABLE | -0.01 | [-0.1, 0.0] | Action smoothness |
@@ -28,8 +28,8 @@ Used by `scripts/autoresearch.py` to validate proposed changes before applying t
 | `feet_air_time_threshold` | TUNABLE | 0.3 | [0.1, 0.6] | Target air time (s) |
 | `undesired_contacts_weight` | TUNABLE | -1.0 | [-5.0, 0.0] | Body contact penalty |
 | `undesired_contacts_threshold` | TUNABLE | 1.0 | [0.1, 10.0] | Contact force threshold (N) |
-| `upright_weight` | TUNABLE | 2.0 | [0.0, 10.0] | Upright stability |
-| `forward_motion_weight` | TUNABLE | 3.0 | [0.0, 10.0] | Forward velocity bootstrap |
+| `upright_weight` | TUNABLE | 3.0 | [0.0, 10.0] | Upright stability |
+| `forward_motion_weight` | TUNABLE | 5.0 | [0.0, 10.0] | Forward velocity bootstrap |
 
 ### Command Config (CommandCfg)
 
@@ -48,7 +48,7 @@ Used by `scripts/autoresearch.py` to validate proposed changes before applying t
 
 | Parameter | Category | Current | Range | Notes |
 |-----------|----------|---------|-------|-------|
-| `orientation_threshold` | TUNABLE | -0.5 | [-0.8, -0.2] | Tipping threshold |
+| `orientation_threshold` | TUNABLE | -0.6 | [-0.8, -0.2] | Tipping threshold |
 | `height_threshold` | TUNABLE | 0.0 | [0.0, 0.2] | Height termination (0=disabled) |
 | `body_contact_threshold` | TUNABLE | 3.0 | [1.0, 20.0] | Body contact termination (N) |
 | `elbow_pose_termination` | TUNABLE | False | [True, False] | Joint-angle termination |
@@ -72,7 +72,7 @@ Used by `scripts/autoresearch.py` to validate proposed changes before applying t
 |-----------|----------|---------|-------|-------|
 | `episode_length_s` | CONSTRAINED | 30.0 | [15.0, 60.0] | Episode duration |
 | `action_scale` | CONSTRAINED | 0.5 | [0.3, 0.7] | Session 23: 0.7 was worse |
-| `action_filter_beta` | CONSTRAINED | 0.40 | [0.1, 0.5] | EMA filter; 0.50 prevented walking |
+| `action_filter_beta` | CONSTRAINED | 0.2 | [0.1, 0.5] | EMA filter; 0.50 prevented walking |
 | `decimation` | FROZEN | 9 | - | 180Hz sim / 20Hz policy |
 | `observation_space` | FROZEN | 48 | - | Fixed observation dim |
 | `action_space` | FROZEN | 12 | - | Fixed action dim (12 joints) |

@@ -43,8 +43,7 @@ This repository uses AGENTS.md as the primary agent quickstart. Use the role-bas
 
 ## Autoresearch (Autonomous Experimentation)
 
-- `docs/autoresearch/AGENT_PROTOCOL.md` - Step-by-step agent loop for autonomous experiment sessions.
-- `docs/autoresearch/strategy.md` - Human-edited research goals and constraints.
+- `docs/autoresearch/program.md` - Lab policy: experiment loop, decision rules, video review protocol.
 - `docs/autoresearch/PARAMETER_REGISTRY.md` - Tunable vs frozen parameters with safe ranges.
 - `scripts/autoresearch.py` - Helper functions (apply/revert/score/log).
 

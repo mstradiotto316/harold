@@ -69,7 +69,7 @@ class RewardsCfg:
     # With std=0.5, standing gives ~0.91 reward, walking gives ~1.0
     # Increasing weight amplifies this difference
     track_lin_vel_xy_weight: float = 5.0      # Primary: velocity tracking (was 1.5)
-    track_lin_vel_xy_std: float = 0.1        # Steeper gradient (was 0.5)
+    track_lin_vel_xy_std: float = 0.25        # Steeper gradient (was 0.5)
 
     track_ang_vel_z_weight: float = 2.0       # Yaw rate tracking (was 0.75)
     track_ang_vel_z_std: float = 0.25         # Steeper gradient
@@ -88,7 +88,7 @@ class RewardsCfg:
 
     # === GAIT REWARDS ===
     # Session 36i: Increased 0.2 → 1.0 to force stepping behavior
-    feet_air_time_weight: float = 1.0         # Strongly encourage stepping
+    feet_air_time_weight: float = 2.0         # Strongly encourage stepping
     feet_air_time_threshold: float = 0.3      # Target air time (seconds)
 
     undesired_contacts_weight: float = -1.0   # Penalize body contact
@@ -101,7 +101,7 @@ class RewardsCfg:
     # Session 36e: Direct reward for positive vx to bootstrap walking
     # EXP-350: 5.0 redirected stepping forward (was 3.0). Confirmed essential.
     # EXP-362: 4.0 lost direction, EXP-366: 7.0 too aggressive. 5.0 is sweet spot.
-    forward_motion_weight: float = 5.0        # EXP-350 winning value
+    forward_motion_weight: float = 7.0        # EXP-350 winning value
 
 
 @configclass

@@ -61,33 +61,28 @@ RULES for editing train_env.py:
 - reward tensor must be shape [num_envs]
 - observation dict must have key 'policy' with shape [num_envs, 48]
 
-## Objective: score
+## Evaluation: Video + Metrics
 
-One number, 0-100. Higher = better walking.
+Video review is the gold standard. There is no computed score.
 
-```
-score = survival * posture * velocity * 100
+After every experiment, a video review agent watches the recorded behavior and assigns a verdict:
 
-where:
-  survival     = tanh(ep_len / 150)
-  posture      = min(upright_gate, height_gate, contact_gate)
-  velocity     = tanh(max(0, vx) / 0.05)
+| Verdict | Meaning |
+|---------|---------|
+| WALKING | Forward locomotion with alternating leg movements |
+| STEPPING | Legs moving but minimal/no forward progress |
+| STANDING | Upright but stationary |
+| FALLING | Losing balance, toppling, or collapsed |
+| DEGENERATE | Reward hacking, exploit behavior, or unclassifiable |
 
-  upright_gate = clamp((upright - 0.85) / 0.10, 0, 1)
-  height_gate  = clamp((height - 0.3) / 0.3, 0, 1)
-  contact_gate = clamp((contact + 0.3) / 0.3, 0, 1)
-```
+Raw metrics (vx, upright, height, contact, ep_len) are context for the autoresearch
+agent. They help explain *why* the robot behaves as it does. The video verdict
+determines *what* the robot is doing.
 
-Properties:
-- Soft survival gate: ep_len=174 -> 0.82, ep_len=300 -> 0.97 (no hard cutoff)
-- Monotonic in forward velocity once posture gates pass
-- Zero if on elbows (height ~0.15 -> gate=0)
-- Zero if tipping (upright < 0.85 -> gate=0)
-- Zero if body dragging (contact < -0.3 -> gate=0)
+Metrics can lie: vx is positive when falling forward, ep_len is long when standing,
+upright passes while on elbows. Video cannot lie.
 
-Current baseline: ~37.4 (ep_len=174, vx=0.057, upright=0.906)
-
-All 5 metrics are still logged to results.tsv for diagnostics.
+Current baseline: EXP-478 (vx=0.057, upright=0.906, ep_len=174)
 
 ## The Loop
 
@@ -102,30 +97,31 @@ LOOP FOREVER:
   4. TRAIN: harold train --hypothesis "..." --tags "autoresearch,..." --duration fast
      Training runs WITHOUT video at 4096 envs for ~2x throughput vs old video setup.
   5. WAIT: harold status --json (check at 5 min, then every 5 min)
-     Early stop: SANITY_FAIL after 5 min -> harold stop, score=0, DISCARD
+     Early stop: SANITY_FAIL after 5 min -> harold stop, DISCARD
      Early stop: height FAIL + negative vx after 10 min -> harold stop, DISCARD
-  6. EVALUATE: Video is truth. Metrics are secondary.
-     a. SCORE: harold validate -> autoresearch.py score
-     b. RECORD: harold record (post-hoc multi-camera video from best checkpoint, ~30-45s)
-     c. VIDEO REVIEW (BLOCKING): Launch video review agent in foreground. WAIT.
-        Read the FULL response. This is the primary success/failure signal.
-        Metrics can lie (vx from falling, ep_len from standing); video cannot.
-     d. DECIDE: Video verdict overrides metrics. Always.
+  6. EVALUATE: Video is truth. Metrics are context.
+     a. METRICS: harold validate (raw vx, upright, height, contact, ep_len)
+     b. RECORD: harold record (post-hoc multi-camera video)
+     c. VIDEO REVIEW (BLOCKING): Launch video review agent in foreground. WAIT for result.
+        This is the primary success/failure signal.
+     d. DECIDE: Video verdict is the KEEP gate.
         KEEP only if:
           - Video shows WALKING or STEPPING with forward progress, AND
-          - score > baseline + 2.0
+          - Metrics not regressed vs baseline (agent judgment, no formula)
         DISCARD if:
           - Video shows STANDING, FALLING, or DEGENERATE
             — regardless of metric improvements
-     e. Record the video analyst's specific recommendations for next experiment
+     e. Record video analyst's recommendations for next experiment
   7. LOG: autoresearch.py log -> results.tsv
      - video_verdict field is MANDATORY (WALKING/STEPPING/STANDING/FALLING/DEGENERATE)
-     - Include specific recommendations from video review
+     - Include video review recommendations in notes
      If DISCARD: revert config (autoresearch.py revert) or git checkout -- train_env.py
   8. POST-EXPERIMENT:
      a. Save state:
         python3 scripts/autoresearch.py save-state '{
-          "baseline_score": ...,
+          "baseline_ref": "EXP-NNN",
+          "baseline_metrics": {"vx": ..., "upright": ..., "height": ..., "contact": ..., "ep_len": ...},
+          "baseline_video_verdict": "STEPPING",
           "consecutive_discards": ...,
           "current_strategy": "...",
           "current_bottleneck": "...",
@@ -174,7 +170,7 @@ Agent(
 The robot is Harold, a 12-DOF quadruped (4 legs x 3 joints). Frames are extracted at 2fps from 4 camera angles.
 
 EXPERIMENT: {alias} - {hypothesis}
-METRICS: score={score}, vx={vx}, upright={upright}, height={height}, contact={contact}, ep_len={ep_len}
+METRICS: vx={vx}, upright={upright}, height={height}, contact={contact}, ep_len={ep_len}
 
 Frames are organized by camera view in {frame_dir}/:
   side/frame_0001.jpg ... side/frame_NNNN.jpg   — Sagittal plane (gait cycle, pitch, leg extension)
@@ -266,7 +262,7 @@ Experiments are numbered sequentially from EXP-479. Experiments 1-478 are archiv
 6. Read `docs/memory/OBSERVATIONS.md` -- accumulated insights
 7. Run `python3 scripts/harold.py ps` -- check for orphan processes
 8. Create branch: `git checkout -b autoresearch/session-$(date +%Y-%m-%d)`
-9. Run baseline if no prior score in results.tsv
+9. Run baseline if no prior experiments in results.tsv
 10. Begin the loop. Do not stop.
 
 ## Quick Reference
@@ -279,7 +275,6 @@ Experiments are numbered sequentially from EXP-479. Experiments 1-478 are archiv
 | Start training | `python scripts/harold.py train --hypothesis "..." --tags "autoresearch,..." --duration fast` |
 | Check status | `python scripts/harold.py status --json` |
 | Validate | `python scripts/harold.py validate` |
-| Score | `python scripts/autoresearch.py score '{"metrics": ...}'` |
 | Log result | `python scripts/autoresearch.py log '{"entry": ...}'` |
 | View history | `python scripts/autoresearch.py history` |
 | Save session state | `python scripts/autoresearch.py save-state '{"key": "value"}'` |
@@ -298,7 +293,7 @@ Experiments are numbered sequentially from EXP-479. Experiments 1-478 are archiv
 | File | Purpose | You Edit? |
 |------|---------|-----------|
 | `docs/autoresearch/program.md` | This file. Lab policy. | Human only |
-| `scripts/autoresearch.py` | Apply/revert/score/log helpers | Read only |
+| `scripts/autoresearch.py` | Apply/revert/log helpers | Read only |
 | `scripts/harold.py` | Training CLI | Read only |
 | `harold_isaac_lab/.../harold_isaac_lab_env_cfg.py` | Reward weights, termination, commands | **You edit (via autoresearch.py)** |
 | `harold_isaac_lab/.../agents/skrl_ppo_cfg.yaml` | PPO hyperparameters | **You edit (via autoresearch.py)** |

@@ -258,8 +258,8 @@ Videos are saved under:
 For overnight autonomous experiment sessions, Harold has an autoresearch system:
 
 ```bash
-# Read the strategy (human-edited goals and constraints)
-cat docs/autoresearch/strategy.md
+# Read the lab policy (experiment loop, decision rules, video review)
+cat docs/autoresearch/program.md
 
 # Check what parameters can be tuned
 python scripts/autoresearch.py load-registry
@@ -270,9 +270,6 @@ python scripts/autoresearch.py apply '{"forward_motion_weight": 5.0}'
 # Revert config to git HEAD
 python scripts/autoresearch.py revert
 
-# Compute score from metrics
-python scripts/autoresearch.py score '{"vx_w_mean": 0.02, "upright_mean": 0.96, ...}'
-
 # Log result
 python scripts/autoresearch.py log '{"exp_alias": "EXP-228", "decision": "KEEP", ...}'
 
@@ -280,9 +277,8 @@ python scripts/autoresearch.py log '{"exp_alias": "EXP-228", "decision": "KEEP",
 python scripts/harold.py snapshot-config
 ```
 
-Full protocol: `docs/autoresearch/AGENT_PROTOCOL.md`
+Full protocol: `docs/autoresearch/program.md`
 Parameter registry: `docs/autoresearch/PARAMETER_REGISTRY.md`
-Strategy doc: `docs/autoresearch/strategy.md`
 
 ### Process Management
 

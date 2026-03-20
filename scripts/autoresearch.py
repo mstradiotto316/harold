@@ -11,7 +11,6 @@ Usage (by Claude Code agent):
     python scripts/autoresearch.py load-registry
     python scripts/autoresearch.py apply '{"forward_motion_weight": 5.0}'
     python scripts/autoresearch.py revert
-    python scripts/autoresearch.py score '{"vx_w_mean": 0.02, "upright_mean": 0.96, ...}'
     python scripts/autoresearch.py log '{"exp_alias": "EXP-228", ...}'
     python scripts/autoresearch.py history
 """
@@ -19,7 +18,6 @@ Usage (by Claude Code agent):
 import argparse
 import csv
 import json
-import math
 import os
 import re
 import subprocess
@@ -468,124 +466,18 @@ def _validate_file(filepath: str) -> None:
             raise ValueError(f"YAML parse error in {filepath}: {e}")
 
 
-# ── Scoring ─────────────────────────────────────────────────────────────────
-
-
-def compute_walk_score(metrics: dict) -> float:
-    """Single scalar 0-100 for walking quality.
-
-    Designed to be:
-    - 0 if the robot is broken (sanity fail, fallen, on elbows)
-    - Monotonically increasing with forward velocity once gates pass
-    - Exploit-proof (elbow exploit, body dragging both gate to 0)
-
-    Formula:
-        walk_score = gate * tanh(vx / 0.05) * 100
-
-    Args:
-        metrics: dict with keys: episode_length, upright_mean, height_reward,
-                 body_contact, vx_w_mean
-
-    Returns:
-        float score 0-100
-    """
-    ep_len = metrics.get("episode_length", 0)
-
-    # Hard gate: robot must survive
-    if ep_len < 300:
-        return 0.0
-
-    upright = metrics.get("upright_mean", 0)
-    height = metrics.get("height_reward", 0)
-    contact = metrics.get("body_contact", 0)
-    vx = metrics.get("vx_w_mean", 0)
-
-    # Gating factors (0-1): prevent exploit modes
-    upright_gate = min(1.0, max(0.0, (upright - 0.85) / 0.10))
-    height_gate = min(1.0, max(0.0, (height - 0.3) / 0.3))
-    contact_gate = min(1.0, max(0.0, (contact + 0.3) / 0.3))
-
-    gate = min(upright_gate, height_gate, contact_gate)
-
-    # Primary signal: forward velocity (tanh saturates at ~0.15 m/s)
-    vx_score = math.tanh(max(0.0, vx) / 0.05)
-
-    return round(gate * vx_score * 100.0, 1)
-
-
-def compute_progress_score(metrics: dict) -> float:
-    """Incremental progress score 0-100 with soft survival gate.
-
-    Same formula as walk_score but replaces the hard ep_len >= 300 cutoff
-    with tanh(ep_len / 150), so short-lived experiments still get partial
-    credit. Converges to walk_score as ep_len grows.
-
-    Formula:
-        progress_score = survival * posture * velocity * 100
-        survival = tanh(ep_len / 150)
-        posture  = min(upright_gate, height_gate, contact_gate)
-        velocity = tanh(max(0, vx) / 0.05)
-    """
-    ep_len = metrics.get("episode_length", 0)
-    upright = metrics.get("upright_mean", 0)
-    height = metrics.get("height_reward", 0)
-    contact = metrics.get("body_contact", 0)
-    vx = metrics.get("vx_w_mean", 0)
-
-    # Soft survival gate (tanh ramp)
-    survival = math.tanh(ep_len / 150.0)
-
-    # Posture gates (same as walk_score)
-    upright_gate = min(1.0, max(0.0, (upright - 0.85) / 0.10))
-    height_gate = min(1.0, max(0.0, (height - 0.3) / 0.3))
-    contact_gate = min(1.0, max(0.0, (contact + 0.3) / 0.3))
-    posture = min(upright_gate, height_gate, contact_gate)
-
-    # Velocity (same as walk_score)
-    velocity = math.tanh(max(0.0, vx) / 0.05)
-
-    return round(survival * posture * velocity * 100.0, 1)
-
-
-# Backward compatibility alias
-def compute_score(metrics: dict) -> float:
-    """Legacy scoring function. Delegates to compute_walk_score."""
-    return compute_walk_score(metrics)
-
-
 # ── Results Logging ─────────────────────────────────────────────────────────
 
 RESULTS_COLUMNS = [
     "exp_alias", "timestamp", "hypothesis", "changed_params", "duration_min",
-    "verdict", "vx", "upright", "height", "contact", "ep_len",
-    "walk_score", "progress_score", "decision", "notes",
+    "vx", "upright", "height", "contact", "ep_len",
+    "video_verdict", "decision", "notes",
 ]
 
 
-def _scores_from_entry(entry: dict) -> tuple[float, float]:
-    """Compute walk_score and progress_score from an entry's metric fields."""
-    metrics = {
-        "episode_length": float(entry.get("ep_len", 0) or 0),
-        "upright_mean": float(entry.get("upright", 0) or 0),
-        "height_reward": float(entry.get("height", 0) or 0),
-        "body_contact": float(entry.get("contact", 0) or 0),
-        "vx_w_mean": float(entry.get("vx", 0) or 0),
-    }
-    return compute_walk_score(metrics), compute_progress_score(metrics)
-
-
 def log_result(entry: dict) -> None:
-    """Append a result row to docs/autoresearch/results.tsv.
-
-    Auto-computes walk_score and progress_score from the entry's metric
-    fields, overriding any caller-provided values for consistency.
-    """
+    """Append a result row to docs/autoresearch/results.tsv."""
     RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    # Always recompute scores from stored metrics (prevents drift)
-    ws, ps = _scores_from_entry(entry)
-    entry["walk_score"] = str(ws)
-    entry["progress_score"] = str(ps)
 
     write_header = not RESULTS_PATH.exists() or RESULTS_PATH.stat().st_size == 0
 
@@ -605,42 +497,6 @@ def load_results_history() -> list:
     with open(RESULTS_PATH, newline="") as f:
         reader = csv.DictReader(f, delimiter="\t")
         return list(reader)
-
-
-# ── Recompute Scores ───────────────────────────────────────────────────────
-
-def recompute_scores() -> int:
-    """Recompute walk_score and progress_score for all rows in results.tsv.
-
-    Reads the file, recalculates both scores from stored metric fields,
-    and writes back. Adds progress_score column if missing.
-    Returns number of rows updated.
-    """
-    if not RESULTS_PATH.exists():
-        print("No results.tsv found")
-        return 0
-
-    rows = []
-    with open(RESULTS_PATH, newline="") as f:
-        reader = csv.DictReader(f, delimiter="\t")
-        existing_fields = reader.fieldnames or []
-        rows = list(reader)
-
-    updated = 0
-    for row in rows:
-        ws, ps = _scores_from_entry(row)
-        row["walk_score"] = str(ws)
-        row["progress_score"] = str(ps)
-        updated += 1
-
-    with open(RESULTS_PATH, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=RESULTS_COLUMNS, delimiter="\t",
-                                extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
-
-    print(f"Recomputed scores for {updated} rows")
-    return updated
 
 
 # ── Backfill ───────────────────────────────────────────────────────────────
@@ -704,29 +560,28 @@ def backfill_results() -> int:
             if not metrics:
                 continue
 
-            score = compute_walk_score(metrics)
             hypothesis = manifest.get("hypothesis", "")
             timestamp = manifest.get("started_at") or manifest.get("created", "")
 
+            vx_val = metrics.get('vx_w_mean', 0)
             entry = {
                 "exp_alias": alias,
                 "timestamp": timestamp,
                 "hypothesis": hypothesis,
                 "changed_params": "",
                 "duration_min": "",
-                "verdict": "backfill",
-                "vx": f"{metrics.get('vx_w_mean', 0):.4f}",
+                "vx": f"{vx_val:.4f}",
                 "upright": f"{metrics.get('upright_mean', 0):.4f}",
                 "height": f"{metrics.get('height_reward', 0):.4f}",
                 "contact": f"{metrics.get('body_contact', 0):.4f}",
                 "ep_len": f"{metrics.get('episode_length', 0):.1f}",
-                "walk_score": str(score),
+                "video_verdict": "",
                 "decision": "backfill",
                 "notes": f"backfilled from {run_dir.name}",
             }
             log_result(entry)
             added += 1
-            print(f"  {alias}: walk_score={score}")
+            print(f"  {alias}: vx={vx_val:.4f}")
         except Exception as e:
             print(f"  {alias}: error - {e}")
 
@@ -974,6 +829,14 @@ def detect_plateau(window: int = 10) -> dict:
 
     # Check if recent experiments are within noise of best
     recent_rows = history[-window:]
+
+    # Video verdict distribution for recent experiments
+    recent_verdicts = {}
+    for row in recent_rows:
+        vv = (row.get("video_verdict") or "").strip().upper()
+        if vv:
+            recent_verdicts[vv] = recent_verdicts.get(vv, 0) + 1
+
     recent_best_vx = -999.0
     recent_best_row = ""
     for row in recent_rows:
@@ -1019,6 +882,7 @@ def detect_plateau(window: int = 10) -> dict:
         "recent_best_alias": recent_best_row,
         "axes_tried_since_keep": axes_tried,
         "untried_axes": untried_axes,
+        "recent_video_verdicts": recent_verdicts,
         "suggestion": suggestion,
     }
 
@@ -1331,13 +1195,8 @@ def main():
     save_state_p = sub.add_parser("save-state", help="Save/update session state")
     save_state_p.add_argument("state_json", help="JSON dict of state fields to save/update")
 
-    score_p = sub.add_parser("score", help="Compute quantitative score")
-    score_p.add_argument("metrics", help="JSON dict of metrics")
-
     log_p = sub.add_parser("log", help="Append result to results.tsv")
     log_p.add_argument("entry", help="JSON dict of result entry")
-
-    sub.add_parser("recompute-scores", help="Recompute walk_score and progress_score for all rows")
 
     sim_p = sub.add_parser("check-similarity", help="Check if proposed change is similar to past failures")
     sim_p.add_argument("delta", help="JSON dict of {param: value}")
@@ -1371,12 +1230,6 @@ def main():
         source = "baseline snapshot" if had_snapshot else "git HEAD"
         print(f"Reverted to {source}")
 
-    elif args.command == "score":
-        metrics = json.loads(args.metrics)
-        ws = compute_walk_score(metrics)
-        ps = compute_progress_score(metrics)
-        print(json.dumps({"walk_score": ws, "progress_score": ps}))
-
     elif args.command == "log":
         entry = json.loads(args.entry)
         log_result(entry)
@@ -1385,9 +1238,6 @@ def main():
     elif args.command == "history":
         history = load_results_history()
         print(json.dumps(history, indent=2))
-
-    elif args.command == "recompute-scores":
-        recompute_scores()
 
     elif args.command == "backfill":
         return backfill_results()
@@ -1429,6 +1279,9 @@ def main():
             print(f"  axes_tried_since_keep: {axes}")
         if result.get("untried_axes"):
             print(f"  untried_axes: {result['untried_axes']}")
+        if result.get("recent_video_verdicts"):
+            verdicts = ", ".join(f"{k}({v})" for k, v in result["recent_video_verdicts"].items())
+            print(f"  recent_video_verdicts: {verdicts}")
         if result.get("suggestion"):
             print(f"  suggestion: {result['suggestion']}")
         print(json.dumps(result))

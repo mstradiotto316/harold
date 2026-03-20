@@ -148,6 +148,14 @@ def compute_rewards(env) -> torch.Tensor:
     # === FOOT SLIP PENALTY ===
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
 
+    # === STANDSTILL PENALTY ===
+    # Penalize near-zero forward velocity when commanded to move.
+    # Breaks the "stand still and collect upright reward" exploit at high env counts.
+    # Decays exponentially: ~0 penalty at vx > 0.10 m/s.
+    vx_speed = torch.abs(vx_b)
+    standstill_cost = torch.exp(-vx_speed / 0.03)  # ~1.0 at vx=0, ~0.05 at vx=0.09
+    standstill_penalty = -2.0 * standstill_cost * (cmd_vx > 0.05).float()
+
     # === JOINT ACTIVITY REWARD ===
     # Incentivize joint movement when commanded to move. Provides gradient from
     # standing (zero joint vel = 0) toward motion. Smooth periodic motion (gait)
@@ -183,6 +191,7 @@ def compute_rewards(env) -> torch.Tensor:
         "foot_slip_penalty": foot_slip_penalty,
         "joint_activity_reward": joint_activity_reward,
         "foot_lift_reward": foot_lift_reward,
+        "standstill_penalty": standstill_penalty,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

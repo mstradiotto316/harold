@@ -148,6 +148,18 @@ def compute_rewards(env) -> torch.Tensor:
     # === FOOT SLIP PENALTY ===
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
 
+    # === DIAGONAL GAIT ALTERNATION REWARD ===
+    # Reward trot-like gait: diagonal pairs (FL+BR, FR+BL) should alternate contact.
+    # foot_contact order: FL(0), FR(1), BL(2), BR(3)
+    # Diagonal pair A: FL(0) + BR(3),  Diagonal pair B: FR(1) + BL(2)
+    pair_a_contact = foot_contact[:, 0].float() + foot_contact[:, 3].float()  # 0-2
+    pair_b_contact = foot_contact[:, 1].float() + foot_contact[:, 2].float()  # 0-2
+    # Reward when one pair is in contact and the other is in the air
+    # Perfect trot: pair_a=2,pair_b=0 or pair_a=0,pair_b=2 → diff=2
+    # Standing: pair_a=2,pair_b=2 → diff=0
+    contact_diff = torch.abs(pair_a_contact - pair_b_contact)  # 0-2
+    gait_alternation = 0.5 * contact_diff * (cmd_magnitude > 0.05).float()
+
     # === JOINT ACTIVITY REWARD ===
     # Incentivize joint movement when commanded to move. Provides gradient from
     # standing (zero joint vel = 0) toward motion. Smooth periodic motion (gait)
@@ -183,6 +195,7 @@ def compute_rewards(env) -> torch.Tensor:
         "foot_slip_penalty": foot_slip_penalty,
         "joint_activity_reward": joint_activity_reward,
         "foot_lift_reward": foot_lift_reward,
+        "gait_alternation": gait_alternation,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

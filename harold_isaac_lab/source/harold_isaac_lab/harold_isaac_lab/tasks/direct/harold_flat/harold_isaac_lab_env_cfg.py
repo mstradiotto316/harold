@@ -88,7 +88,7 @@ class RewardsCfg:
 
     # === GAIT REWARDS ===
     # Session 36i: Increased 0.2 → 1.0 to force stepping behavior
-    feet_air_time_weight: float = 2.0         # Strongly encourage stepping
+    feet_air_time_weight: float = 1.0         # Strongly encourage stepping
     feet_air_time_threshold: float = 0.3      # Target air time (seconds)
 
     undesired_contacts_weight: float = -1.0   # Penalize body contact
@@ -101,7 +101,7 @@ class RewardsCfg:
     # Session 36e: Direct reward for positive vx to bootstrap walking
     # EXP-350: 5.0 redirected stepping forward (was 3.0). Confirmed essential.
     # EXP-362: 4.0 lost direction, EXP-366: 7.0 too aggressive. 5.0 is sweet spot.
-    forward_motion_weight: float = 7.0        # EXP-350 winning value
+    forward_motion_weight: float = 5.0        # EXP-350 winning value
 
 
 @configclass
@@ -117,7 +117,7 @@ class CommandCfg:
 
     # Forward velocity range (m/s)
     # Session 36: Reverted to conservative for stability
-    vx_min: float = 0.0
+    vx_min: float = 0.15
     vx_max: float = 0.3
 
     # Lateral velocity range (m/s)

@@ -72,7 +72,7 @@ WATCHDOG_LOG_FILE = Path("/tmp/harold_watchdog.log")
 WATCHDOG_KILL_MARKER = Path("/tmp/harold_watchdog_killed.json")
 ENV_PATH = Path.home() / "Desktop" / "env_isaaclab" / "bin" / "activate"
 ISAACLAB_PYTHON = ENV_PATH.parent / "python"
-RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_ppo_")
+RUN_DIR_PATTERN = re.compile(r"^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_ppo_|EXP-\d+)")
 
 # Training defaults (single source of truth for run configuration)
 TASK_IDS = {
@@ -205,13 +205,13 @@ class DiagnosisResult:
 
 
 def get_latest_run() -> Path | None:
-    """Get the most recent training run directory."""
+    """Get the most recent training run directory (by modification time)."""
     if not LOG_DIR.exists():
         return None
-    runs = sorted([
-        d for d in LOG_DIR.iterdir()
-        if d.is_dir() and RUN_DIR_PATTERN.match(d.name)
-    ])
+    runs = sorted(
+        [d for d in LOG_DIR.iterdir() if d.is_dir() and RUN_DIR_PATTERN.match(d.name)],
+        key=lambda d: d.stat().st_mtime,
+    )
     return runs[-1] if runs else None
 
 
@@ -435,7 +435,8 @@ def register_experiment(
     run_path: Path,
     hypothesis: str = '',
     tags: list[str] = None,
-    training_config: dict = None
+    training_config: dict = None,
+    alias: str | None = None,
 ) -> str:
     """Register a new experiment and return its alias.
 
@@ -444,9 +445,11 @@ def register_experiment(
         hypothesis: Hypothesis being tested
         tags: List of tags for categorization
         training_config: Training parameters (num_envs, iterations) for STATUS display
+        alias: Pre-computed alias (e.g. from pre-launch). If None, generates next.
     """
     index = load_index()
-    alias = get_next_alias(index)
+    if alias is None:
+        alias = get_next_alias(index)
 
     # Update index
     index['experiments'][alias] = run_path.name
@@ -484,10 +487,10 @@ def get_recent_experiments(n: int = 5) -> list[str]:
     if not LOG_DIR.exists():
         return []
 
-    runs = sorted([
-        d for d in LOG_DIR.iterdir()
-        if d.is_dir() and RUN_DIR_PATTERN.match(d.name)
-    ])
+    runs = sorted(
+        [d for d in LOG_DIR.iterdir() if d.is_dir() and RUN_DIR_PATTERN.match(d.name)],
+        key=lambda d: d.stat().st_mtime,
+    )
 
     # Get aliases for runs that have them, or directory names
     index = load_index()
@@ -858,10 +861,15 @@ def cmd_train(args):
     if getattr(args, 'gait_scale', None) is not None:
         print(f"  Gait scale: {args.gait_scale}")
 
+    # Pre-compute experiment alias so the run directory is named EXP-XXX
+    index = load_index()
+    pre_alias = get_next_alias(index)
+
     # Launch training in background
     env_vars = {
         "HAROLD_CPG": "1" if mode == "cpg" else "0",
         "HAROLD_SCRIPTED_GAIT": "1" if mode == "scripted" else "0",
+        "HAROLD_EXPERIMENT_NAME": pre_alias,
     }
     if getattr(args, 'gait_scale', None) is not None:
         env_vars["HAROLD_GAIT_AMP_SCALE"] = str(args.gait_scale)
@@ -914,7 +922,8 @@ def cmd_train(args):
             run_path,
             hypothesis=hypothesis,
             tags=tags,
-            training_config=training_config
+            training_config=training_config,
+            alias=pre_alias,
         )
         print(f"\n{alias}: {run_path.name}")
         if hypothesis:
@@ -1161,10 +1170,10 @@ def cmd_runs(args):
         print("No runs directory found")
         return 0
 
-    runs = sorted([
-        d for d in LOG_DIR.iterdir()
-        if d.is_dir() and RUN_DIR_PATTERN.match(d.name)
-    ])
+    runs = sorted(
+        [d for d in LOG_DIR.iterdir() if d.is_dir() and RUN_DIR_PATTERN.match(d.name)],
+        key=lambda d: d.stat().st_mtime,
+    )
 
     if not runs:
         print("No runs found")

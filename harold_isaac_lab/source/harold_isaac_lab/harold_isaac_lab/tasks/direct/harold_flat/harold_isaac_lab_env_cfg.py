@@ -433,7 +433,7 @@ class DomainRandomizationCfg:
 @configclass
 class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
-    episode_length_s = 15.0
+    episode_length_s = 30.0
     decimation = 9
     action_scale = 0.5  # Must be literal for autoresearch.py regex rewriting. See common/policy_config.py for canonical default.
 

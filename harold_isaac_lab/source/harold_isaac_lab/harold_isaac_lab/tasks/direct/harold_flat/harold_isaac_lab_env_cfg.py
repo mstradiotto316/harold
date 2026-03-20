@@ -69,7 +69,7 @@ class RewardsCfg:
     # With std=0.5, standing gives ~0.91 reward, walking gives ~1.0
     # Increasing weight amplifies this difference
     track_lin_vel_xy_weight: float = 5.0      # Primary: velocity tracking (was 1.5)
-    track_lin_vel_xy_std: float = 0.25        # Steeper gradient (was 0.5)
+    track_lin_vel_xy_std: float = 0.15        # Steeper gradient (was 0.5)
 
     track_ang_vel_z_weight: float = 2.0       # Yaw rate tracking (was 0.75)
     track_ang_vel_z_std: float = 0.25         # Steeper gradient

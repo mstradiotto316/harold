@@ -197,6 +197,8 @@ def compute_rewards(env) -> torch.Tensor:
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
 
     for key, value in rewards.items():
+        if key not in env._episode_sums:
+            env._episode_sums[key] = torch.zeros(env.num_envs, dtype=torch.float, device=env.device)
         env._episode_sums[key] += value
 
     # Telemetry: keep world-frame speed diagnostic metrics separate from body-frame command tracking.

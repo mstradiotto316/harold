@@ -38,7 +38,7 @@ agent:
   mini_batches: 8            # 196k/8 ≈ 24k samples/mini-batch (adjusted for 8192 envs)
   discount_factor: 0.99      # gamma
   lambda: 0.95               # tau
-  learning_rate: 0.0004      # Session 23: 3e-4 was SANITY_FAIL, 5e-4 optimal
+  learning_rate: 5.0e-4      # Session 23: 3e-4 was SANITY_FAIL, 5e-4 optimal
   learning_rate_scheduler: KLAdaptiveLR  # adaptive LR schedule
   learning_rate_scheduler_kwargs:
     kl_threshold: 0.01      # match Anymal example
@@ -49,7 +49,7 @@ agent:
   random_timesteps: 0
   learning_starts: 0
   grad_norm_clip: 1.0        # grad_norm
-  ratio_clip: 0.2            # e_clip - EXP-065: reverted to standard, longer training
+  ratio_clip: 0.1            # e_clip - EXP-065: reverted to standard, longer training
   value_clip: 0.2            # clip_value
   clip_predicted_values: True
   entropy_loss_scale: 0.01  # standard exploration

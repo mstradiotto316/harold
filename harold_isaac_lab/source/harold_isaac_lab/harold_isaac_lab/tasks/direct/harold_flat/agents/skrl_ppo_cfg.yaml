@@ -1,4 +1,4 @@
-seed: 1337 #42
+seed: 2024 #42
 
 models:
   separate: False

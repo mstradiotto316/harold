@@ -34,7 +34,7 @@ memory:
 agent:
   class: PPO
   rollouts: 24               # 24×8192≈196k samples/update
-  learning_epochs: 8         # passes per rollout
+  learning_epochs: 5         # passes per rollout
   mini_batches: 8            # 196k/8 ≈ 24k samples/mini-batch (adjusted for 8192 envs)
   discount_factor: 0.99      # gamma
   lambda: 0.95               # tau
@@ -53,7 +53,7 @@ agent:
   value_clip: 0.2            # clip_value
   clip_predicted_values: True
   entropy_loss_scale: 0.01  # standard exploration
-  value_loss_scale: 1.0      # stronger critic weight for stable learning
+  value_loss_scale: 2.0      # stronger critic weight for stable learning
   kl_threshold: 0.0         # disable early-stop for policy updates
   rewards_shaper_scale: 0.6  # increase reward shaping scale
   time_limit_bootstrap: False

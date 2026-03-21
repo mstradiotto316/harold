@@ -355,7 +355,7 @@ class DomainRandomizationCfg:
     
     # === SENSOR NOISE CONFIGURATION ===
     # IMU Noise (Body angular velocity and gravity projection)
-    add_imu_noise: bool = False                # Add noise to IMU measurements
+    add_imu_noise: bool = True                # Add noise to IMU measurements
     imu_angular_velocity_noise: GaussianNoiseCfg = GaussianNoiseCfg(
         mean=0.0,
         std=0.01,                             # 0.01 rad/s noise (realistic for MPU6050)
@@ -370,7 +370,7 @@ class DomainRandomizationCfg:
     # Linear velocity noise (simulates IMU accelerometer integration noise)
     # Session 29: Hardware testing revealed lin_vel is computed via accelerometer
     # integration with 0.95 decay, resulting in noisy/drifting values
-    add_lin_vel_noise: bool = False
+    add_lin_vel_noise: bool = True
     lin_vel_noise: GaussianNoiseCfg = GaussianNoiseCfg(
         mean=0.0,
         std=0.05,                             # 0.05 m/s noise (hardware shows ~5cm/s drift)
@@ -384,7 +384,7 @@ class DomainRandomizationCfg:
     # - 2° (0.035 rad): STANDING, vx=0.007 - too much noise
     # - 1° (0.0175 rad): WALKING, vx=0.022 - OPTIMAL (31% better than baseline!)
     # Session 37: Re-enabling as explicit hysteresis didn't help
-    add_joint_noise: bool = False              # Session 28: OPTIMAL for backlash robustness
+    add_joint_noise: bool = True              # Session 28: OPTIMAL for backlash robustness
     joint_position_noise: GaussianNoiseCfg = GaussianNoiseCfg(
         mean=0.0,
         std=0.0175,                           # Not used when disabled

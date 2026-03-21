@@ -1,6 +1,21 @@
 # Harold Observations & Insights
 
-## 2026-03-21: Session 51 — Quality Ceiling Confirmed (48 experiments)
+## 2026-03-21: Session 51 — Quality Ceiling Confirmed (59 experiments)
+
+### grad_norm_clip=0.5 is the most impactful PPO discovery
+- EXP-554 (15min): vx=0.107 (record!) but ep_len=130 — aggressive lunging, frequent falls
+- EXP-560 (30min): vx=0.048, ep_len=295 — genuine stepping, best balance
+- EXP-563 (45min): vx=0.060, ep_len=290 — shuffle/crawl, forward displacement confirmed
+- EXP-562 (60min): vx=0.053, ep_len=280 — converged to degenerate standing
+- Pattern: grad_norm=0.5 produces progressively more conservative strategies as training lengthens
+- Any stabilization attempt (contacts, upright, pitch penalty) kills forward motion
+- grad_norm=0.75 produces same behavior as baseline (standing)
+
+### Pitch penalty is INCOMPATIBLE with forward motion
+- Quadratic pitch penalty (-1.5*gx^2): STANDING — robot avoids all forward lean
+- Soft threshold pitch penalty (-2*(gx-0.26)^2): STANDING — same result even with 15deg threshold
+- The walking mechanism REQUIRES forward lean. Any pitch penalty removes the locomotion strategy.
+
 
 ### Critical: autoresearch.py baseline snapshot was wrong for 12 experiments
 - The autoresearch.py snapshot was never updated after EXP-514 KEEP. It stored forward=5.0, air_time=1.0 instead of the KEEP values (7.0, 2.0). Every revert went to wrong baseline.

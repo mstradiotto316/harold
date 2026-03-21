@@ -124,6 +124,14 @@ def compute_rewards(env) -> torch.Tensor:
     # === STABILITY: UPRIGHT ===
     upright = -projected_gravity[:, 2]
 
+    # === SOFT PITCH PENALTY ===
+    # Only penalize extreme forward pitch (>~15deg). The gravity X component
+    # indicates forward lean: positive = nose-down. Threshold avoids penalizing
+    # the moderate lean needed for walking while preventing nose-dive collapse.
+    gx = projected_gravity[:, 0]  # positive = nose-down pitch
+    pitch_excess = torch.clamp(gx - 0.26, min=0.0)  # 0.26 ≈ sin(15°)
+    soft_pitch_penalty = -2.0 * pitch_excess * pitch_excess
+
     # === HEIGHT METRIC (terrain-relative) ===
     pos_z = env._height_scanner.data.pos_w[:, 2].unsqueeze(1)
     ray_z = env._height_scanner.data.ray_hits_w[..., 2]
@@ -196,6 +204,7 @@ def compute_rewards(env) -> torch.Tensor:
         "joint_activity_reward": joint_activity_reward,
         "foot_lift_reward": foot_lift_reward,
         "gait_alternation": gait_alternation,
+        "soft_pitch_penalty": soft_pitch_penalty,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

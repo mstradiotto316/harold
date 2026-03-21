@@ -6,7 +6,7 @@ models:
     class: GaussianMixin
     clip_actions: False
     clip_log_std: True
-    min_log_std: -1.0   # floor std ≈ 0.70 to preserve exploration during Phase-0
+    min_log_std: -0.36   # floor std ≈ 0.70 to preserve exploration during Phase-0
     max_log_std: 2.0
     initial_log_std: 0.0
     network:
@@ -33,7 +33,7 @@ memory:
 
 agent:
   class: PPO
-  rollouts: 24               # 24×8192≈196k samples/update
+  rollouts: 48               # 24×8192≈196k samples/update
   learning_epochs: 5         # passes per rollout
   mini_batches: 8            # 196k/8 ≈ 24k samples/mini-batch (adjusted for 8192 envs)
   discount_factor: 0.99      # gamma

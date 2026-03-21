@@ -1,6 +1,20 @@
 # Harold Observations & Insights
 
-## 2026-03-21: Session 51 — Quality Ceiling Confirmed (59 experiments)
+## 2026-03-21: Session 51 — Quality Ceiling Confirmed (64 experiments)
+
+### CRITICAL: Walking is a TRANSIENT training phenomenon
+- The walking behavior is a saddle point in the optimization landscape, not a stable equilibrium
+- At 15min (fast), the policy passes through the walking basin and the training stops, capturing it
+- At 30min, 45min, 60min, the policy continues past the walking basin toward standing (which is the true equilibrium)
+- This explains why EXP-514/532 at fast duration works: the training cutoff IS part of the solution
+- To truly improve walking, need to make it a stable equilibrium (requires architectural changes)
+
+### Training duration matters critically
+- Baseline (grad_norm=1.0): 15min=STEPPING(vx=0.064), 30min=STANDING(vx=0.035)
+- grad_norm=0.5: 15min=FALLING(vx=0.107), 30min=STEPPING(vx=0.048), 45min=SHUFFLE(vx=0.060), 60min=STANDING(vx=0.053)
+- Longer training always converges to standing — standing is the global optimum for this reward structure
+
+
 
 ### grad_norm_clip=0.5 is the most impactful PPO discovery
 - EXP-554 (15min): vx=0.107 (record!) but ep_len=130 — aggressive lunging, frequent falls

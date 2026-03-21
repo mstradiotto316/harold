@@ -129,7 +129,7 @@ class CommandCfg:
     yaw_max: float = 0.30
 
     # Probability of sampling zero velocity (for stopping behavior)
-    zero_velocity_prob: float = 0.02  # 2% standing training
+    zero_velocity_prob: float = 0.0  # 2% standing training
 
     # Dynamic command updates during episode
     dynamic_commands: bool = True

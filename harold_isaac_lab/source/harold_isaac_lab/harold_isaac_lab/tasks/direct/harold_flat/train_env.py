@@ -160,23 +160,11 @@ def compute_rewards(env) -> torch.Tensor:
     contact_diff = torch.abs(pair_a_contact - pair_b_contact)  # 0-2
     gait_alternation = 0.5 * contact_diff * (cmd_magnitude > 0.05).float()
 
-    # === JOINT ACTIVITY REWARD ===
-    # Incentivize joint movement when commanded to move. Provides gradient from
-    # standing (zero joint vel = 0) toward motion. Smooth periodic motion (gait)
-    # is favored over jittering by action_rate and dof_acc penalties.
-    joint_vel_norm = torch.sum(torch.abs(env._robot.data.joint_vel), dim=1)
-    joint_activity = torch.tanh(joint_vel_norm / 10.0)  # saturates at high vel
-    joint_activity_reward = 0.3 * joint_activity * (cmd_magnitude > 0.05).float()
-
-    # === FOOT LIFT REWARD ===
-    # Reward upward (Z+) velocity of feet with 2x bonus when foot is airborne.
-    # Ground gradient: provides initial nudge to start lifting.
-    # Airborne bonus: makes actual lifting 2x more rewarding than ground vibration.
-    foot_vel_z = env._robot.data.body_lin_vel_w[:, env._feet_body_ids, 2]
-    foot_lift_speed = torch.clamp(foot_vel_z, min=0.0)  # only upward
-    base_lift = torch.tanh(foot_lift_speed / 0.5)
-    airborne_mult = 1.0 + (~foot_contact).float()  # 1.0 on ground, 2.0 airborne
-    foot_lift_reward = 0.3 * torch.sum(base_lift * airborne_mult, dim=1) * (cmd_magnitude > 0.05).float()
+    # === JOINT ACTIVITY + FOOT LIFT REWARDS DISABLED ===
+    # Removed to simplify reward landscape. These added noise to the fragile
+    # walking equilibrium without measurably improving gait quality.
+    joint_activity_reward = torch.zeros(env.num_envs, device=env.device)
+    foot_lift_reward = torch.zeros(env.num_envs, device=env.device)
 
     # === COMPUTE TOTAL ===
     rewards = {

@@ -1,5 +1,41 @@
 # Harold Observations & Insights
 
+## 2026-03-21: Session 51 — Quality Ceiling Confirmed (48 experiments)
+
+### Critical: autoresearch.py baseline snapshot was wrong for 12 experiments
+- The autoresearch.py snapshot was never updated after EXP-514 KEEP. It stored forward=5.0, air_time=1.0 instead of the KEEP values (7.0, 2.0). Every revert went to wrong baseline.
+- Experiments EXP-520–531 all ran against wrong baseline, explaining the 12-DISCARD streak.
+- EXP-532 reproduced EXP-514 exactly with correct config (vx=0.064, upright=0.925, ep_len=282).
+- **Fix**: must explicitly set forward=7.0, air_time=2.0, lambda=0.95, rewards_shaper=0.6, min_log_std=-0.36 after every revert.
+
+### Walking is a controlled-fall-and-reset strategy, not stable gait
+- The baseline behavior (EXP-514/532): robot steps forward for 2-4 seconds, nose-dives, resets, repeats.
+- This produces positive forward displacement (vx=0.064) through repeated cycles.
+- Every modification that prevents the nose-dive also removes forward progress (standing).
+- Modifications that increase forward incentive cause falling/belly-crawl.
+- The reward landscape has walking as a knife-edge equilibrium: upright=3.0, forward=7.0, air_time=2.0, seed=38, 4096 envs.
+
+### Extreme seed sensitivity
+- Only seed=38 produces walking. Seeds 7, 42 produce degenerate/standing policies.
+- The walking basin is reached by a specific random initialization, not structural.
+
+### 20 experiments on correct baseline — all DISCARD
+- Reward weights: track_std (0.1, 0.15), upright (3.5), contacts (-2.0), track_weight (10.0), forward (8.0)
+- Code changes: height_gate, velocity_cap, gait_alt (1.0, 1.5), remove rewards
+- PPO: lambda (0.99), rewards_shaper (1.0), min_log_std (-1.0)
+- Env: episode_length (15), action_filter_beta (0.3), num_envs (2048)
+- Seeds: 7, 42. Domain randomization: noise off.
+- **None improved on baseline.** Quality ceiling confirmed.
+
+### Gait alternation weight sensitivity
+- 0.5 (baseline): stepping with forward progress
+- 1.0: falling (worse than baseline)
+- 1.5: in-place stepping (legs cycle but no forward progress)
+
+### Key for next session
+- To improve beyond vx=0.064, need qualitatively different approach: observation space changes, CPG-based actions, or hardware deployment with current policy.
+- The nose-dive is structural — the robot's forward_motion reward incentivizes leaning forward, which eventually causes falling.
+
 ## 2026-03-20: Session 50 — Breaking the 16384-env Standing Attractor
 
 ### 16384 envs structurally prevents walking (8 experiments, all standing/degenerate)

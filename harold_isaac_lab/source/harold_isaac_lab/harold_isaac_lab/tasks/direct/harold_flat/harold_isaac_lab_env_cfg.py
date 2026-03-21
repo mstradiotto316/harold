@@ -91,7 +91,7 @@ class RewardsCfg:
     feet_air_time_weight: float = 2.0         # Strongly encourage stepping
     feet_air_time_threshold: float = 0.3      # Target air time (seconds)
 
-    undesired_contacts_weight: float = -2.0   # Penalize body contact
+    undesired_contacts_weight: float = -3.0   # Penalize body contact
     undesired_contacts_threshold: float = 1.0 # Force threshold (Newtons)
 
     # === STABILITY REWARD ===

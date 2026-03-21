@@ -158,7 +158,7 @@ def compute_rewards(env) -> torch.Tensor:
     # Perfect trot: pair_a=2,pair_b=0 or pair_a=0,pair_b=2 → diff=2
     # Standing: pair_a=2,pair_b=2 → diff=0
     contact_diff = torch.abs(pair_a_contact - pair_b_contact)  # 0-2
-    gait_alternation = 1.5 * contact_diff * (cmd_magnitude > 0.05).float()
+    gait_alternation = 1.0 * contact_diff * (cmd_magnitude > 0.05).float()
 
     # === JOINT ACTIVITY REWARD ===
     # Incentivize joint movement when commanded to move. Provides gradient from

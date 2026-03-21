@@ -1,4 +1,4 @@
-seed: 600 #42
+seed: 10 #42
 
 models:
   separate: False

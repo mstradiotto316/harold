@@ -143,15 +143,15 @@ class AuxMetricSpec:
     display_name: str
 
 METRICS = [
-    MetricSpec('episode_length', 'Episode / Total timesteps (mean)', 300, True, 'Episode Length'),  # Session 35: raised from 100 (15s minimum for stable walking)
+    MetricSpec('episode_length', 'Episode / Total timesteps (mean)', 200, True, 'Episode Length'),  # Session 51 post-mortem: lowered from 300 to 200 (SANITY_FAIL gate only, not walking indicator)
     MetricSpec('upright_mean', 'Info / Episode_Metric/upright_mean', 0.9, True, 'Upright Mean'),
     MetricSpec('height_reward', ('Info / Episode_Reward/height_reward', 'Info / Episode_Metric/height_reward'), 0.5, True, 'Height Reward'),  # Session 24: lowered from 1.2 (CPG gait has different natural height)
     MetricSpec('body_contact', ('Info / Episode_Reward/body_contact_penalty', 'Info / Episode_Metric/body_contact_penalty'), -0.1, True, 'Body Contact'),
-    MetricSpec('vx_w_mean', 'Info / Episode_Metric/vx_w_mean', 0.01, True, 'Forward Velocity'),  # Session 24: lowered from 0.1 (slow controlled gait is acceptable)
+    MetricSpec('vx_w_mean', 'Info / Episode_Metric/vx_w_mean', 0.05, True, 'Forward Velocity'),  # Session 51 post-mortem: raised from 0.01 (1cm/s trivially satisfied by drift/falling)
+    MetricSpec('x_displacement', 'Info / Episode_Metric/x_displacement', 0.1, True, 'X Displacement'),  # Session 51 post-mortem: promoted from AUX — ground-truth forward progress (≥10cm per episode)
 ]
 
 AUX_METRICS = [
-    AuxMetricSpec('x_displacement', 'Info / Episode_Metric/x_displacement', 'X Displacement'),
     AuxMetricSpec('x_displacement_abs', 'Info / Episode_Metric/x_displacement_abs', 'Abs X Displacement'),
     AuxMetricSpec(
         'term_orientation',
@@ -565,12 +565,20 @@ def get_diagnosis(metrics: dict) -> DiagnosisResult:
     if upright is not None and not metric_passes('upright_mean', upright):
         return DiagnosisResult('FAILING', f'Upright {upright:.2f} below threshold {upright_spec.threshold}', 2)
 
-    # Success checks
+    # Success checks: require BOTH x_displacement AND vx_w_mean to pass
+    x_disp = metrics.get('x_displacement')
     vx_spec = METRIC_BY_KEY['vx_w_mean']
-    if vx is not None and metric_passes('vx_w_mean', vx):
-        return DiagnosisResult('WALKING', f'Forward velocity {vx:.3f} m/s exceeds threshold {vx_spec.threshold}', 0)
+    x_disp_spec = METRIC_BY_KEY['x_displacement']
+
+    vx_pass = vx is not None and metric_passes('vx_w_mean', vx)
+    x_disp_pass = x_disp is not None and metric_passes('x_displacement', x_disp)
+
+    if vx_pass and x_disp_pass:
+        return DiagnosisResult('WALKING', f'Forward velocity {vx:.3f} m/s, displacement {x_disp:.3f}m — both above thresholds', 0)
 
     # Partial success
+    if vx is not None and x_disp is not None:
+        return DiagnosisResult('STANDING', f'Upright and stable, vx={vx:.3f} m/s, x_disp={x_disp:.3f}m', 1)
     if vx is not None:
         return DiagnosisResult('STANDING', f'Upright and stable, forward velocity {vx:.3f} m/s', 1)
 
@@ -1074,27 +1082,32 @@ def cmd_status(args):
         else:
             print("STANDING: (no data)")
 
-        # Walking check
+        # Walking check: requires both vx and x_displacement
         vx = metrics.get('vx_w_mean')
+        x_disp = metrics.get('x_displacement')
         vx_spec = METRIC_BY_KEY['vx_w_mean']
-        if vx is not None:
-            if metric_passes('vx_w_mean', vx):
+        x_disp_spec = METRIC_BY_KEY['x_displacement']
+        vx_pass = vx is not None and metric_passes('vx_w_mean', vx)
+        x_disp_pass = x_disp is not None and metric_passes('x_displacement', x_disp)
+        if vx is not None and x_disp is not None:
+            if vx_pass and x_disp_pass:
                 status = 'PASS'
-            elif vx > 0:
+            elif vx > 0 or (x_disp is not None and x_disp > 0):
                 status = 'WARN'
             else:
                 status = 'FAIL'
+            print(f"WALKING: {status} (vx={vx:.3f} need >{vx_spec.threshold}, x_disp={x_disp:.3f} need >{x_disp_spec.threshold})")
+        elif vx is not None:
+            status = 'PASS' if vx_pass else ('WARN' if vx > 0 else 'FAIL')
             print(f"WALKING: {status} (vx={vx:.3f}, need >{vx_spec.threshold})")
         else:
             print("WALKING: (no data)")
 
-        x_disp = metrics.get('x_displacement')
         x_disp_abs = metrics.get('x_displacement_abs')
-        if x_disp is not None:
-            if x_disp_abs is not None:
-                print(f"DISPLACEMENT: x={x_disp:.3f} (|x|={x_disp_abs:.3f})")
-            else:
-                print(f"DISPLACEMENT: x={x_disp:.3f}")
+        if x_disp is not None and x_disp_abs is not None:
+            print(f"DISPLACEMENT: x={x_disp:.3f} (|x|={x_disp_abs:.3f})")
+        elif x_disp is not None:
+            print(f"DISPLACEMENT: x={x_disp:.3f}")
 
         # Diagnosis (state-only, no NEXT field)
         diag = get_diagnosis(metrics)

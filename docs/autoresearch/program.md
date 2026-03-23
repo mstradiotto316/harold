@@ -104,11 +104,13 @@ LOOP FOREVER:
      b. RECORD: harold record (post-hoc multi-camera video)
      c. VIDEO REVIEW (BLOCKING): Launch video review agent in foreground. WAIT for result.
         This is the primary success/failure signal.
-     d. DECIDE: Video verdict is the KEEP gate.
+     d. DECIDE: Video verdict + displacement gate.
         KEEP only if:
+          - `harold validate` shows x_displacement > 0.1m (hard gate), AND
           - Video shows WALKING or STEPPING with forward progress, AND
           - Metrics not regressed vs baseline (agent judgment, no formula)
         DISCARD if:
+          - x_displacement < 0.1m — regardless of video or other metrics
           - Video shows STANDING, FALLING, or DEGENERATE
             — regardless of metric improvements
      e. Record video analyst's recommendations for next experiment
@@ -170,7 +172,10 @@ Agent(
 The robot is Harold, a 12-DOF quadruped (4 legs x 3 joints). Frames are extracted at 2fps from 4 camera angles.
 
 EXPERIMENT: {alias} - {hypothesis}
-METRICS: vx={vx}, upright={upright}, height={height}, contact={contact}, ep_len={ep_len}
+
+DO NOT use any metrics to anchor your analysis. Describe ONLY what you see in the frames.
+WALKING requires: cyclic foot lifting AND sustained forward body translation visible for ≥3 seconds.
+Brief post-reset motion (1-2 seconds of drift) is NOT walking.
 
 Frames are organized by camera view in {frame_dir}/:
   side/frame_0001.jpg ... side/frame_NNNN.jpg   — Sagittal plane (gait cycle, pitch, leg extension)

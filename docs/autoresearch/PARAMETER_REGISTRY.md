@@ -19,17 +19,17 @@ Used by `scripts/autoresearch.py` to validate proposed changes before applying t
 | `track_lin_vel_xy_std` | TUNABLE | 0.25 | [0.1, 1.0] | Kernel sharpness |
 | `track_ang_vel_z_weight` | TUNABLE | 2.0 | [0.0, 10.0] | Yaw rate tracking |
 | `track_ang_vel_z_std` | TUNABLE | 0.25 | [0.1, 1.0] | Kernel sharpness |
-| `lin_vel_z_weight` | TUNABLE | -0.0001 | [-1.0, 0.0] | Vertical bobbing penalty |
-| `ang_vel_xy_weight` | TUNABLE | -0.01 | [-1.0, 0.0] | Roll/pitch penalty |
+| `lin_vel_z_weight` | TUNABLE | -0.05 | [-2.0, 0.0] | Vertical bobbing penalty (Session 51 post-mortem: 500x from -0.0001) |
+| `ang_vel_xy_weight` | TUNABLE | -0.1 | [-2.0, 0.0] | Roll/pitch penalty (Session 51 post-mortem: 10x from -0.01) |
 | `dof_torques_weight` | TUNABLE | -0.0001 | [-0.01, 0.0] | Torque smoothness |
 | `dof_acc_weight` | TUNABLE | -2.5e-7 | [-1e-5, 0.0] | Acceleration smoothness |
-| `action_rate_weight` | TUNABLE | -0.01 | [-0.1, 0.0] | Action smoothness |
-| `feet_air_time_weight` | TUNABLE | 1.0 | [0.0, 5.0] | Stepping encouragement |
+| `action_rate_weight` | TUNABLE | -0.1 | [-0.5, 0.0] | Action smoothness (Session 51 post-mortem: 10x from -0.01) |
+| `feet_air_time_weight` | TUNABLE | 2.0 | [0.0, 5.0] | Stepping encouragement |
 | `feet_air_time_threshold` | TUNABLE | 0.3 | [0.1, 0.6] | Target air time (s) |
 | `undesired_contacts_weight` | TUNABLE | -1.0 | [-5.0, 0.0] | Body contact penalty |
 | `undesired_contacts_threshold` | TUNABLE | 1.0 | [0.1, 10.0] | Contact force threshold (N) |
 | `upright_weight` | TUNABLE | 3.0 | [0.0, 10.0] | Upright stability |
-| `forward_motion_weight` | TUNABLE | 5.0 | [0.0, 10.0] | Forward velocity bootstrap |
+| `forward_motion_weight` | TUNABLE | 3.0 | [0.0, 10.0] | Forward velocity bootstrap (Session 51 post-mortem: reduced from 7.0) |
 
 ### Command Config (CommandCfg)
 

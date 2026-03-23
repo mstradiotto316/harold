@@ -1,5 +1,23 @@
 # Harold Observations & Insights
 
+## 2026-03-23: CRITICAL CORRECTION — ALL historical KEEPs were false positives
+
+**Every historical "walking KEEP" was a false positive.** The robot has NEVER achieved anything remotely approaching real walking behavior. What was labeled as "walking" was actually:
+- Body-frame velocity gaming (oscillation producing positive vx_b without actual displacement)
+- Controlled-fall-and-reset cycles producing transient forward drift
+- Micro-stepping with x_displacement < 0.035m (well below the new 0.1m threshold)
+
+The Session 51 post-mortem (commit feb26a7) added honest evaluation:
+- x_displacement hard gate (≥0.1m) correctly rejects all old "KEEPs"
+- EXP-532 (x_disp=0.034m) and EXP-571 (x_disp=0.008m) both now correctly FAIL
+
+Session 52 (EXP-688 through EXP-705, 18 experiments) validated the new reward architecture:
+- Hybrid 50/50 body/world forward_motion + standstill penalty produces gait patterns (gait_reward=0.93)
+- Peak transient vx=0.045 at 4242 seed/16384 envs, but policy regresses with longer training
+- **All results at 16384 envs converged to standing** — consistent with Session 50 observation
+
+Future agents: do NOT treat any prior KEEP as a valid walking baseline. The true starting point is "no robot has ever walked."
+
 ## 2026-03-21: Session 51 — Quality Ceiling Confirmed (64 experiments)
 
 ### CRITICAL: Walking is a TRANSIENT training phenomenon

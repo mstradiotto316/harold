@@ -224,7 +224,7 @@ class TerminationCfg:
     # EXP-003-007: Height termination has issues - scanner returns bad values
     # EXP-008: Disable height termination, rely on height_reward=30.0 to incentivize
     # Spawn height is ~0.24m, elbow pose is ~0.15-0.18m
-    height_threshold: float = 0.0
+    height_threshold: float = 0.12
     # Warmup: skip height termination for first N steps after reset (sensor initialization)
     height_termination_warmup_steps: int = 20
     # Body contact termination: terminate if body/thigh/shoulder contact > threshold (N)

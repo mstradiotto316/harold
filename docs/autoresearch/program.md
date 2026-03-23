@@ -35,6 +35,9 @@ These cannot be changed. autoresearch.py apply will refuse.
 | Joint order | FL,FR,BL,BR x sh,th,ca | Matches firmware |
 | Sign convention | thighs/calves inverted | Matches servo mounting |
 | Static/dynamic friction | 1.0 / 1.0 | Terrain physics |
+| vx_min | 0.15 | Standing must never be optimal (Session 52) |
+| dynamic_commands | False | Fixed command per episode — Phase 1 |
+| mini_batches | 32 | Matched to 16384 envs for 12.3k mini-batch size |
 
 If you think a frozen parameter needs to change, STOP and document why. Do not change it.
 
@@ -110,7 +113,7 @@ LOOP FOREVER:
   2. EDIT: config param (autoresearch.py apply) or train_env.py code
   3. COMMIT: git commit -m "autoresearch: <hypothesis>"
   4. TRAIN: harold train --hypothesis "..." --tags "autoresearch,..." --duration fast
-     Training runs WITHOUT video at 4096 envs for ~2x throughput vs old video setup.
+     Training runs WITHOUT video at 16384 envs for maximum throughput.
   5. WAIT: harold status --json (check at 5 min, then every 5 min)
      Early stop: SANITY_FAIL after 5 min -> harold stop, DISCARD
      Early stop: height FAIL + negative vx after 10 min -> harold stop, DISCARD
@@ -284,7 +287,7 @@ Your context window is finite. To run indefinitely:
 
 ## Setup (Start of Session)
 
-Experiments are numbered sequentially from EXP-479. Experiments 1-478 are archived in `results_archive_2026-03-19.tsv`.
+Experiments are numbered sequentially from EXP-726. Experiments 1-478 are archived in `results_archive_2026-03-19.tsv`. Experiments 479-725 are archived in `results_archive_2026-03-23.tsv`.
 
 1. Read this file (program.md)
 2. Read `docs/autoresearch/PARAMETER_REGISTRY.md` -- current values, ranges, categories

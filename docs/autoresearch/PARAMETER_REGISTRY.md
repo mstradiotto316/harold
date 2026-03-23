@@ -29,19 +29,20 @@ Used by `scripts/autoresearch.py` to validate proposed changes before applying t
 | `undesired_contacts_weight` | TUNABLE | -1.0 | [-5.0, 0.0] | Body contact penalty |
 | `undesired_contacts_threshold` | TUNABLE | 1.0 | [0.1, 10.0] | Contact force threshold (N) |
 | `upright_weight` | TUNABLE | 3.0 | [0.0, 10.0] | Upright stability |
-| `forward_motion_weight` | TUNABLE | 3.0 | [0.0, 10.0] | Forward velocity bootstrap (Session 51 post-mortem: reduced from 7.0) |
+| `forward_motion_weight` | TUNABLE | 7.0 | [0.0, 15.0] | Forward velocity bootstrap |
 
 ### Command Config (CommandCfg)
 
 | Parameter | Category | Current | Range | Notes |
 |-----------|----------|---------|-------|-------|
-| `vx_min` | TUNABLE | 0.0 | [0.0, 0.2] | Forward velocity minimum (m/s) |
+| `vx_min` | FROZEN | 0.15 | - | Forward velocity minimum — standing must never be optimal (Session 52 fix) |
 | `vx_max` | TUNABLE | 0.3 | [0.1, 1.0] | Forward velocity maximum (m/s) |
 | `vy_min` | TUNABLE | -0.15 | [-0.5, 0.0] | Lateral velocity minimum (m/s) |
 | `vy_max` | TUNABLE | 0.15 | [0.0, 0.5] | Lateral velocity maximum (m/s) |
 | `yaw_min` | TUNABLE | -0.30 | [-1.0, 0.0] | Yaw rate minimum (rad/s) |
 | `yaw_max` | TUNABLE | 0.30 | [0.0, 1.0] | Yaw rate maximum (rad/s) |
 | `zero_velocity_prob` | TUNABLE | 0.02 | [0.0, 0.2] | Standing training probability |
+| `dynamic_commands` | FROZEN | False | - | Fixed command per episode — Phase 1 simplicity (Session 52 fix) |
 | `command_change_interval` | TUNABLE | 10.0 | [2.0, 30.0] | Command update interval (s) |
 
 ### Termination Config (TerminationCfg)
@@ -82,21 +83,21 @@ Used by `scripts/autoresearch.py` to validate proposed changes before applying t
 
 | Parameter | Category | Current | Range | Notes |
 |-----------|----------|---------|-------|-------|
-| `learning_rate` | CONSTRAINED | 5.0e-4 | [4e-4, 1e-3] | 3e-4 is SANITY_FAIL |
+| `learning_rate` | CONSTRAINED | 7.0e-4 | [4e-4, 1e-3] | 3e-4 is SANITY_FAIL |
 | `rollouts` | TUNABLE | 24 | [8, 48] | Samples per update |
 | `learning_epochs` | TUNABLE | 5 | [3, 10] | Passes per rollout |
-| `mini_batches` | TUNABLE | 8 | [4, 16] | Mini-batch count |
+| `mini_batches` | FROZEN | 32 | - | Matched to 16384 envs for 12.3k mini-batch size (Session 52 fix) |
 | `discount_factor` | TUNABLE | 0.99 | [0.95, 0.999] | Gamma |
 | `lambda` | TUNABLE | 0.95 | [0.9, 0.99] | GAE tau |
 | `ratio_clip` | TUNABLE | 0.2 | [0.1, 0.3] | PPO epsilon |
 | `value_clip` | TUNABLE | 0.2 | [0.1, 0.3] | Value function clip |
-| `grad_norm_clip` | TUNABLE | 1.0 | [0.5, 2.0] | Gradient clipping |
+| `grad_norm_clip` | TUNABLE | 0.5 | [0.5, 2.0] | Gradient clipping |
 | `entropy_loss_scale` | TUNABLE | 0.01 | [0.001, 0.05] | Exploration bonus |
 | `value_loss_scale` | TUNABLE | 1.0 | [0.5, 2.0] | Critic weight |
 | `rewards_shaper_scale` | TUNABLE | 0.6 | [0.1, 2.0] | Reward scaling |
 | `min_log_std` | TUNABLE | -0.36 | [-2.0, 0.0] | Floor std for exploration |
 | `seed` | TUNABLE | 38 | [0, 9999] | Random seed |
-| `timesteps` | TUNABLE | 15000 | [5000, 50000] | Training duration |
+| `timesteps` | TUNABLE | 10000 | [5000, 50000] | Training duration |
 | `policy_layers` | TUNABLE | [512, 256, 128] | - | Network architecture |
 | `value_layers` | TUNABLE | [512, 256, 128] | - | Network architecture |
 

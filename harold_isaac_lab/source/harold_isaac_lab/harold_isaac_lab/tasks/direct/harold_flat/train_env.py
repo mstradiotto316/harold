@@ -188,7 +188,7 @@ def compute_rewards(env) -> torch.Tensor:
     )
 
     # === STANCE HEIGHT REWARD ===
-    stance_height = 4.0 * height_reward
+    stance_height = 6.0 * height_reward  # EXP-709/714 video: low crouch limits stride. Increase to incentivize taller stance.
 
     # === FOOT SLIP PENALTY ===
     foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)

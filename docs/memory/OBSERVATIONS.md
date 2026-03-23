@@ -18,6 +18,13 @@ Session 52 (EXP-688 through EXP-705, 18 experiments) validated the new reward ar
 
 Future agents: do NOT treat any prior KEEP as a valid walking baseline. The true starting point is "no robot has ever walked."
 
+### Session 52 video reviewer false positives (EXP-709, 712, 713, 714)
+- Video reviewers labeled these as "WALKING" but the user confirmed they were NOT walking
+- The "cyclic foot lifting and sustained forward translation" was actually micro-movements and drift (~2cm/s)
+- x_disp was consistently < 0.02m — the 0.1m hard gate correctly rejected all of them
+- **Trust the x_displacement gate absolutely** — if x_disp < 0.1m, it is NOT walking regardless of video verdict
+- Video reviewers need stricter calibration: "WALKING" requires ≥3 body-lengths displacement over 12.5s (~0.5m), not just visible frame-to-frame changes
+
 ## 2026-03-21: Session 51 — Quality Ceiling Confirmed (64 experiments)
 
 ### CRITICAL: Walking is a TRANSIENT training phenomenon

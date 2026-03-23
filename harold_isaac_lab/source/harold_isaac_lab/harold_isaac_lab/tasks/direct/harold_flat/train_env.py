@@ -171,9 +171,21 @@ def compute_rewards(env) -> torch.Tensor:
     body_contact_penalty = -undesired_contacts
 
     # === FORWARD MOTION BONUS ===
-    # Direct reward for body-frame forward velocity, gated by posture quality.
-    # Bug fixes applied: uses vx_b (body-frame), upright.clamp(0.0, 1.0) (proper gate).
-    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
+    # Hybrid body+world frame: body-frame provides exploration gradient (easy to optimize),
+    # world-frame ensures actual displacement. Pure world-frame (EXP-693/694/697) failed to
+    # bootstrap locomotion; pure body-frame (Session 51) was gamed by oscillation.
+    vx_w = root_lin_vel_w[:, 0]
+    forward_motion = cfg.forward_motion_weight * (0.5 * vx_b + 0.5 * vx_w) * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
+
+    # === STANDSTILL PENALTY (bootstrap) ===
+    # EXP-702 config: -10.0 world-frame. Essential for breaking standing equilibrium.
+    # EXP-703 confirmed: removing this causes regression.
+    world_vel = torch.linalg.norm(root_lin_vel_w[:, :2], dim=1)
+    standstill_penalty = -10.0 * torch.where(
+        torch.logical_and(cmd_magnitude > 0.05, world_vel < 0.1),
+        torch.ones(env.num_envs, device=env.device),
+        torch.zeros(env.num_envs, device=env.device),
+    )
 
     # === STANCE HEIGHT REWARD ===
     stance_height = 4.0 * height_reward
@@ -198,12 +210,7 @@ def compute_rewards(env) -> torch.Tensor:
     joint_pos_error = torch.linalg.norm(
         env._robot.data.joint_pos - env._robot.data.default_joint_pos, dim=1
     )
-    standing_scale = torch.where(
-        torch.logical_or(cmd_magnitude > 0.05, body_vel > 0.1),
-        torch.ones_like(joint_pos_error),
-        3.0 * torch.ones_like(joint_pos_error),
-    )
-    joint_pos_penalty = -0.5 * joint_pos_error * standing_scale
+    joint_pos_penalty = -0.2 * joint_pos_error  # Removed standing_scale (3x when still caused standing lock)
 
     # === AIR TIME VARIANCE PENALTY (ported from Spot) ===
     # Penalize inconsistent step timing across feet.
@@ -244,6 +251,7 @@ def compute_rewards(env) -> torch.Tensor:
         "joint_pos_penalty": joint_pos_penalty,
         "air_time_variance_penalty": air_time_variance_penalty,
         "foot_clearance_reward": foot_clearance_reward,
+        "standstill_penalty": standstill_penalty,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

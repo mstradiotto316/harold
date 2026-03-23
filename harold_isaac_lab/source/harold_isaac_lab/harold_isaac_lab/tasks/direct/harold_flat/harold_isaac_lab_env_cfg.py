@@ -78,13 +78,13 @@ class RewardsCfg:
     # Session 36 fix: -2.0 caused -43800/ep, -0.05 caused -1149/ep
     # Harold produces higher body-frame vertical velocities than larger robots
     # Session 36h: -0.0005 still limits movement, trying -0.0001
-    lin_vel_z_weight: float = -0.05            # Session 51 post-mortem: 500x increase from -0.0001 (still 32x below Spot's effective -1.6)
-    ang_vel_xy_weight: float = -0.1           # Session 51 post-mortem: 10x increase from -0.01
+    lin_vel_z_weight: float = -0.0001           # EXP-697 sweet spot: prevents scrambling while allowing micro-stepping.
+    ang_vel_xy_weight: float = -0.01           # Restored to pre-PM level. 5-10x increases caused standing lock.
 
     # === SMOOTHNESS PENALTIES ===
     dof_torques_weight: float = -0.0001       # Smooth torques
     dof_acc_weight: float = -2.5e-7           # Smooth joint accelerations
-    action_rate_weight: float = -0.1          # Session 51 post-mortem: 10x increase from -0.01
+    action_rate_weight: float = -0.01          # Restored to pre-PM level. 5-10x increases caused standing lock.
 
     # === GAIT REWARDS ===
     # Session 36i: Increased 0.2 → 1.0 to force stepping behavior
@@ -101,7 +101,7 @@ class RewardsCfg:
     # Session 36e: Direct reward for positive vx to bootstrap walking
     # EXP-350: 5.0 redirected stepping forward (was 3.0). Confirmed essential.
     # EXP-362: 4.0 lost direction, EXP-366: 7.0 too aggressive. 5.0 is sweet spot.
-    forward_motion_weight: float = 3.0        # Session 51 post-mortem: reduced from 7.0 (rewards falling forward). Reduce further after GaitReward produces trotting.
+    forward_motion_weight: float = 10.0       # EXP-702 config: 50/50 body/world hybrid at weight 10.
 
 
 @configclass

@@ -350,11 +350,15 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "feet_air_time",
             "undesired_contacts",
             "upright",
-            "forward_motion",  # Session 36e: bootstrap walking
-            "stance_height",  # Added by train_env.py research surface
-            "foot_slip_penalty",  # Added by train_env.py research surface
-            "joint_activity_reward",  # Added by train_env.py research surface
-            "foot_lift_reward",  # Added by train_env.py research surface
+            "forward_motion",
+            "stance_height",
+            "foot_slip_penalty",
+            "gait_alternation",
+            "continuous_gait_reward",
+            "joint_pos_penalty",
+            "air_time_variance_penalty",
+            "foot_clearance_reward",
+            "standstill_penalty",
         ]
 
         self._metric_keys = [

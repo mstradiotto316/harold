@@ -907,6 +907,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         env_ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long)
         prev_episode_steps = self.episode_length_buf[env_ids].clone()
+        prev_cmd_vx = self._commands[env_ids, 0].clone()
         current_root_pos = self._robot.data.root_pos_w[env_ids].clone()
 
         self._robot.reset(env_ids)
@@ -1048,6 +1049,15 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 x_displacement = current_root_pos[valid, 0] - self._episode_start_pos[valid_env_ids, 0]
                 log['Episode_Metric/x_displacement'] = torch.mean(x_displacement)
                 log['Episode_Metric/x_displacement_abs'] = torch.mean(torch.abs(x_displacement))
+
+                # cmd_tracking_ratio: actual displacement / commanded displacement
+                cmd_vx = prev_cmd_vx[valid]
+                episode_seconds = prev_episode_steps[valid].float() * self.step_dt
+                expected_displacement = cmd_vx * episode_seconds
+                has_forward_cmd = expected_displacement > 0.1
+                if torch.any(has_forward_cmd):
+                    ratio = x_displacement[has_forward_cmd] / expected_displacement[has_forward_cmd]
+                    log['Episode_Metric/cmd_tracking_ratio'] = torch.mean(ratio)
 
                 foot_labels = ("fl", "fr", "bl", "br")
                 contact_ratio = self._foot_contact_count[valid_env_ids] / step_counts.unsqueeze(1)

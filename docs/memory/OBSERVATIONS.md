@@ -22,8 +22,7 @@ Future agents: do NOT treat any prior KEEP as a valid walking baseline. The true
 - Video reviewers labeled these as "WALKING" but the user confirmed they were NOT walking
 - The "cyclic foot lifting and sustained forward translation" was actually micro-movements and drift (~2cm/s)
 - x_disp was consistently < 0.02m — the 0.1m hard gate correctly rejected all of them
-- **Trust the x_displacement gate absolutely** — if x_disp < 0.1m, it is NOT walking regardless of video verdict
-- Video reviewers need stricter calibration: "WALKING" requires ≥3 body-lengths displacement over 12.5s (~0.5m), not just visible frame-to-frame changes
+- **Fixed by separating concerns:** Video uses LOCOMOTION (not WALKING), metrics gate (`cmd_tracking_ratio ≥ 0.5`) is sole KEEP authority. Video describes behavior and guides strategy but does not determine KEEP/DISCARD. `autoresearch.py log` enforces valid video tags (LOCOMOTION/STEPPING/STANDING/FALLING/DEGENERATE) — rejects WALKING and N/A.
 
 ## 2026-03-21: Session 51 — Quality Ceiling Confirmed (64 experiments)
 

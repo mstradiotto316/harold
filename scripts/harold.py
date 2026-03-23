@@ -148,10 +148,11 @@ METRICS = [
     MetricSpec('height_reward', ('Info / Episode_Reward/height_reward', 'Info / Episode_Metric/height_reward'), 0.5, True, 'Height Reward'),  # Session 24: lowered from 1.2 (CPG gait has different natural height)
     MetricSpec('body_contact', ('Info / Episode_Reward/body_contact_penalty', 'Info / Episode_Metric/body_contact_penalty'), -0.1, True, 'Body Contact'),
     MetricSpec('vx_w_mean', 'Info / Episode_Metric/vx_w_mean', 0.05, True, 'Forward Velocity'),  # Session 51 post-mortem: raised from 0.01 (1cm/s trivially satisfied by drift/falling)
-    MetricSpec('x_displacement', 'Info / Episode_Metric/x_displacement', 0.1, True, 'X Displacement'),  # Session 51 post-mortem: promoted from AUX — ground-truth forward progress (≥10cm per episode)
+    MetricSpec('cmd_tracking_ratio', 'Info / Episode_Metric/cmd_tracking_ratio', 0.5, True, 'Cmd Tracking Ratio'),  # Session 52 fix: robot must cover ≥50% of commanded distance
 ]
 
 AUX_METRICS = [
+    AuxMetricSpec('x_displacement', 'Info / Episode_Metric/x_displacement', 'X Displacement'),
     AuxMetricSpec('x_displacement_abs', 'Info / Episode_Metric/x_displacement_abs', 'Abs X Displacement'),
     AuxMetricSpec(
         'term_orientation',
@@ -565,20 +566,18 @@ def get_diagnosis(metrics: dict) -> DiagnosisResult:
     if upright is not None and not metric_passes('upright_mean', upright):
         return DiagnosisResult('FAILING', f'Upright {upright:.2f} below threshold {upright_spec.threshold}', 2)
 
-    # Success checks: require BOTH x_displacement AND vx_w_mean to pass
-    x_disp = metrics.get('x_displacement')
-    vx_spec = METRIC_BY_KEY['vx_w_mean']
-    x_disp_spec = METRIC_BY_KEY['x_displacement']
+    # Success checks: require BOTH cmd_tracking_ratio AND vx_w_mean to pass
+    tracking = metrics.get('cmd_tracking_ratio')
 
     vx_pass = vx is not None and metric_passes('vx_w_mean', vx)
-    x_disp_pass = x_disp is not None and metric_passes('x_displacement', x_disp)
+    tracking_pass = tracking is not None and metric_passes('cmd_tracking_ratio', tracking)
 
-    if vx_pass and x_disp_pass:
-        return DiagnosisResult('WALKING', f'Forward velocity {vx:.3f} m/s, displacement {x_disp:.3f}m — both above thresholds', 0)
+    if vx_pass and tracking_pass:
+        return DiagnosisResult('WALKING', f'Forward velocity {vx:.3f} m/s, cmd tracking ratio {tracking:.3f} — both above thresholds', 0)
 
     # Partial success
-    if vx is not None and x_disp is not None:
-        return DiagnosisResult('STANDING', f'Upright and stable, vx={vx:.3f} m/s, x_disp={x_disp:.3f}m', 1)
+    if vx is not None and tracking is not None:
+        return DiagnosisResult('STANDING', f'Upright and stable, vx={vx:.3f} m/s, tracking={tracking:.3f}', 1)
     if vx is not None:
         return DiagnosisResult('STANDING', f'Upright and stable, forward velocity {vx:.3f} m/s', 1)
 

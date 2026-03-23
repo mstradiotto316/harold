@@ -61,26 +61,41 @@ RULES for editing train_env.py:
 - reward tensor must be shape [num_envs]
 - observation dict must have key 'policy' with shape [num_envs, 48]
 
-## Evaluation: Video + Metrics
+## Evaluation: Metrics Gate + Behavioral Analysis
 
-Video review is the gold standard. There is no computed score.
+Two systems evaluate every experiment. They answer different questions:
 
-After every experiment, a video review agent watches the recorded behavior and assigns a verdict:
+| System | Question it answers | Output |
+|--------|-------------------|--------|
+| `harold validate` | Did the robot track its commanded velocity? | WALKING (exit 0) or not |
+| Video review agent | What is the robot doing? What to try next? | Behavioral tag + analysis |
+
+The metric gate (`cmd_tracking_ratio ≥ 0.5`: robot covers ≥50% of commanded distance)
+is the sole KEEP/DISCARD authority. It accounts for command randomization and is
+unambiguous — 50% of commanded distance over a 30s episode requires real locomotion.
+
+The video reviewer describes behavior — gait quality, posture, failure modes —
+and recommends the next experiment. It does NOT determine KEEP/DISCARD.
+These are complementary, not competing: one decides, the other explains.
+
+### Video Behavior Tags (assigned by video reviewer)
+
+| Tag | Meaning |
+|-----|---------|
+| LOCOMOTION | Cyclic gait with visible forward displacement (≥1 body length per episode) |
+| STEPPING | Legs moving but <1 body length displacement per episode |
+| STANDING | Upright, stationary or micro-drift only |
+| FALLING | Losing balance, toppling, or 5+ resets in the clip |
+| DEGENERATE | Reward hacking, exploit, or unclassifiable behavior |
+
+### Metric Verdict (assigned by `harold validate`)
 
 | Verdict | Meaning |
 |---------|---------|
-| WALKING | Forward locomotion with alternating leg movements |
-| STEPPING | Legs moving but minimal/no forward progress |
-| STANDING | Upright but stationary |
-| FALLING | Losing balance, toppling, or collapsed |
-| DEGENERATE | Reward hacking, exploit behavior, or unclassifiable |
+| WALKING | cmd_tracking_ratio ≥ 0.5 AND vx ≥ 0.05 — the ONLY definition of walking |
 
-Raw metrics (vx, upright, height, contact, ep_len) are context for the autoresearch
-agent. They help explain *why* the robot behaves as it does. The video verdict
-determines *what* the robot is doing.
-
-Metrics can lie: vx is positive when falling forward, ep_len is long when standing,
-upright passes while on elbows. Video cannot lie.
+Note: LOCOMOTION in video does NOT imply WALKING in metrics. A robot can show
+cyclic gait (LOCOMOTION) while failing to track commanded velocity (not WALKING).
 
 Current baseline: EXP-478 (vx=0.057, upright=0.906, ep_len=174)
 
@@ -99,23 +114,23 @@ LOOP FOREVER:
   5. WAIT: harold status --json (check at 5 min, then every 5 min)
      Early stop: SANITY_FAIL after 5 min -> harold stop, DISCARD
      Early stop: height FAIL + negative vx after 10 min -> harold stop, DISCARD
-  6. EVALUATE: Video is truth. Metrics are context.
-     a. METRICS: harold validate (raw vx, upright, height, contact, ep_len)
+  6. EVALUATE:
+     a. METRICS: harold validate (cmd_tracking_ratio, vx, upright, height, contact, ep_len)
      b. RECORD: harold record (post-hoc multi-camera video)
      c. VIDEO REVIEW (BLOCKING): Launch video review agent in foreground. WAIT for result.
-        This is the primary success/failure signal.
-     d. DECIDE: Video verdict + displacement gate.
-        KEEP only if:
-          - `harold validate` shows x_displacement > 0.1m (hard gate), AND
-          - Video shows WALKING or STEPPING with forward progress, AND
-          - Metrics not regressed vs baseline (agent judgment, no formula)
-        DISCARD if:
-          - x_displacement < 0.1m — regardless of video or other metrics
-          - Video shows STANDING, FALLING, or DEGENERATE
-            — regardless of metric improvements
+        Video describes behavior and guides next hypothesis.
+     d. DECIDE:
+        KEEP if ALL of:
+          - `harold validate` exits 0 (WALKING: cmd_tracking_ratio ≥ 0.5 AND vx ≥ 0.05)
+          - Video behavior is NOT DEGENERATE
+          - No metric regression vs baseline (agent judgment)
+        DISCARD otherwise.
+
+        The metric gate is the sole authority. Video behavior tags (LOCOMOTION,
+        STEPPING, etc.) inform strategy but do not affect KEEP/DISCARD.
      e. Record video analyst's recommendations for next experiment
   7. LOG: autoresearch.py log -> results.tsv
-     - video_verdict field is MANDATORY (WALKING/STEPPING/STANDING/FALLING/DEGENERATE)
+     - video_verdict field is MANDATORY (LOCOMOTION/STEPPING/STANDING/FALLING/DEGENERATE)
      - Include video review recommendations in notes
      If DISCARD: revert config (autoresearch.py revert) or git checkout -- train_env.py
   8. POST-EXPERIMENT:
@@ -155,7 +170,12 @@ LOOP FOREVER:
 
 ### Video Review Agent
 
-After every experiment, launch a **fresh-context sub-agent** to analyze the latest training video. **The video review is the PRIMARY success/failure signal — it outranks all metrics.** Run it in foreground and wait for the result. Do NOT proceed until complete.
+After every experiment, record video and run the video review agent. This is mandatory
+because video reveals failure modes and guides hypothesis generation — not because it
+determines KEEP/DISCARD (the metric gate does that).
+
+**If you are about to log a result without a video behavior tag, stop. Run `harold record`,
+extract frames, and launch the review agent first.**
 
 **Procedure:**
 
@@ -170,12 +190,22 @@ Agent(
   prompt="""You are a quadruped locomotion analyst reviewing training video frames from a simulated robot.
 
 The robot is Harold, a 12-DOF quadruped (4 legs x 3 joints). Frames are extracted at 2fps from 4 camera angles.
+Harold's body is approximately 0.42m long. Use this as your visual ruler for displacement estimates.
+At 2fps, each frame spans 0.5s — small inter-frame changes may be postural adjustments, not locomotion.
 
 EXPERIMENT: {alias} - {hypothesis}
 
-DO NOT use any metrics to anchor your analysis. Describe ONLY what you see in the frames.
-WALKING requires: cyclic foot lifting AND sustained forward body translation visible for ≥3 seconds.
-Brief post-reset motion (1-2 seconds of drift) is NOT walking.
+BASE RATE: The robot has NEVER achieved WALKING (cmd_tracking_ratio ≥ 0.5) in 700+ experiments.
+STANDING is the expected verdict. When in doubt, choose the less impressive tag.
+
+BEHAVIOR TAGS (choose exactly one):
+  LOCOMOTION — Cyclic gait with visible forward displacement ≥1 body length (0.42m) per episode
+  STEPPING   — Legs moving but <1 body length displacement per episode
+  STANDING   — Upright, stationary or micro-drift only
+  FALLING    — Losing balance, toppling, or 5+ resets in the clip (check R: counter in HUD)
+  DEGENERATE — Reward hacking, exploit, or unclassifiable behavior
+
+Do NOT use "WALKING" as a tag — that term is reserved for the metric verdict from `harold validate`.
 
 Frames are organized by camera view in {frame_dir}/:
   side/frame_0001.jpg ... side/frame_NNNN.jpg   — Sagittal plane (gait cycle, pitch, leg extension)
@@ -183,35 +213,32 @@ Frames are organized by camera view in {frame_dir}/:
   top/frame_0001.jpg ... top/frame_NNNN.jpg     — Dorsal plane (foot placement, yaw, heading)
   iso/frame_0001.jpg ... iso/frame_NNNN.jpg     — Isometric 3/4 view (overall 3D context)
 
-Start by reviewing the SIDE view frames in order (most informative for gait).
-Then check FRONT view for roll/stability, and TOP view for foot placement.
-Use ISO view for overall 3D context if needed.
-
-Then provide a VERBOSE description covering:
-1. STABILITY: Does the robot stay upright? Any falls, stumbles, tilting?
-2. GAIT: Is it walking, standing, shuffling, fallen, or exhibiting degenerate behavior?
-   If walking: trot, walk, bound, or unclassified? Regular or chaotic?
-3. POSTURE: Body pitch (side view), roll (front view), height. Is it on its elbows? Dragging its body?
-4. LEGS: Front vs rear balance. Left vs right symmetry. Ground clearance. Foot dragging?
-5. FOOT PLACEMENT: From top view — are feet landing in a regular pattern? Any crossing?
-6. PROGRESS: Does behavior improve/degrade over the clip? Episode resets visible?
-7. FAILURE MODES: Any reward hacking, exploits, or degenerate policies?
-8. VERDICT: One of WALKING / STEPPING / STANDING / FALLING / DEGENERATE
+ANALYSIS ORDER (follow strictly):
+1. RESETS: Count episode resets (R: counter in HUD or visible teleports). 5+ = FALLING.
+2. DISPLACEMENT: From the TOP view, estimate total forward displacement in body-lengths.
+   <1 body-length = STANDING or STEPPING. ≥1 body-length = possible LOCOMOTION.
+3. Then analyze qualitatively:
+   - STABILITY: Does the robot stay upright? Any falls, stumbles, tilting?
+   - GAIT: Cyclic leg movements? Trot, walk, bound, or chaotic? Regular or irregular?
+   - POSTURE: Body pitch (side view), roll (front view), height. On elbows? Dragging body?
+   - LEGS: Front vs rear balance. Left vs right symmetry. Ground clearance. Foot dragging?
+   - FOOT PLACEMENT: From top view — feet landing in a regular pattern? Any crossing?
+   - PROGRESS: Does behavior improve/degrade over the clip?
+   - FAILURE MODES: Any reward hacking, exploits, or degenerate policies?
+4. VERDICT: Your behavior tag (LOCOMOTION/STEPPING/STANDING/FALLING/DEGENERATE)
    Plus a 1-2 sentence summary a researcher would find useful.
-9. RECOMMENDATION: What specific change would improve behavior in the next experiment?
-   Be concrete (e.g., "add pitch penalty" or "increase height reward weight").
+5. RECOMMENDATION: What specific change would improve behavior in the next experiment?
+   Be concrete (e.g., "increase forward_motion_weight" or "add pitch penalty").
 
-Be specific. Reference frame numbers and camera view. Describe what you actually see, not what the metrics say."""
+Be specific. Reference frame numbers and camera view. Describe what you actually see, not what metrics say."""
 )
 ```
 
 3. **Read the agent's response IN FULL before proceeding.** Store it as `video_description` in results.tsv.
 
-4. **The video verdict OVERRIDES metrics.** If video shows STANDING but metrics show vx=0.05, the robot is NOT walking. If video shows DEGENERATE but ep_len improved, the improvement is from an exploit.
+4. **Use the video analyst's RECOMMENDATION** to design the next experiment. The analyst has seen what the robot is actually doing — their suggested fix is more informed than metric-driven guessing.
 
-5. **Use the video analyst's RECOMMENDATION** to design the next experiment. The analyst has seen what the robot is actually doing — their suggested fix is more informed than metric-driven guessing.
-
-6. You can **resume the agent** to ask follow-up questions:
+5. You can **resume the agent** to ask follow-up questions:
    - "Look at frames 15-20 more carefully -- is the front-left leg making ground contact?"
    - "Compare the first 5 frames to the last 5 -- is there any improvement?"
    - "Is the robot actually walking or just falling forward repeatedly?"

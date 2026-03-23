@@ -117,7 +117,7 @@ class CommandCfg:
 
     # Forward velocity range (m/s)
     # Session 36: Reverted to conservative for stability
-    vx_min: float = 0.0
+    vx_min: float = 0.15
     vx_max: float = 0.3
 
     # Lateral velocity range (m/s)
@@ -132,7 +132,7 @@ class CommandCfg:
     zero_velocity_prob: float = 0.02  # 2% standing training
 
     # Dynamic command updates during episode
-    dynamic_commands: bool = True
+    dynamic_commands: bool = False
     command_change_interval: float = 10.0  # seconds
     command_change_prob: float = 1.0
 

@@ -477,6 +477,13 @@ RESULTS_COLUMNS = [
 
 def log_result(entry: dict) -> None:
     """Append a result row to docs/autoresearch/results.tsv."""
+    vv = (entry.get("video_verdict") or "").strip().upper()
+    valid_verdicts = {"LOCOMOTION", "STEPPING", "STANDING", "FALLING", "DEGENERATE"}
+    if vv not in valid_verdicts:
+        print(f"ERROR: video_verdict must be one of {sorted(valid_verdicts)}, got: {vv!r}")
+        print("       Run 'harold record' + video review before logging.")
+        sys.exit(1)
+
     RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     write_header = not RESULTS_PATH.exists() or RESULTS_PATH.stat().st_size == 0

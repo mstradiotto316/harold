@@ -171,21 +171,16 @@ def compute_rewards(env) -> torch.Tensor:
     body_contact_penalty = -undesired_contacts
 
     # === FORWARD MOTION BONUS ===
-    # Hybrid body+world frame: body-frame provides exploration gradient (easy to optimize),
-    # world-frame ensures actual displacement. Pure world-frame (EXP-693/694/697) failed to
-    # bootstrap locomotion; pure body-frame (Session 51) was gamed by oscillation.
+    # Pure body-frame vx, gated by posture quality.
+    # EXP-717: test body-frame at 4096 envs + grad_norm=0.5 (untested combo).
+    # Hybrid approach (EXP-702-715) produced x_disp<0.02m. Body-frame may produce more
+    # displacement at 4096 envs where standing attractor is weaker.
     vx_w = root_lin_vel_w[:, 0]
-    forward_motion = cfg.forward_motion_weight * (0.5 * vx_b + 0.5 * vx_w) * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
+    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
 
-    # === STANDSTILL PENALTY (bootstrap) ===
-    # EXP-702 config: -10.0 world-frame. Essential for breaking standing equilibrium.
-    # EXP-703 confirmed: removing this causes regression.
-    world_vel = torch.linalg.norm(root_lin_vel_w[:, :2], dim=1)
-    standstill_penalty = -10.0 * torch.where(
-        torch.logical_and(cmd_magnitude > 0.05, world_vel < 0.1),
-        torch.ones(env.num_envs, device=env.device),
-        torch.zeros(env.num_envs, device=env.device),
-    )
+    # === STANDSTILL PENALTY ===
+    # Disabled: testing body-frame forward_motion without standstill at 4096 envs.
+    standstill_penalty = torch.zeros(env.num_envs, device=env.device)
 
     # === STANCE HEIGHT REWARD ===
     stance_height = 4.0 * height_reward

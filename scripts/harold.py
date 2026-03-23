@@ -82,7 +82,7 @@ TASK_IDS = {
 }
 DEFAULT_TASK = 'flat'
 TRAINING_DEFAULTS = {
-    'num_envs': 16384,  # max throughput; PPO rollouts=8 tuned for this batch size
+    'num_envs': 4096,   # Session 54: matched Spot reference. Was 16384.
     'video_length': 250,
     'rendering_mode': 'balanced',
 }

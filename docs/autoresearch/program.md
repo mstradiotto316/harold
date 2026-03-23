@@ -268,7 +268,7 @@ Use `harold log` to inspect raw training output for debugging:
 - duration_per_experiment: fast (~15 min)
 - mode: rl
 - task: flat
-- num_envs: 16384
+- num_envs: 4096
 
 ### Context Management
 
@@ -286,7 +286,7 @@ Your context window is finite. To run indefinitely:
 
 ## Setup (Start of Session)
 
-Experiments are numbered sequentially from EXP-728. Experiments 1-478 are archived in `results_archive_2026-03-19.tsv`. Experiments 479-725 are archived in `results_archive_2026-03-23.tsv`. Experiments 726-727 are archived in `results_archive_2026-03-23b.tsv`.
+Experiments are numbered sequentially from EXP-729. Experiments 1-478 are archived in `results_archive_2026-03-19.tsv`. Experiments 479-725 are archived in `results_archive_2026-03-23.tsv`. Experiments 726-728 are archived in `results_archive_2026-03-23b.tsv`.
 
 1. Read this file (program.md)
 2. Read `docs/autoresearch/PARAMETER_REGISTRY.md` -- current values, ranges, categories

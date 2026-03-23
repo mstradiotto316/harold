@@ -86,21 +86,23 @@ Used by `scripts/autoresearch.py` to validate proposed changes before applying t
 
 | Parameter | Category | Current | Range | Notes |
 |-----------|----------|---------|-------|-------|
-| `learning_rate` | CONSTRAINED | 7.0e-4 | [4e-4, 1e-3] | 3e-4 is SANITY_FAIL |
+| `learning_rate` | CONSTRAINED | 1.0e-3 | [4e-4, 1e-3] | Session 54: matched Spot. Was 7e-4. 3e-4 is SANITY_FAIL |
 | `rollouts` | TUNABLE | 24 | [8, 48] | Samples per update |
 | `learning_epochs` | TUNABLE | 5 | [3, 10] | Passes per rollout |
-| `mini_batches` | TUNABLE | 32 | [8, 64] | Matched to 16384 envs for 12.3k mini-batch size |
+| `mini_batches` | TUNABLE | 4 | [1, 64] | Session 54: matched Spot. Was 32. 4096×24/4 = 24.6k samples/mini-batch |
 | `discount_factor` | TUNABLE | 0.99 | [0.95, 0.999] | Gamma |
 | `lambda` | TUNABLE | 0.95 | [0.9, 0.99] | GAE tau |
 | `ratio_clip` | TUNABLE | 0.2 | [0.1, 0.3] | PPO epsilon |
 | `value_clip` | TUNABLE | 0.2 | [0.1, 0.3] | Value function clip |
-| `grad_norm_clip` | TUNABLE | 0.5 | [0.5, 2.0] | Gradient clipping |
-| `entropy_loss_scale` | TUNABLE | 0.01 | [0.001, 0.05] | Exploration bonus |
-| `value_loss_scale` | TUNABLE | 1.0 | [0.5, 2.0] | Critic weight |
-| `rewards_shaper_scale` | TUNABLE | 0.6 | [0.1, 2.0] | Reward scaling |
-| `min_log_std` | TUNABLE | -0.36 | [-2.0, 0.0] | Floor std for exploration |
-| `seed` | TUNABLE | 38 | [0, 9999] | Random seed |
+| `grad_norm_clip` | TUNABLE | 1.0 | [0.5, 2.0] | Session 54: matched Spot. Was 0.5 |
+| `entropy_loss_scale` | TUNABLE | 0.0025 | [0.001, 0.05] | Session 54: matched Spot. Was 0.01 |
+| `value_loss_scale` | TUNABLE | 0.5 | [0.5, 2.0] | Session 54: matched Spot. Was 1.0 |
+| `rewards_shaper_scale` | TUNABLE | 1.0 | [0.1, 2.0] | Session 54: matched Spot. Was 0.6 |
+| `min_log_std` | TUNABLE | -20.0 | [-20.0, 0.0] | Session 54: matched Spot. Was -0.36 (floor std≈0.70 prevented refinement) |
+| `seed` | TUNABLE | 42 | [0, 9999] | Session 54: matched Spot |
 | `timesteps` | TUNABLE | 10000 | [5000, 50000] | Training duration |
+| `state_preprocessor` | TUNABLE | null | [null, RunningStandardScaler] | Session 54: matched Spot. Was RunningStandardScaler |
+| `value_preprocessor` | TUNABLE | null | [null, RunningStandardScaler] | Session 54: matched Spot. Was RunningStandardScaler |
 | `policy_layers` | TUNABLE | [512, 256, 128] | - | Network architecture |
 | `value_layers` | TUNABLE | [512, 256, 128] | - | Network architecture |
 

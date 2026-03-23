@@ -1,4 +1,4 @@
-seed: 38
+seed: 38 #42
 
 models:
   separate: False
@@ -36,9 +36,9 @@ agent:
   rollouts: 24               # 24×8192≈196k samples/update
   learning_epochs: 5         # passes per rollout
   mini_batches: 8            # 196k/8 ≈ 24k samples/mini-batch (adjusted for 8192 envs)
-  discount_factor: 0.99      # gamma
+  discount_factor: 0.95      # gamma
   lambda: 0.95               # tau
-  learning_rate: 0.0007      # Session 23: 3e-4 was SANITY_FAIL, 5e-4 optimal
+  learning_rate: 5.0e-4      # Session 23: 3e-4 was SANITY_FAIL, 5e-4 optimal
   learning_rate_scheduler: KLAdaptiveLR  # adaptive LR schedule
   learning_rate_scheduler_kwargs:
     kl_threshold: 0.01      # match Anymal example
@@ -48,11 +48,11 @@ agent:
   value_preprocessor_kwargs: null
   random_timesteps: 0
   learning_starts: 0
-  grad_norm_clip: 0.5        # grad_norm
+  grad_norm_clip: 1.0        # grad_norm
   ratio_clip: 0.2            # e_clip - EXP-065: reverted to standard, longer training
   value_clip: 0.2            # clip_value
   clip_predicted_values: True
-  entropy_loss_scale: 0.03  # standard exploration
+  entropy_loss_scale: 0.01  # standard exploration
   value_loss_scale: 1.0      # stronger critic weight for stable learning
   kl_threshold: 0.0         # disable early-stop for policy updates
   rewards_shaper_scale: 0.6  # increase reward shaping scale
@@ -65,5 +65,5 @@ agent:
 
 trainer:
   class: SequentialTrainer
-  timesteps: 10000           # ~15-20 min experiments
+  timesteps: 15000           # ~15-20 min experiments
   environment_info: log

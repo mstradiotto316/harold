@@ -78,17 +78,17 @@ class RewardsCfg:
     # Session 36 fix: -2.0 caused -43800/ep, -0.05 caused -1149/ep
     # Harold produces higher body-frame vertical velocities than larger robots
     # Session 36h: -0.0005 still limits movement, trying -0.0001
-    lin_vel_z_weight: float = -0.0001           # EXP-697 sweet spot: prevents scrambling while allowing micro-stepping.
-    ang_vel_xy_weight: float = -0.01           # Restored to pre-PM level. 5-10x increases caused standing lock.
+    lin_vel_z_weight: float = -0.0001         # Allow more vertical movement
+    ang_vel_xy_weight: float = -0.01        # Also reduced for consistency
 
     # === SMOOTHNESS PENALTIES ===
     dof_torques_weight: float = -0.0001       # Smooth torques
     dof_acc_weight: float = -2.5e-7           # Smooth joint accelerations
-    action_rate_weight: float = -0.01          # Restored to pre-PM level. 5-10x increases caused standing lock.
+    action_rate_weight: float = -0.01         # Smooth actions (was -0.05, reduced to allow movement)
 
     # === GAIT REWARDS ===
     # Session 36i: Increased 0.2 → 1.0 to force stepping behavior
-    feet_air_time_weight: float = 2.0         # Strongly encourage stepping
+    feet_air_time_weight: float = 1.0         # Strongly encourage stepping
     feet_air_time_threshold: float = 0.3      # Target air time (seconds)
 
     undesired_contacts_weight: float = -1.0   # Penalize body contact
@@ -101,7 +101,7 @@ class RewardsCfg:
     # Session 36e: Direct reward for positive vx to bootstrap walking
     # EXP-350: 5.0 redirected stepping forward (was 3.0). Confirmed essential.
     # EXP-362: 4.0 lost direction, EXP-366: 7.0 too aggressive. 5.0 is sweet spot.
-    forward_motion_weight: float = 7.0       # EXP-702 config: 50/50 body/world hybrid at weight 10.
+    forward_motion_weight: float = 5.0        # EXP-350 winning value
 
 
 @configclass
@@ -117,7 +117,7 @@ class CommandCfg:
 
     # Forward velocity range (m/s)
     # Session 36: Reverted to conservative for stability
-    vx_min: float = 0.15
+    vx_min: float = 0.0
     vx_max: float = 0.3
 
     # Lateral velocity range (m/s)
@@ -132,7 +132,7 @@ class CommandCfg:
     zero_velocity_prob: float = 0.02  # 2% standing training
 
     # Dynamic command updates during episode
-    dynamic_commands: bool = False
+    dynamic_commands: bool = True
     command_change_interval: float = 10.0  # seconds
     command_change_prob: float = 1.0
 

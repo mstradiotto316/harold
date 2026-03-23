@@ -16,7 +16,7 @@ Used by `scripts/autoresearch.py` to validate proposed changes before applying t
 | Parameter | Category | Current | Range | Notes |
 |-----------|----------|---------|-------|-------|
 | `track_lin_vel_xy_weight` | TUNABLE | 5.0 | [0.5, 20.0] | Primary velocity tracking |
-| `track_lin_vel_xy_std` | TUNABLE | 0.25 | [0.1, 1.0] | Kernel sharpness |
+| `track_lin_vel_xy_std` | TUNABLE | 0.15 | [0.1, 1.0] | Kernel sharpness (Session 53: tightened from 0.25) |
 | `track_ang_vel_z_weight` | TUNABLE | 2.0 | [0.0, 10.0] | Yaw rate tracking |
 | `track_ang_vel_z_std` | TUNABLE | 0.25 | [0.1, 1.0] | Kernel sharpness |
 | `lin_vel_z_weight` | TUNABLE | -0.05 | [-2.0, 0.0] | Vertical bobbing penalty (Session 51 post-mortem: 500x from -0.0001) |
@@ -30,6 +30,9 @@ Used by `scripts/autoresearch.py` to validate proposed changes before applying t
 | `undesired_contacts_threshold` | TUNABLE | 1.0 | [0.1, 10.0] | Contact force threshold (N) |
 | `upright_weight` | TUNABLE | 3.0 | [0.0, 10.0] | Upright stability |
 | `forward_motion_weight` | TUNABLE | 7.0 | [0.0, 15.0] | Forward velocity bootstrap |
+| `joint_pos_weight` | TUNABLE | 0.7 | [0.1, 2.0] | Base joint deviation penalty (Spot uses 0.7) |
+| `joint_pos_stand_still_scale` | TUNABLE | 5.0 | [1.0, 10.0] | Standing-when-commanded multiplier (Session 53) |
+| `joint_pos_velocity_threshold` | TUNABLE | 0.1 | [0.05, 0.3] | m/s — below this, robot counts as "not moving" |
 
 ### Command Config (CommandCfg)
 
@@ -86,7 +89,7 @@ Used by `scripts/autoresearch.py` to validate proposed changes before applying t
 | `learning_rate` | CONSTRAINED | 7.0e-4 | [4e-4, 1e-3] | 3e-4 is SANITY_FAIL |
 | `rollouts` | TUNABLE | 24 | [8, 48] | Samples per update |
 | `learning_epochs` | TUNABLE | 5 | [3, 10] | Passes per rollout |
-| `mini_batches` | FROZEN | 32 | - | Matched to 16384 envs for 12.3k mini-batch size (Session 52 fix) |
+| `mini_batches` | TUNABLE | 32 | [8, 64] | Matched to 16384 envs for 12.3k mini-batch size |
 | `discount_factor` | TUNABLE | 0.99 | [0.95, 0.999] | Gamma |
 | `lambda` | TUNABLE | 0.95 | [0.9, 0.99] | GAE tau |
 | `ratio_clip` | TUNABLE | 0.2 | [0.1, 0.3] | PPO epsilon |

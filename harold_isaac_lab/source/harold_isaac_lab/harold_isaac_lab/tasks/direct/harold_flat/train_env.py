@@ -200,12 +200,21 @@ def compute_rewards(env) -> torch.Tensor:
     contact_diff = torch.abs(pair_a_contact - pair_b_contact)  # 0-2
     gait_alternation = 0.5 * contact_diff * (cmd_magnitude > 0.05).float()
 
-    # === JOINT POSITION REGULARIZATION (ported from Spot) ===
-    # Penalize deviation from default pose. 3x stronger when standing (vs Spot's 5x).
+    # === JOINT POSITION REGULARIZATION (adapted from Spot) ===
+    # Penalize deviation from default pose. 5x stronger when commanded to move but standing.
+    # INVERTED from Spot's original logic (which penalizes standing with NO command).
+    # Previous attempt (0666fdb) used Spot's logic directly and was reverted.
     joint_pos_error = torch.linalg.norm(
         env._robot.data.joint_pos - env._robot.data.default_joint_pos, dim=1
     )
-    joint_pos_penalty = -0.2 * joint_pos_error  # Removed standing_scale (3x when still caused standing lock)
+    has_move_cmd = cmd_magnitude > 0.05
+    is_standing = body_vel < cfg.joint_pos_velocity_threshold
+    standing_when_should_move = has_move_cmd & is_standing
+    joint_pos_penalty = -cfg.joint_pos_weight * torch.where(
+        standing_when_should_move,
+        cfg.joint_pos_stand_still_scale * joint_pos_error,  # 5x when standing but should move
+        joint_pos_error,                                      # 1x when moving or no command
+    )
 
     # === AIR TIME VARIANCE PENALTY (ported from Spot) ===
     # Penalize inconsistent step timing across feet.

@@ -37,7 +37,6 @@ These cannot be changed. autoresearch.py apply will refuse.
 | Static/dynamic friction | 1.0 / 1.0 | Terrain physics |
 | vx_min | 0.15 | Standing must never be optimal (Session 52) |
 | dynamic_commands | False | Fixed command per episode — Phase 1 |
-| mini_batches | 32 | Matched to 16384 envs for 12.3k mini-batch size |
 
 If you think a frozen parameter needs to change, STOP and document why. Do not change it.
 
@@ -287,7 +286,7 @@ Your context window is finite. To run indefinitely:
 
 ## Setup (Start of Session)
 
-Experiments are numbered sequentially from EXP-726. Experiments 1-478 are archived in `results_archive_2026-03-19.tsv`. Experiments 479-725 are archived in `results_archive_2026-03-23.tsv`.
+Experiments are numbered sequentially from EXP-728. Experiments 1-478 are archived in `results_archive_2026-03-19.tsv`. Experiments 479-725 are archived in `results_archive_2026-03-23.tsv`. Experiments 726-727 are archived in `results_archive_2026-03-23b.tsv`.
 
 1. Read this file (program.md)
 2. Read `docs/autoresearch/PARAMETER_REGISTRY.md` -- current values, ranges, categories

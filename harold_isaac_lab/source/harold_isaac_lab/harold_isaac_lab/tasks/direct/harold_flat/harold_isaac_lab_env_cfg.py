@@ -69,7 +69,7 @@ class RewardsCfg:
     # With std=0.5, standing gives ~0.91 reward, walking gives ~1.0
     # Increasing weight amplifies this difference
     track_lin_vel_xy_weight: float = 5.0      # Primary: velocity tracking (was 1.5)
-    track_lin_vel_xy_std: float = 0.25        # Steeper gradient (was 0.5)
+    track_lin_vel_xy_std: float = 0.15        # Session 53: tightened from 0.25. Standing drops from 70%→37% at cmd_vx=0.15.
 
     track_ang_vel_z_weight: float = 2.0       # Yaw rate tracking (was 0.75)
     track_ang_vel_z_std: float = 0.25         # Steeper gradient
@@ -102,6 +102,14 @@ class RewardsCfg:
     # EXP-350: 5.0 redirected stepping forward (was 3.0). Confirmed essential.
     # EXP-362: 4.0 lost direction, EXP-366: 7.0 too aggressive. 5.0 is sweet spot.
     forward_motion_weight: float = 7.0       # EXP-702 config: 50/50 body/world hybrid at weight 10.
+
+    # === JOINT POSITION REGULARIZATION ===
+    # Session 53: Spot-adapted standing penalty. INVERTED from Spot's original logic
+    # (which penalizes standing with NO command). Previous attempt (0666fdb) used Spot's
+    # logic directly and was reverted ("caused standing lock").
+    joint_pos_weight: float = 0.7             # Base weight (Spot uses 0.7, Harold had 0.2)
+    joint_pos_stand_still_scale: float = 5.0  # 5x when standing but commanded to move
+    joint_pos_velocity_threshold: float = 0.1 # m/s — below this, robot counts as "not moving"
 
 
 @configclass

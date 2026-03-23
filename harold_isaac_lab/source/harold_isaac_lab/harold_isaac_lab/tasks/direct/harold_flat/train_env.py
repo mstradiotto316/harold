@@ -242,10 +242,10 @@ def compute_rewards(env) -> torch.Tensor:
         "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,
         "gait_alternation": gait_alternation,
-        "continuous_gait_reward": 5.0 * continuous_gait_reward,  # Spot uses 10.0; start at half
-        "joint_pos_penalty": joint_pos_penalty,
-        "air_time_variance_penalty": air_time_variance_penalty,
-        "foot_clearance_reward": foot_clearance_reward,
+        "continuous_gait_reward": 0.0 * continuous_gait_reward,  # DISABLED: testing if new rewards suppress forward motion
+        "joint_pos_penalty": 0.0 * joint_pos_penalty,          # DISABLED: testing
+        "air_time_variance_penalty": 0.0 * air_time_variance_penalty,  # DISABLED: testing
+        "foot_clearance_reward": 0.0 * foot_clearance_reward,  # DISABLED: testing
         "standstill_penalty": standstill_penalty,
     }
 

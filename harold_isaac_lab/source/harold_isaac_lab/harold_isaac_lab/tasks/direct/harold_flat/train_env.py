@@ -212,9 +212,10 @@ def compute_rewards(env) -> torch.Tensor:
     foot_clearance_reward = 0.5 * torch.exp(-torch.sum(foot_clearance, dim=1) / 0.05)
 
     # === COMPUTE TOTAL ===
-    # EXP-745: MINIMAL REWARD — only forward velocity + safety.
-    # 13 consecutive DISCARDs showed full reward structure always produces standing.
-    # Strip to minimum: just go forward. Let policy discover locomotion freely.
+    # EXP-746: MINIMAL + AIR TIME — bootstrap locomotion.
+    # EXP-745 showed minimal reward produces stable standing + vx=0.042 drift.
+    # Add moderate air-time reward (2.5, half of Spot) to incentivize foot lifting.
+    # This explicitly breaks the "all feet planted" equilibrium.
     rewards = {
         "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
         "track_ang_vel_z": 0.0 * track_ang_vel_z,  # disabled
@@ -224,7 +225,7 @@ def compute_rewards(env) -> torch.Tensor:
         "dof_torques": dof_torques,  # keep tiny torque penalty
         "dof_acc": dof_acc,  # keep tiny acc penalty
         "shoulder_joint_vel": 0.0 * shoulder_joint_vel,  # disabled
-        "feet_air_time": 0.0 * air_time_reward,  # disabled
+        "feet_air_time": 2.5 * air_time_reward,  # RE-ENABLED at half Spot weight
         "undesired_contacts": cfg.undesired_contacts_weight * undesired_contacts,  # keep safety
         "forward_motion": forward_motion,  # keep forward incentive
         "foot_slip_penalty": 0.0 * foot_slip_penalty,  # disabled

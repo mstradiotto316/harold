@@ -66,7 +66,7 @@ class RewardsCfg:
 
     # === TASK REWARDS (velocity tracking) ===
     track_lin_vel_xy_weight: float = 5.0      # Spot: 5.0
-    track_lin_vel_xy_std: float = 1.0        # Harold-specific (Spot: 1.0, but Harold's cmd range is 10x smaller)
+    track_lin_vel_xy_std: float = 0.15        # Harold-specific (Spot: 1.0, but Harold's cmd range is 10x smaller)
 
     track_ang_vel_z_weight: float = 2.0       # Harold-specific (Spot: 5.0, but Harold's yaw range is smaller)
     track_ang_vel_z_std: float = 0.25         # Harold-specific
@@ -117,7 +117,7 @@ class CommandCfg:
     # Forward velocity range (m/s)
     # Session 36: Reverted to conservative for stability
     vx_min: float = 0.15
-    vx_max: float = 1.0
+    vx_max: float = 0.3
 
     # Lateral velocity range (m/s)
     vy_min: float = -0.15
@@ -341,7 +341,7 @@ class DomainRandomizationCfg:
     # === RESET STATE RANDOMIZATION (Spot-style, Session 55) ===
     # Robot starts each episode with randomized state instead of all-zeros.
     # Forces the policy to learn locomotion from diverse initial conditions.
-    enable_reset_randomization: bool = False
+    enable_reset_randomization: bool = True
 
     # Root velocity at reset (m/s, rad/s) — Spot: ±1.5, ±1.0, ±0.5
     # Harold ranges are ~10% of Spot (proportional to speed capability)
@@ -357,16 +357,16 @@ class DomainRandomizationCfg:
     reset_joint_vel_noise: float = 1.0    # ±rad/s
 
     # Mid-episode velocity pushes — Spot: every 10-15s, ±0.5 m/s
-    enable_velocity_pushes: bool = False
+    enable_velocity_pushes: bool = True
     push_interval_range: tuple = (8.0, 12.0)   # seconds
     push_vel_xy_range: float = 0.15             # ±m/s
 
 @configclass
 class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
-    episode_length_s = 20.0
+    episode_length_s = 30.0
     decimation = 9
-    action_scale = 0.3  # Must be literal for autoresearch.py regex rewriting. See common/policy_config.py for canonical default.
+    action_scale = 0.5  # Must be literal for autoresearch.py regex rewriting. See common/policy_config.py for canonical default.
 
     # Space definitions
     # Observation space is always 48D; CPG is open-loop and does not affect policy input size.

@@ -66,7 +66,7 @@ class RewardsCfg:
 
     # === TASK REWARDS (velocity tracking) ===
     track_lin_vel_xy_weight: float = 5.0      # Spot: 5.0
-    track_lin_vel_xy_std: float = 0.15        # Harold-specific (Spot: 1.0, but Harold's cmd range is 10x smaller)
+    track_lin_vel_xy_std: float = 1.0        # Harold-specific (Spot: 1.0, but Harold's cmd range is 10x smaller)
 
     track_ang_vel_z_weight: float = 2.0       # Harold-specific (Spot: 5.0, but Harold's yaw range is smaller)
     track_ang_vel_z_std: float = 0.25         # Harold-specific

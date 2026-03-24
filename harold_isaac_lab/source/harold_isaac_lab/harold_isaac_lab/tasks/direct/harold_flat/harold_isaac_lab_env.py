@@ -342,23 +342,20 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._reward_keys = [
             "track_lin_vel_xy",
             "track_ang_vel_z",
-            "lin_vel_z",
-            "ang_vel_xy",
+            "base_orientation_penalty",
+            "base_motion_penalty",
+            "action_smoothness",
             "dof_torques",
             "dof_acc",
-            "action_rate",
+            "shoulder_joint_vel",
             "feet_air_time",
             "undesired_contacts",
-            "upright",
             "forward_motion",
-            "stance_height",
             "foot_slip_penalty",
-            "gait_alternation",
             "continuous_gait_reward",
             "joint_pos_penalty",
             "air_time_variance_penalty",
             "foot_clearance_reward",
-            "standstill_penalty",
         ]
 
         self._metric_keys = [

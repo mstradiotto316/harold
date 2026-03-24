@@ -15,24 +15,27 @@ Used by `scripts/autoresearch.py` to validate proposed changes before applying t
 
 | Parameter | Category | Current | Range | Notes |
 |-----------|----------|---------|-------|-------|
-| `track_lin_vel_xy_weight` | TUNABLE | 5.0 | [0.5, 20.0] | Primary velocity tracking |
-| `track_lin_vel_xy_std` | TUNABLE | 0.15 | [0.1, 1.0] | Kernel sharpness (Session 53: tightened from 0.25) |
-| `track_ang_vel_z_weight` | TUNABLE | 2.0 | [0.0, 10.0] | Yaw rate tracking |
-| `track_ang_vel_z_std` | TUNABLE | 0.25 | [0.1, 1.0] | Kernel sharpness |
-| `lin_vel_z_weight` | TUNABLE | -0.05 | [-2.0, 0.0] | Vertical bobbing penalty (Session 51 post-mortem: 500x from -0.0001) |
-| `ang_vel_xy_weight` | TUNABLE | -0.1 | [-2.0, 0.0] | Roll/pitch penalty (Session 51 post-mortem: 10x from -0.01) |
-| `dof_torques_weight` | TUNABLE | -0.0001 | [-0.01, 0.0] | Torque smoothness |
-| `dof_acc_weight` | TUNABLE | -2.5e-7 | [-1e-5, 0.0] | Acceleration smoothness |
-| `action_rate_weight` | TUNABLE | -0.1 | [-0.5, 0.0] | Action smoothness (Session 51 post-mortem: 10x from -0.01) |
-| `feet_air_time_weight` | TUNABLE | 2.0 | [0.0, 5.0] | Stepping encouragement |
-| `feet_air_time_threshold` | TUNABLE | 0.3 | [0.1, 0.6] | Target air time (s) |
+| `track_lin_vel_xy_weight` | TUNABLE | 5.0 | [0.5, 20.0] | Spot: 5.0. Primary velocity tracking |
+| `track_lin_vel_xy_std` | TUNABLE | 0.15 | [0.1, 1.0] | Harold-specific (Spot: 1.0, but Harold's cmd range is 10x smaller) |
+| `track_ang_vel_z_weight` | TUNABLE | 2.0 | [0.0, 10.0] | Harold-specific (Spot: 5.0, smaller yaw range) |
+| `track_ang_vel_z_std` | TUNABLE | 0.25 | [0.1, 1.0] | Harold-specific |
+| `base_orientation_weight` | TUNABLE | 3.0 | [0.5, 5.0] | Spot: 3.0. Tilt penalty (replaces +3.0 upright REWARD) |
+| `base_motion_weight` | TUNABLE | 2.0 | [0.5, 5.0] | Spot: 2.0. Combined vz + omega_xy (replaces lin_vel_z + ang_vel_xy) |
+| `action_smoothness_weight` | TUNABLE | 1.0 | [0.1, 3.0] | Spot: 1.0. L2 norm of action diff (replaces action_rate) |
+| `dof_torques_weight` | TUNABLE | -5e-4 | [-0.01, 0.0] | Spot: -5e-4 (was -0.0001) |
+| `dof_acc_weight` | TUNABLE | -2.5e-7 | [-1e-5, 0.0] | Kept (negligible) |
+| `shoulder_joint_vel_weight` | TUNABLE | 0.01 | [0.0, 0.1] | Spot: 1e-2 on hip joints. Harold shoulders = Spot hips |
+| `feet_air_time_weight` | TUNABLE | 5.0 | [0.0, 10.0] | Spot: 5.0 (was 2.0) |
+| `feet_air_time_threshold` | TUNABLE | 0.3 | [0.1, 0.6] | Spot: 0.3 |
+| `continuous_gait_weight` | TUNABLE | 10.0 | [1.0, 20.0] | Spot: 10.0 (was hardcoded 5.0) |
+| `air_time_variance_weight` | TUNABLE | 1.0 | [0.1, 3.0] | Spot: 1.0 (was hardcoded 0.5) |
+| `foot_slip_weight` | TUNABLE | 0.5 | [0.0, 2.0] | Spot: 0.5 (was hardcoded 0.1) |
 | `undesired_contacts_weight` | TUNABLE | -1.0 | [-5.0, 0.0] | Body contact penalty |
 | `undesired_contacts_threshold` | TUNABLE | 1.0 | [0.1, 10.0] | Contact force threshold (N) |
-| `upright_weight` | TUNABLE | 3.0 | [0.0, 10.0] | Upright stability |
-| `forward_motion_weight` | TUNABLE | 7.0 | [0.0, 15.0] | Forward velocity bootstrap |
-| `joint_pos_weight` | TUNABLE | 0.7 | [0.1, 2.0] | Base joint deviation penalty (Spot uses 0.7) |
-| `joint_pos_stand_still_scale` | TUNABLE | 5.0 | [1.0, 10.0] | Standing-when-commanded multiplier (Session 53) |
-| `joint_pos_velocity_threshold` | TUNABLE | 0.1 | [0.05, 0.3] | m/s — below this, robot counts as "not moving" |
+| `forward_motion_weight` | TUNABLE | 3.0 | [0.0, 10.0] | Harold-specific bootstrap (Spot has none). Was 7.0 |
+| `joint_pos_weight` | TUNABLE | 0.7 | [0.1, 2.0] | Spot: 0.7 |
+| `joint_pos_stand_still_scale` | TUNABLE | 5.0 | [1.0, 10.0] | Spot: 5.0. 5x when standing with NO command (Spot original direction) |
+| `joint_pos_velocity_threshold` | TUNABLE | 0.1 | [0.05, 0.3] | Harold-specific (Spot: 0.5) |
 
 ### Command Config (CommandCfg)
 

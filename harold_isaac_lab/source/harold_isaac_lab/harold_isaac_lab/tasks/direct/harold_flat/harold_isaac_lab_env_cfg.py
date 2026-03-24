@@ -56,60 +56,51 @@ HAROLD_FLAT_TERRAIN_CFG = TerrainGeneratorCfg(
 
 @configclass
 class RewardsCfg:
-    """Simplified reward structure following Isaac Lab reference pattern.
+    """Spot-aligned reward structure (Session 54).
 
-    Session 36: Pure RL for velocity-commanded walking.
-    ~10 core terms for clean gradient signals, no CPG-specific rewards.
+    No existence rewards (upright, stance_height). Only penalize bad states,
+    reward locomotion. Standing earns ~4.2/step, walking earns ~13.0/step.
 
-    Reference: isaaclab_tasks/manager_based/locomotion/velocity/velocity_env_cfg.py
+    Reference: IsaacLab Spot flat config (flat_env_cfg.py, mdp/rewards.py)
     """
 
-    # === TASK REWARDS (exponential kernels for smooth gradients) ===
-    # Session 36d: Increased weights for stronger velocity incentive
-    # With std=0.5, standing gives ~0.91 reward, walking gives ~1.0
-    # Increasing weight amplifies this difference
-    track_lin_vel_xy_weight: float = 5.0      # Primary: velocity tracking (was 1.5)
-    track_lin_vel_xy_std: float = 0.15        # Session 53: tightened from 0.25. Standing drops from 70%→37% at cmd_vx=0.15.
+    # === TASK REWARDS (velocity tracking) ===
+    track_lin_vel_xy_weight: float = 5.0      # Spot: 5.0
+    track_lin_vel_xy_std: float = 0.15        # Harold-specific (Spot: 1.0, but Harold's cmd range is 10x smaller)
 
-    track_ang_vel_z_weight: float = 2.0       # Yaw rate tracking (was 0.75)
-    track_ang_vel_z_std: float = 0.25         # Steeper gradient
+    track_ang_vel_z_weight: float = 2.0       # Harold-specific (Spot: 5.0, but Harold's yaw range is smaller)
+    track_ang_vel_z_std: float = 0.25         # Harold-specific
 
-    # === MOTION QUALITY PENALTIES ===
-    # Session 36 fix: -2.0 caused -43800/ep, -0.05 caused -1149/ep
-    # Harold produces higher body-frame vertical velocities than larger robots
-    # Session 36h: -0.0005 still limits movement, trying -0.0001
-    lin_vel_z_weight: float = -0.0001           # EXP-697 sweet spot: prevents scrambling while allowing micro-stepping.
-    ang_vel_xy_weight: float = -0.01           # Restored to pre-PM level. 5-10x increases caused standing lock.
+    # === BASE QUALITY PENALTIES (Spot-aligned, replace existence rewards) ===
+    base_orientation_weight: float = 3.0      # Spot: 3.0. Penalizes tilting (replaces +3.0 upright REWARD)
+    base_motion_weight: float = 2.0           # Spot: 2.0. Combined vz + omega_xy (replaces -0.0001 lin_vel_z + -0.01 ang_vel_xy)
 
-    # === SMOOTHNESS PENALTIES ===
-    dof_torques_weight: float = -0.0001       # Smooth torques
-    dof_acc_weight: float = -2.5e-7           # Smooth joint accelerations
-    action_rate_weight: float = -0.01          # Restored to pre-PM level. 5-10x increases caused standing lock.
+    # === SMOOTHNESS PENALTIES (Spot-aligned) ===
+    dof_torques_weight: float = -5e-4         # Spot: -5e-4. Was -0.0001 (5x increase)
+    dof_acc_weight: float = -2.5e-7           # Kept (negligible)
+    action_smoothness_weight: float = 1.0     # Spot: 1.0. L2 norm of action diff (replaces -0.01 sum-of-squares)
+    shoulder_joint_vel_weight: float = 0.01   # Spot: 1e-2 on hip joints. Harold shoulders = Spot hips.
 
-    # === GAIT REWARDS ===
-    # Session 36i: Increased 0.2 → 1.0 to force stepping behavior
-    feet_air_time_weight: float = 2.0         # Strongly encourage stepping
-    feet_air_time_threshold: float = 0.3      # Target air time (seconds)
+    # === GAIT REWARDS (Spot-aligned weights) ===
+    feet_air_time_weight: float = 5.0         # Spot: 5.0. Was 2.0
+    feet_air_time_threshold: float = 0.3      # Spot: 0.3
+    continuous_gait_weight: float = 10.0      # Spot: 10.0. Was hardcoded 5.0
+    air_time_variance_weight: float = 1.0     # Spot: 1.0. Was hardcoded 0.5
 
+    # === CONTACT PENALTIES ===
     undesired_contacts_weight: float = -1.0   # Penalize body contact
     undesired_contacts_threshold: float = 1.0 # Force threshold (Newtons)
+    foot_slip_weight: float = 0.5             # Spot: 0.5. Was hardcoded 0.1
 
-    # === STABILITY REWARD ===
-    upright_weight: float = 3.0               # Stay upright (uses projected gravity). Session 47/48 winning config.
+    # === FORWARD MOTION BOOTSTRAP (Harold-specific, Spot has none) ===
+    forward_motion_weight: float = 3.0        # Reduced from 7.0. Bootstrap only.
 
-    # === FORWARD MOTION BONUS ===
-    # Session 36e: Direct reward for positive vx to bootstrap walking
-    # EXP-350: 5.0 redirected stepping forward (was 3.0). Confirmed essential.
-    # EXP-362: 4.0 lost direction, EXP-366: 7.0 too aggressive. 5.0 is sweet spot.
-    forward_motion_weight: float = 7.0       # EXP-702 config: 50/50 body/world hybrid at weight 10.
-
-    # === JOINT POSITION REGULARIZATION ===
-    # Session 53: Spot-adapted standing penalty. INVERTED from Spot's original logic
-    # (which penalizes standing with NO command). Previous attempt (0666fdb) used Spot's
-    # logic directly and was reverted ("caused standing lock").
-    joint_pos_weight: float = 0.7             # Base weight (Spot uses 0.7, Harold had 0.2)
-    joint_pos_stand_still_scale: float = 5.0  # 5x when standing but commanded to move
-    joint_pos_velocity_threshold: float = 0.1 # m/s — below this, robot counts as "not moving"
+    # === JOINT POSITION REGULARIZATION (Spot original direction) ===
+    # Spot: 5x when standing with NO command (keeps tidy when idle).
+    # Safe to use Spot direction now that existence rewards are removed.
+    joint_pos_weight: float = 0.7             # Spot: 0.7
+    joint_pos_stand_still_scale: float = 5.0  # Spot: 5.0
+    joint_pos_velocity_threshold: float = 0.1 # Harold-specific (Spot: 0.5)
 
 
 @configclass

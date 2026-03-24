@@ -601,12 +601,16 @@ def backfill_results() -> int:
 # Map parameter names to search axes for plateau detection / synthesis
 _PARAM_AXIS = {}
 _REWARD_PARAMS = {
-    "track_lin_vel_xy_weight", "track_lin_vel_xy_std", "track_ang_vel_z_weight",
-    "track_ang_vel_z_std", "lin_vel_z_weight", "ang_vel_xy_weight",
-    "dof_torques_weight", "dof_acc_weight", "action_rate_weight",
+    "track_lin_vel_xy_weight", "track_lin_vel_xy_std",
+    "track_ang_vel_z_weight", "track_ang_vel_z_std",
+    "base_orientation_weight", "base_motion_weight",
+    "dof_torques_weight", "dof_acc_weight", "action_smoothness_weight",
     "feet_air_time_weight", "feet_air_time_threshold",
+    "continuous_gait_weight", "air_time_variance_weight",
+    "foot_slip_weight", "shoulder_joint_vel_weight",
     "undesired_contacts_weight", "undesired_contacts_threshold",
-    "upright_weight", "forward_motion_weight",
+    "forward_motion_weight",
+    "joint_pos_weight", "joint_pos_stand_still_scale", "joint_pos_velocity_threshold",
 }
 _COMMAND_PARAMS = {
     "vx_min", "vx_max", "vy_min", "vy_max", "yaw_min", "yaw_max",

@@ -39,6 +39,9 @@ def extract_sim_time_scalar(time_buffer: torch.Tensor, env_index: int = 0) -> fl
 def compute_rewards(env) -> torch.Tensor:
     """Compute per-step rewards for all environments.
 
+    Session 54: Spot-aligned reward structure. No existence rewards (upright, stance_height).
+    Only penalize bad states, reward locomotion. Standing earns ~4.2/step, walking ~13.0/step.
+
     Args:
         env: HaroldIsaacLabEnv instance (access state via env._robot, env.cfg, etc.)
 
@@ -55,7 +58,6 @@ def compute_rewards(env) -> torch.Tensor:
     joint_acc = env._robot.data.joint_acc
     applied_torque = env._robot.data.applied_torque
 
-    # Body-frame velocities for reward computation (commands are body-frame).
     vx_b = root_lin_vel_b[:, 0]
     vy_b = root_lin_vel_b[:, 1]
     wz = root_ang_vel_b[:, 2]
@@ -73,16 +75,33 @@ def compute_rewards(env) -> torch.Tensor:
     ang_vel_error = torch.square(wz - cmd_yaw)
     track_ang_vel_z = torch.exp(-ang_vel_error / (cfg.track_ang_vel_z_std ** 2))
 
-    # === MOTION QUALITY PENALTIES ===
+    # === BASE ORIENTATION PENALTY (Spot-aligned, replaces upright reward) ===
+    # Spot: -3.0 * norm(projected_gravity_xy). Zero when level, negative when tilted.
+    base_orientation_penalty = -cfg.base_orientation_weight * torch.norm(
+        projected_gravity[:, :2], dim=1
+    )
+
+    # === BASE MOTION PENALTY (Spot-aligned, replaces lin_vel_z + ang_vel_xy) ===
+    # Spot: -2.0 * (0.8 * vz² + 0.2 * |omega_xy|)
     vz_w = root_lin_vel_w[:, 2]
-    lin_vel_z = torch.square(vz_w)  # world-frame vertical velocity (not body-frame Z)
-    ang_vel_xy = torch.sum(torch.square(root_ang_vel_b[:, :2]), dim=1)
+    omega_xy_norm = torch.norm(root_ang_vel_b[:, :2], dim=1)
+    base_motion_penalty = -cfg.base_motion_weight * (
+        0.8 * torch.square(vz_w) + 0.2 * omega_xy_norm
+    )
+
+    # === ACTION SMOOTHNESS (Spot-aligned, replaces action_rate) ===
+    # Spot: -1.0 * norm(action_diff). L2 norm, not sum-of-squares.
+    action_diff = env._actions - env._previous_actions
+    action_smoothness = -cfg.action_smoothness_weight * torch.norm(action_diff, dim=1)
 
     # === SMOOTHNESS PENALTIES ===
-    dof_torques = torch.sum(torch.square(applied_torque), dim=1)
-    dof_acc = torch.sum(torch.square(joint_acc), dim=1)
-    action_rate = torch.sum(
-        torch.square(env._actions - env._previous_actions), dim=1
+    dof_torques = cfg.dof_torques_weight * torch.sum(torch.square(applied_torque), dim=1)
+    dof_acc = cfg.dof_acc_weight * torch.sum(torch.square(joint_acc), dim=1)
+
+    # === SHOULDER JOINT VELOCITY PENALTY (Spot's hip joint vel) ===
+    # Harold's shoulders (indices 0-3) = Spot's hips.
+    shoulder_joint_vel = -cfg.shoulder_joint_vel_weight * torch.sum(
+        torch.square(env._robot.data.joint_vel[:, :4]), dim=1
     )
 
     # === GAIT: FEET AIR TIME ===
@@ -91,14 +110,10 @@ def compute_rewards(env) -> torch.Tensor:
     air_time_reward = torch.sum(
         (last_air_time - cfg.feet_air_time_threshold) * first_contact.float(), dim=1
     )
-    # Only reward air time when commanded to move
     cmd_magnitude = torch.norm(env._commands[:, :2], dim=1)
     air_time_reward = air_time_reward * (cmd_magnitude > 0.05).float()
 
-    # === CONTINUOUS GAIT REWARD (ported from Isaac Lab Spot) ===
-    # Enforces diagonal trot timing using exponential kernels on air/contact time pairs.
-    # Synced pairs: FL(0)+BR(3) and FR(1)+BL(2) — same diagonal pairs as gait_alternation.
-    # _feet_ids order: FL(0), FR(1), BL(2), BR(3)
+    # === CONTINUOUS GAIT REWARD (from Spot) ===
     current_air_time = env._contact_sensor.data.current_air_time[:, env._feet_ids]
     current_contact_time = env._contact_sensor.data.current_contact_time[:, env._feet_ids]
 
@@ -106,24 +121,19 @@ def compute_rewards(env) -> torch.Tensor:
     gait_max_err = 0.3  # Spot uses 0.2; wider for Harold's morphology
 
     def _sync_reward(foot_a, foot_b):
-        """Reward two feet being in sync (same air/contact timing)."""
         se_air = torch.clip(torch.square(current_air_time[:, foot_a] - current_air_time[:, foot_b]), max=gait_max_err**2)
         se_contact = torch.clip(torch.square(current_contact_time[:, foot_a] - current_contact_time[:, foot_b]), max=gait_max_err**2)
         return torch.exp(-(se_air + se_contact) / gait_std)
 
     def _async_reward(foot_a, foot_b):
-        """Reward two feet being out of phase (one's air = other's contact)."""
         se_0 = torch.clip(torch.square(current_air_time[:, foot_a] - current_contact_time[:, foot_b]), max=gait_max_err**2)
         se_1 = torch.clip(torch.square(current_contact_time[:, foot_a] - current_air_time[:, foot_b]), max=gait_max_err**2)
         return torch.exp(-(se_0 + se_1) / gait_std)
 
-    # Synced pairs must match: FL(0)+BR(3), FR(1)+BL(2)
     sync_reward = _sync_reward(0, 3) * _sync_reward(1, 2)
-    # Async pairs must be out of phase
     async_reward = (_async_reward(0, 1) * _async_reward(3, 2)
                     * _async_reward(0, 2) * _async_reward(3, 1))
-    # Only enforce gait when moving
-    gait_velocity_threshold = 0.1  # Spot uses 0.5; Harold is slower
+    gait_velocity_threshold = 0.1
     body_vel = torch.linalg.norm(root_lin_vel_b[:, :2], dim=1)
     gait_active = torch.logical_or(cmd_magnitude > 0.05, body_vel > gait_velocity_threshold).float()
     continuous_gait_reward = sync_reward * async_reward * gait_active
@@ -154,84 +164,44 @@ def compute_rewards(env) -> torch.Tensor:
     env._foot_slip_speed_sum += slip_sample
     env._foot_slip_speed_count += foot_contact.float()
 
-    # === STABILITY: UPRIGHT ===
-    upright = -projected_gravity[:, 2]
+    # === FOOT SLIP PENALTY (Spot-aligned) ===
+    foot_slip_penalty = -cfg.foot_slip_weight * torch.sum(slip_sample, dim=1)
 
-    # === HEIGHT METRIC (terrain-relative) ===
-    pos_z = env._height_scanner.data.pos_w[:, 2].unsqueeze(1)
-    ray_z = env._height_scanner.data.ray_hits_w[..., 2]
-    ray_z = torch.where(torch.isfinite(ray_z), ray_z, pos_z)
-    height_data = pos_z - ray_z
-    current_height = torch.mean(height_data, dim=1)
-    target_height = env.cfg.gait.target_height
-    height_error = torch.abs(current_height - target_height)
-    height_reward = torch.tanh(3.0 * torch.exp(-5.0 * height_error))
+    # === FORWARD MOTION BONUS (Harold-specific bootstrap, Spot has none) ===
+    # Gate by tilt quality (orientation penalty replaces upright reward).
+    base_tilt = torch.norm(projected_gravity[:, :2], dim=1)
+    posture_quality = (1.0 - base_tilt).clamp(0.0, 1.0)
+    forward_motion = cfg.forward_motion_weight * vx_b * posture_quality * (cmd_vx > 0.05).float()
 
-    # === BODY CONTACT METRIC ===
-    body_contact_penalty = -undesired_contacts
-
-    # === FORWARD MOTION BONUS ===
-    # Pure body-frame vx, gated by posture quality.
-    # EXP-717: test body-frame at 4096 envs + grad_norm=0.5 (untested combo).
-    # Hybrid approach (EXP-702-715) produced x_disp<0.02m. Body-frame may produce more
-    # displacement at 4096 envs where standing attractor is weaker.
-    vx_w = root_lin_vel_w[:, 0]
-    forward_motion = cfg.forward_motion_weight * vx_b * upright.clamp(0.0, 1.0) * (cmd_vx > 0.05).float()
-
-    # === STANDSTILL PENALTY ===
-    # Disabled: testing body-frame forward_motion without standstill at 4096 envs.
-    standstill_penalty = torch.zeros(env.num_envs, device=env.device)
-
-    # === STANCE HEIGHT REWARD ===
-    stance_height = 4.0 * height_reward
-
-    # === FOOT SLIP PENALTY ===
-    foot_slip_penalty = -0.1 * torch.sum(slip_sample, dim=1)
-
-    # === DIAGONAL GAIT ALTERNATION REWARD ===
-    # Reward trot-like gait: diagonal pairs (FL+BR, FR+BL) should alternate contact.
-    # foot_contact order: FL(0), FR(1), BL(2), BR(3)
-    # Diagonal pair A: FL(0) + BR(3),  Diagonal pair B: FR(1) + BL(2)
-    pair_a_contact = foot_contact[:, 0].float() + foot_contact[:, 3].float()  # 0-2
-    pair_b_contact = foot_contact[:, 1].float() + foot_contact[:, 2].float()  # 0-2
-    # Reward when one pair is in contact and the other is in the air
-    # Perfect trot: pair_a=2,pair_b=0 or pair_a=0,pair_b=2 → diff=2
-    # Standing: pair_a=2,pair_b=2 → diff=0
-    contact_diff = torch.abs(pair_a_contact - pair_b_contact)  # 0-2
-    gait_alternation = 0.5 * contact_diff * (cmd_magnitude > 0.05).float()
-
-    # === JOINT POSITION REGULARIZATION (adapted from Spot) ===
-    # Penalize deviation from default pose. 5x stronger when commanded to move but standing.
-    # INVERTED from Spot's original logic (which penalizes standing with NO command).
-    # Previous attempt (0666fdb) used Spot's logic directly and was reverted.
+    # === JOINT POSITION REGULARIZATION (Spot original direction) ===
+    # Spot: 5x when standing with NO command (keeps tidy when idle).
+    # Safe now: existence rewards removed, so standing at default pose earns ~4/step not ~10/step.
     joint_pos_error = torch.linalg.norm(
         env._robot.data.joint_pos - env._robot.data.default_joint_pos, dim=1
     )
     has_move_cmd = cmd_magnitude > 0.05
     is_standing = body_vel < cfg.joint_pos_velocity_threshold
-    standing_when_should_move = has_move_cmd & is_standing
+    standing_no_command = (~has_move_cmd) & is_standing
     joint_pos_penalty = -cfg.joint_pos_weight * torch.where(
-        standing_when_should_move,
-        cfg.joint_pos_stand_still_scale * joint_pos_error,  # 5x when standing but should move
-        joint_pos_error,                                      # 1x when moving or no command
+        standing_no_command,
+        cfg.joint_pos_stand_still_scale * joint_pos_error,  # 5x when standing with NO command
+        joint_pos_error,                                      # 1x otherwise
     )
 
-    # === AIR TIME VARIANCE PENALTY (ported from Spot) ===
-    # Penalize inconsistent step timing across feet.
+    # === AIR TIME VARIANCE PENALTY (Spot-aligned) ===
     last_contact_time = env._contact_sensor.data.last_contact_time[:, env._feet_ids]
     air_time_var = torch.var(torch.clip(last_air_time, max=0.5), dim=1)
     contact_time_var = torch.var(torch.clip(last_contact_time, max=0.5), dim=1)
-    air_time_variance_penalty = -0.5 * (air_time_var + contact_time_var)
+    air_time_variance_penalty = -cfg.air_time_variance_weight * (air_time_var + contact_time_var)
 
-    # === FOOT CLEARANCE REWARD (replaces foot_lift_reward, ported from Spot) ===
-    # Reward feet reaching target height during swing, gated by horizontal velocity.
+    # === FOOT CLEARANCE REWARD (from Spot) ===
     foot_pos_z = env._robot.data.body_pos_w[:, env._feet_body_ids, 2]
-    foot_clearance_target = 0.05  # 5cm clearance (Spot uses 10cm, Harold is smaller)
+    foot_clearance_target = 0.05  # 5cm (Spot uses 10cm, Harold is smaller)
     foot_z_error = torch.square(foot_pos_z - foot_clearance_target)
     foot_xy_vel = torch.linalg.norm(
         env._robot.data.body_lin_vel_w[:, env._feet_body_ids, :2], dim=2
     )
-    foot_velocity_gate = torch.tanh(2.0 * foot_xy_vel)  # gates reward to moving feet
+    foot_velocity_gate = torch.tanh(2.0 * foot_xy_vel)
     foot_clearance = foot_z_error * foot_velocity_gate
     foot_clearance_reward = 0.5 * torch.exp(-torch.sum(foot_clearance, dim=1) / 0.05)
 
@@ -239,23 +209,20 @@ def compute_rewards(env) -> torch.Tensor:
     rewards = {
         "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
         "track_ang_vel_z": cfg.track_ang_vel_z_weight * track_ang_vel_z,
-        "lin_vel_z": cfg.lin_vel_z_weight * lin_vel_z,
-        "ang_vel_xy": cfg.ang_vel_xy_weight * ang_vel_xy,
-        "dof_torques": cfg.dof_torques_weight * dof_torques,
-        "dof_acc": cfg.dof_acc_weight * dof_acc,
-        "action_rate": cfg.action_rate_weight * action_rate,
+        "base_orientation_penalty": base_orientation_penalty,
+        "base_motion_penalty": base_motion_penalty,
+        "action_smoothness": action_smoothness,
+        "dof_torques": dof_torques,
+        "dof_acc": dof_acc,
+        "shoulder_joint_vel": shoulder_joint_vel,
         "feet_air_time": cfg.feet_air_time_weight * air_time_reward,
         "undesired_contacts": cfg.undesired_contacts_weight * undesired_contacts,
-        "upright": cfg.upright_weight * upright,
         "forward_motion": forward_motion,
-        "stance_height": stance_height,
         "foot_slip_penalty": foot_slip_penalty,
-        "gait_alternation": gait_alternation,
-        "continuous_gait_reward": 5.0 * continuous_gait_reward,
+        "continuous_gait_reward": cfg.continuous_gait_weight * continuous_gait_reward,
         "joint_pos_penalty": joint_pos_penalty,
         "air_time_variance_penalty": air_time_variance_penalty,
         "foot_clearance_reward": foot_clearance_reward,
-        "standstill_penalty": standstill_penalty,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
@@ -265,7 +232,8 @@ def compute_rewards(env) -> torch.Tensor:
             env._episode_sums[key] = torch.zeros(env.num_envs, dtype=torch.float, device=env.device)
         env._episode_sums[key] += value
 
-    # Telemetry: keep world-frame speed diagnostic metrics separate from body-frame command tracking.
+    # === TELEMETRY (not in reward, just metrics) ===
+    upright = -projected_gravity[:, 2]
     env._episode_sums["vx_w_mean"] += env._robot.data.root_lin_vel_w[:, 0]
     env._episode_sums["vy_w_mean"] += torch.abs(env._robot.data.root_lin_vel_w[:, 1])
     env._episode_sums["upright_mean"] += upright.clamp(0.0, 1.0)

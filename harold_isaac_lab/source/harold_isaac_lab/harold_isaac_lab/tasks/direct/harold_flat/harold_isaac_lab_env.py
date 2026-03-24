@@ -15,7 +15,7 @@ from .harold_isaac_lab_env_cfg import HaroldIsaacLabEnvCfg
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.math import quat_from_angle_axis, sample_uniform
-from isaaclab.utils.noise import gaussian_noise, uniform_noise
+from isaaclab.utils.noise import gaussian_noise
 from harold_isaac_lab.common.stance import load_rl_default_pose
 from . import train_env
 
@@ -390,29 +390,17 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._foot_slip_speed_sum = torch.zeros((self.num_envs, 4), device=self.device)
         self._foot_slip_speed_count = torch.zeros((self.num_envs, 4), device=self.device)
         self._episode_start_pos = self._robot.data.root_pos_w.clone()
-        # --- Domain Randomization Buffers ---
-        # Store randomized parameters per environment for consistency within episodes
-        # Initialize with default values from configuration
-        default_friction = self.cfg.sim.physics_material.static_friction
-        default_stiffness = self.cfg.robot.actuators["all_joints"].stiffness
-        default_damping = self.cfg.robot.actuators["all_joints"].damping
-        
-        self._randomized_friction = torch.ones(self.num_envs, device=self.device) * default_friction
-        self._randomized_mass_scale = torch.ones(self.num_envs, device=self.device)
-        self._randomized_stiffness = torch.ones(self.num_envs, 12, device=self.device) * default_stiffness
-        self._randomized_damping = torch.ones(self.num_envs, 12, device=self.device) * default_damping
-
         # Linear velocity bias buffer (per-episode calibration error)
         # Session 29: Hardware IMU has per-session calibration drift
         self._lin_vel_bias = torch.zeros(self.num_envs, 3, device=self.device)
 
-        # Action delay buffer for simulating control latency
-        if cfg.domain_randomization.add_action_delay:
-            max_delay = cfg.domain_randomization.action_delay_steps[1]
-            self._action_delay_buffer = torch.zeros(
-                self.num_envs, max_delay + 1, self.cfg.action_space, device=self.device
+        # --- Velocity Push Buffers (Spot-style mid-episode disturbances) ---
+        dr = cfg.domain_randomization
+        if dr.enable_velocity_pushes:
+            self._push_timer = torch.zeros(self.num_envs, device=self.device)
+            self._push_interval = torch.empty(self.num_envs, device=self.device).uniform_(
+                *dr.push_interval_range
             )
-            self._action_delays = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
 
         # --- Backlash Hysteresis State (Session 37) ---
         # Track "engaged position" where gears are meshed. Commands within the
@@ -741,9 +729,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # --- Send joint targets to robot ---
         self._robot.set_joint_position_target(effective_target)
         
-        # --- Apply external forces if domain randomization is enabled ---
-        if self.cfg.domain_randomization.enable_randomization:
-            self._apply_external_forces()
+        # --- Apply velocity pushes (Spot-style mid-episode disturbances) ---
+        if self.cfg.domain_randomization.enable_velocity_pushes:
+            self._apply_velocity_push()
 
         # --- Decimation counter for logging/diagnostics ---
         self._decimation_counter += 1  # Increment counter
@@ -1006,19 +994,14 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         default_root_state[:, :3] += origins[env_ids]
 
+        # Apply reset state randomization (Spot-style, Session 55)
+        dr = self.cfg.domain_randomization
+        if dr.enable_randomization and dr.enable_reset_randomization:
+            self._randomize_reset_state(env_ids, default_root_state, joint_pos, joint_vel)
+
         self._robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)
         self._robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
-
-        dr = self.cfg.domain_randomization
-        if dr.enable_randomization and dr.randomize_on_reset:
-            self._randomize_robot_properties(env_ids)
-            self._randomize_physics_materials(env_ids)
-            if dr.add_action_delay:
-                delay_min, delay_max = dr.action_delay_steps
-                self._action_delays[env_ids] = torch.randint(
-                    delay_min, delay_max + 1, (len(env_ids),), device=self.device
-                )
 
         # Randomize lin_vel bias per-episode (always when DR enabled)
         # Session 29: Hardware IMU has calibration drift that persists per-episode
@@ -1029,6 +1012,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             ) * bias_std
 
         self._time[env_ids] = 0
+
+        # Reset velocity push timers
+        if dr.enable_velocity_pushes and hasattr(self, '_push_timer'):
+            self._push_timer[env_ids] = 0.0
+            self._push_interval[env_ids] = torch.empty(
+                len(env_ids), device=self.device
+            ).uniform_(*dr.push_interval_range)
 
         log = {}
         if len(env_ids) > 0:
@@ -1108,72 +1098,77 @@ class HaroldIsaacLabEnv(DirectRLEnv):
     # ==========================================
     # Domain Randomization Methods
     # ==========================================
-    
-    def _randomize_robot_properties(self, env_ids: torch.Tensor) -> None:
-        """Randomize robot physical properties for specified environments.
-        
-        Applies randomization to mass, inertia, joint properties, and actuator
-        characteristics. Called during environment reset for sim-to-real transfer.
-        
-        Args:
-            env_ids: Indices of environments to randomize
+
+    def _randomize_reset_state(self, env_ids: torch.Tensor, default_root_state: torch.Tensor,
+                               joint_pos: torch.Tensor, joint_vel: torch.Tensor) -> None:
+        """Randomize initial state at episode reset (Spot-style, Session 55).
+
+        Modifies root state, joint positions, and joint velocities in-place
+        so the existing write_*_to_sim calls pick up the changes.
         """
-        if not self.cfg.domain_randomization.enable_randomization:
-            return
-            
-        num_envs_to_randomize = len(env_ids)
-        
-        # Randomize joint stiffness
-        if self.cfg.domain_randomization.randomize_joint_stiffness:
-            stiffness_min, stiffness_max = self.cfg.domain_randomization.stiffness_range
-            self._randomized_stiffness[env_ids] = sample_uniform(
-                stiffness_min, stiffness_max, (num_envs_to_randomize, 12), self.device
-            )
-            # Note: In Direct workflow, actuator properties are typically set at initialization
-            # Dynamic modification would require accessing the underlying PhysX articulation
-            # For now, store the values for potential use in custom PD control
-        
-        # Randomize joint damping
-        if self.cfg.domain_randomization.randomize_joint_damping:
-            damping_min, damping_max = self.cfg.domain_randomization.damping_range
-            self._randomized_damping[env_ids] = sample_uniform(
-                damping_min, damping_max, (num_envs_to_randomize, 12), self.device
-            )
-            # Note: In Direct workflow, actuator properties are typically set at initialization
-            # Dynamic modification would require accessing the underlying PhysX articulation
-            # For now, store the values for potential use in custom PD control
-        
-        # Randomize mass (scale all link masses proportionally)
-        if self.cfg.domain_randomization.randomize_mass:
-            mass_min, mass_max = self.cfg.domain_randomization.mass_range
-            self._randomized_mass_scale[env_ids] = sample_uniform(
-                mass_min, mass_max, (num_envs_to_randomize,), self.device
-            )
-            # Note: Mass randomization requires modifying body properties
-            # This is more complex in Direct workflow and may require USD modifications
-    
-    def _randomize_physics_materials(self, env_ids: torch.Tensor) -> None:
-        """Randomize physics material properties for specified environments.
-        
-        Modifies friction and restitution coefficients for ground contact.
-        
-        Args:
-            env_ids: Indices of environments to randomize
+        dr = self.cfg.domain_randomization
+        n = len(env_ids)
+
+        # Root velocity randomization
+        default_root_state[:, 7] += torch.empty(n, device=self.device).uniform_(*dr.reset_lin_vel_x_range)
+        default_root_state[:, 8] += torch.empty(n, device=self.device).uniform_(*dr.reset_lin_vel_y_range)
+        default_root_state[:, 9] += torch.empty(n, device=self.device).uniform_(*dr.reset_lin_vel_z_range)
+        default_root_state[:, 10] += torch.empty(n, device=self.device).uniform_(*dr.reset_ang_vel_roll_range)
+        default_root_state[:, 11] += torch.empty(n, device=self.device).uniform_(*dr.reset_ang_vel_pitch_range)
+        default_root_state[:, 12] += torch.empty(n, device=self.device).uniform_(*dr.reset_ang_vel_yaw_range)
+
+        # Joint position randomization (around ready_pose, clipped to limits)
+        joint_pos += sample_uniform(
+            -dr.reset_joint_pos_noise, dr.reset_joint_pos_noise, (n, 12), self.device
+        )
+        joint_pos.clamp_(self._JOINT_ANGLE_MIN, self._JOINT_ANGLE_MAX)
+
+        # Joint velocity randomization
+        joint_vel[:] = sample_uniform(
+            -dr.reset_joint_vel_noise, dr.reset_joint_vel_noise, (n, 12), self.device
+        )
+
+    def _apply_velocity_push(self) -> None:
+        """Apply timer-based velocity pushes (Spot-style mid-episode disturbances).
+
+        Fires every 8-12 seconds, adding a random XY velocity delta.
+        Uses write_root_velocity_to_sim which is predictable across mass scales.
         """
-        if not self.cfg.domain_randomization.enable_randomization:
+        if not hasattr(self, '_push_timer'):
             return
-            
-        num_envs_to_randomize = len(env_ids)
-        
-        # Randomize friction
-        if self.cfg.domain_randomization.randomize_friction:
-            friction_min, friction_max = self.cfg.domain_randomization.friction_range
-            self._randomized_friction[env_ids] = sample_uniform(
-                friction_min, friction_max, (num_envs_to_randomize,), self.device
-            )
-            # Note: In Direct workflow, material properties are typically set at scene creation
-            # Dynamic modification requires accessing PhysX APIs directly
-    
+
+        dt = self.step_dt
+        self._push_timer += dt
+
+        expired = self._push_timer >= self._push_interval
+        if not expired.any():
+            return
+
+        push_ids = expired.nonzero(as_tuple=False).squeeze(-1)
+        n = len(push_ids)
+        if n == 0:
+            return
+
+        dr = self.cfg.domain_randomization
+
+        # Read current root velocity and apply XY delta
+        current_vel = self._robot.data.root_lin_vel_w[push_ids].clone()
+        current_ang_vel = self._robot.data.root_ang_vel_w[push_ids].clone()
+        current_vel[:, 0] += torch.empty(n, device=self.device).uniform_(
+            -dr.push_vel_xy_range, dr.push_vel_xy_range
+        )
+        current_vel[:, 1] += torch.empty(n, device=self.device).uniform_(
+            -dr.push_vel_xy_range, dr.push_vel_xy_range
+        )
+        root_vel = torch.cat([current_vel, current_ang_vel], dim=1)
+        self._robot.write_root_velocity_to_sim(root_vel, push_ids)
+
+        # Reset timers with new random intervals
+        self._push_timer[push_ids] = 0.0
+        self._push_interval[push_ids] = torch.empty(n, device=self.device).uniform_(
+            *dr.push_interval_range
+        )
+
     def _add_observation_noise(self, observations: torch.Tensor) -> torch.Tensor:
         """Add noise to observations to simulate sensor imperfections.
         
@@ -1234,41 +1229,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         return noisy_obs
     
     def _add_action_noise(self, actions: torch.Tensor) -> torch.Tensor:
-        """Add noise and delays to actions to simulate control imperfections.
-        
-        Applies Gaussian noise and optional time delays to action commands.
-        
-        Args:
-            actions: Clean action tensor [num_envs, action_dim]
-            
-        Returns:
-            Noisy/delayed action tensor with same shape
+        """Pass-through (action noise/delays removed in Session 55 cleanup).
+
+        Kept for interface compatibility with train_env.py.
         """
-        if not self.cfg.domain_randomization.enable_randomization:
-            return actions
-            
-        noisy_actions = actions.clone()
-        
-        # Add action noise
-        if self.cfg.domain_randomization.add_action_noise:
-            noisy_actions = gaussian_noise(
-                noisy_actions,
-                self.cfg.domain_randomization.action_noise
-            )
-        
-        # Apply action delays (if enabled)
-        if self.cfg.domain_randomization.add_action_delay and hasattr(self, '_action_delay_buffer'):
-            # Shift buffer and insert new actions
-            self._action_delay_buffer[:, 1:] = self._action_delay_buffer[:, :-1].clone()
-            self._action_delay_buffer[:, 0] = noisy_actions
-            
-            # Select delayed actions based on per-env delays (vectorized)
-            env_indices = torch.arange(self.num_envs, device=self.device)
-            delayed_actions = self._action_delay_buffer[env_indices, self._action_delays]
-            
-            return delayed_actions
-        
-        return noisy_actions
+        return actions
 
     def _update_dynamic_commands(self) -> None:
         """Update velocity commands periodically during episode (Phase 3).
@@ -1387,48 +1352,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._engaged_position = new_engaged
 
         return self._engaged_position
-
-    def _apply_external_forces(self) -> None:
-        """Apply random external forces/torques to robot bodies.
-
-        Simulates environmental disturbances like wind or collisions.
-        Called during physics step with configured probability.
-        """
-        if not self.cfg.domain_randomization.enable_randomization:
-            return
-        if not self.cfg.domain_randomization.apply_external_forces:
-            return
-            
-        # Sample which environments get forces this step
-        force_probs = torch.rand(self.num_envs, device=self.device)
-        apply_force = force_probs < self.cfg.domain_randomization.external_force_probability
-        
-        if apply_force.any():
-            # Sample random forces and torques
-            force_min, force_max = self.cfg.domain_randomization.external_force_range
-            torque_min, torque_max = self.cfg.domain_randomization.external_torque_range
-            
-            # Shape: [num_envs, num_bodies, 3] - required by Isaac Lab API
-            forces = torch.zeros(self.num_envs, 1, 3, device=self.device)
-            torques = torch.zeros(self.num_envs, 1, 3, device=self.device)
-
-            # Generate random forces for selected environments
-            num_forced = apply_force.sum()
-            forces[apply_force, 0, :2] = sample_uniform(
-                -force_max, force_max, (num_forced, 2), self.device
-            )
-            forces[apply_force, 0, 2] = sample_uniform(
-                force_min, force_max, (num_forced,), self.device
-            )
-
-            torques[apply_force, 0] = sample_uniform(
-                -torque_max, torque_max, (num_forced, 3), self.device
-            )
-
-            # Apply forces to robot base
-            self._robot.permanent_wrench_composer.set_forces_and_torques(
-                forces, torques, body_ids=[self._base_id[0]]
-            )
 
     # ── Robot visual material ────────────────────────────────────────────
 

@@ -68,10 +68,23 @@ Used by `scripts/autoresearch.py` to validate proposed changes before applying t
 | `add_imu_noise` | TUNABLE | True | [True, False] | IMU noise toggle |
 | `add_joint_noise` | TUNABLE | True | [True, False] | Joint sensor noise |
 | `add_lin_vel_noise` | TUNABLE | True | [True, False] | Linear velocity noise |
-| `randomize_friction` | TUNABLE | False | [True, False] | CAUTION: caused vx=0.005 |
-| `randomize_mass` | TUNABLE | False | [True, False] | CAUTION: robot stood still |
-| `add_action_noise` | TUNABLE | False | [True, False] | CAUTION: hurts learning |
-| `apply_external_forces` | TUNABLE | False | [True, False] | CAUTION: breaks training |
+
+### Reset State Randomization (DomainRandomizationCfg, Session 55)
+
+| Parameter | Category | Current | Range | Notes |
+|-----------|----------|---------|-------|-------|
+| `enable_reset_randomization` | TUNABLE | True | [True, False] | Spot-style initial state randomization |
+| `reset_lin_vel_x_range` | TUNABLE | (-0.15, 0.15) | [(-0.3, 0.3), (-0.05, 0.05)] | Root X velocity at reset (m/s) |
+| `reset_lin_vel_y_range` | TUNABLE | (-0.1, 0.1) | [(-0.2, 0.2), (-0.03, 0.03)] | Root Y velocity at reset (m/s) |
+| `reset_lin_vel_z_range` | TUNABLE | (-0.05, 0.05) | [(-0.1, 0.1), (0.0, 0.0)] | Root Z velocity at reset (m/s) |
+| `reset_ang_vel_roll_range` | TUNABLE | (-0.2, 0.2) | [(-0.5, 0.5), (-0.1, 0.1)] | Root roll rate at reset (rad/s) |
+| `reset_ang_vel_pitch_range` | TUNABLE | (-0.2, 0.2) | [(-0.5, 0.5), (-0.1, 0.1)] | Root pitch rate at reset (rad/s) |
+| `reset_ang_vel_yaw_range` | TUNABLE | (-0.3, 0.3) | [(-0.6, 0.6), (-0.1, 0.1)] | Root yaw rate at reset (rad/s) |
+| `reset_joint_pos_noise` | TUNABLE | 0.1 | [0.02, 0.3] | ±rad around ready_pose |
+| `reset_joint_vel_noise` | TUNABLE | 1.0 | [0.2, 3.0] | ±rad/s at reset |
+| `enable_velocity_pushes` | TUNABLE | True | [True, False] | Mid-episode velocity disturbances |
+| `push_interval_range` | TUNABLE | (8.0, 12.0) | [(4.0, 8.0), (15.0, 25.0)] | Push interval (seconds) |
+| `push_vel_xy_range` | TUNABLE | 0.15 | [0.05, 0.5] | ±m/s push magnitude |
 
 ### Env-Level Parameters (HaroldIsaacLabEnvCfg)
 

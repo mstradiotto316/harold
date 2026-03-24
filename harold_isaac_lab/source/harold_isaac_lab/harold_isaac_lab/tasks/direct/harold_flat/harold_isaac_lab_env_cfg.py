@@ -283,75 +283,20 @@ class BacklashCfg:
 class DomainRandomizationCfg:
     """Domain randomization configuration for sim-to-real transfer.
 
-    To enable domain randomization in training, set:
-    ```python
-    cfg.domain_randomization.enable_randomization = True
-    cfg.domain_randomization.randomize_on_reset = True  # Per-episode randomization
-    cfg.domain_randomization.randomize_per_step = True   # Per-step noise
-    ```
+    Active features: per-step sensor noise (IMU, joint, lin_vel) and
+    reset state randomization (Spot-style, Session 55).
 
-    Provides controlled variation in simulation parameters to improve policy
-    robustness when deployed on physical hardware. Parameters are tuned
-    specifically for Harold's lightweight construction and servo capabilities.
-
-    Randomization Categories:
-    - Physics: Material properties affecting contact dynamics
-    - Robot: Mass, inertia, and actuator characteristics
-    - Sensors: Observation noise modeling real sensor imperfections
-    - Actions: Control delays and noise
-    - External: Environmental disturbances
-
-    All randomization can be toggled on/off for debugging and gradual
-    introduction during training curriculum.
+    Dead features removed in Session 55 cleanup:
+    - Physics/robot property randomization (EXP-090: made training worse)
+    - Action noise/delays (EXP-154/155/156: hurt learning)
+    - External forces (EXP-164: caused instability)
+    - Terrain/gravity randomization (never enabled)
     """
 
     # === MASTER SWITCHES ===
-    # EXP-090: FULL domain randomization made training HARDER - vx=0.0056 (MUCH WORSE)
-    # Robot learned to stand still to cope with uncertainty
-    # Session 28: Re-enabled for SENSOR NOISE ONLY to simulate gear backlash (~2°)
-    # Session 37: Replaced noise with explicit hysteresis model (BacklashCfg)
     enable_randomization: bool = True   # Session 28: OPTIMAL for backlash robustness
-    randomize_on_reset: bool = False
     randomize_per_step: bool = True     # Session 28: Per-step noise for backlash
-    
-    # === PHYSICS RANDOMIZATION ===
-    # EXP-090: Domain randomization made training WORSE - DISABLED
-    randomize_friction: bool = False  # DISABLED - caused vx=0.0056 (robot stood still)
-    friction_range: tuple = (0.5, 0.9)        # Conservative range (was 0.4-1.0)
-                                              # Base: 0.7, slight variation
 
-    randomize_restitution: bool = False       # Randomize bounce characteristics
-    restitution_range: tuple = (0.0, 0.2)     # Keep low for realistic ground contact
-
-    # === ROBOT PROPERTIES RANDOMIZATION ===
-    # EXP-090: Domain randomization made training WORSE - DISABLED
-    randomize_mass: bool = False              # DISABLED - caused robot to stand still
-    mass_range: tuple = (0.9, 1.1)            # ±10% mass variation (conservative)
-                                              # Was ±15%, reduced for stability
-    
-    randomize_com: bool = False               # Randomize center of mass offsets
-    com_offset_range: tuple = (-0.02, 0.02)   # ±2cm COM shift in X/Y/Z
-                                              # Small shifts for balance variation
-    
-    randomize_inertia: bool = False           # Randomize rotational inertia
-    inertia_range: tuple = (0.9, 1.1)         # ±10% inertia variation
-    
-    # === ACTUATOR RANDOMIZATION ===
-    randomize_joint_stiffness: bool = False   # Vary joint PD controller stiffness
-    stiffness_range: tuple = (150, 250)       # Base: 200, allows ±25% variation
-                                              # Models servo response differences
-    
-    randomize_joint_damping: bool = False     # Vary joint PD controller damping
-    damping_range: tuple = (50, 100)          # Base: 75, allows ±33% variation
-                                              # Models servo damping characteristics
-    
-    randomize_effort_limit: bool = False      # Vary maximum joint torques
-    effort_limit_range: tuple = (0.8, 1.0)    # 80-100% of nominal torque
-                                              # Conservative to prevent servo damage
-    
-    randomize_joint_limits: bool = False      # Add small variations to joint limits
-    joint_limit_noise: float = 0.02           # ±0.02 rad (~1.15°) variation
-    
     # === SENSOR NOISE CONFIGURATION ===
     # IMU Noise (Body angular velocity and gravity projection)
     add_imu_noise: bool = True                # Add noise to IMU measurements
@@ -380,13 +325,11 @@ class DomainRandomizationCfg:
 
     # Joint Sensor Noise
     # Session 28: Position noise simulates gear backlash (~1-3° in ST3215 servos)
-    # - 2° (0.035 rad): STANDING, vx=0.007 - too much noise
     # - 1° (0.0175 rad): WALKING, vx=0.022 - OPTIMAL (31% better than baseline!)
-    # Session 37: Re-enabling as explicit hysteresis didn't help
     add_joint_noise: bool = True              # Session 28: OPTIMAL for backlash robustness
     joint_position_noise: GaussianNoiseCfg = GaussianNoiseCfg(
         mean=0.0,
-        std=0.0175,                           # Not used when disabled
+        std=0.0175,
         operation="add"
     )
     joint_velocity_noise: GaussianNoiseCfg = GaussianNoiseCfg(
@@ -394,40 +337,29 @@ class DomainRandomizationCfg:
         std=0.05,                             # 0.05 rad/s velocity noise
         operation="add"
     )
-    
-    # === ACTION RANDOMIZATION ===
-    # Session 29: Testing action noise for sim-to-real transfer
-    # EXP-154: 0.5% (0.005) -> STANDING (vx=0.009), hurt training
-    # EXP-155: 0.2% (0.002) -> STANDING (vx=0.009), still hurt training
-    # CONCLUSION: Action noise hurts learning, disabled
-    add_action_noise: bool = False             # DISABLED - hurts learning
-    action_noise: GaussianNoiseCfg = GaussianNoiseCfg(
-        mean=0.0,
-        std=0.002,                            # Not used when disabled
-        operation="add"
-    )
 
-    # EXP-156: Action delays hurt training -> DISABLED
-    # Adding any action-side randomization hurts when observation noise already present
-    add_action_delay: bool = False            # DISABLED - hurts learning
-    action_delay_steps: tuple = (0, 1)        # Not used when disabled
+    # === RESET STATE RANDOMIZATION (Spot-style, Session 55) ===
+    # Robot starts each episode with randomized state instead of all-zeros.
+    # Forces the policy to learn locomotion from diverse initial conditions.
+    enable_reset_randomization: bool = True
 
-    # === EXTERNAL DISTURBANCES ===
-    # EXP-164: External perturbations FAILED - caused falling and backward drift
-    # Even light forces (0.2-0.5N, 0.5% prob) broke training
-    apply_external_forces: bool = False       # DISABLED - causes instability
-    external_force_probability: float = 0.005 # 0.5% per step (conservative)
-    external_force_range: tuple = (0.2, 0.5)  # Light forces (0.2-0.5 N)
-    external_torque_range: tuple = (0.02, 0.1) # Light torques (0.02-0.1 Nm)
-    
-    # === TERRAIN RANDOMIZATION ===
-    add_terrain_noise: bool = False           # Add height noise to terrain
-    terrain_noise_magnitude: float = 0.01     # ±1cm height variations
-    
-    # === GRAVITY RANDOMIZATION ===
-    randomize_gravity: bool = False               # Vary gravity magnitude and direction
-    gravity_magnitude_range: tuple = (9.6, 10.0)  # 9.6-10.0 m/s² (small variation)
-    gravity_angle_range: float = 0.05             # ±0.05 rad (~3°) tilt in gravity vector
+    # Root velocity at reset (m/s, rad/s) — Spot: ±1.5, ±1.0, ±0.5
+    # Harold ranges are ~10% of Spot (proportional to speed capability)
+    reset_lin_vel_x_range: tuple = (-0.15, 0.15)
+    reset_lin_vel_y_range: tuple = (-0.1, 0.1)
+    reset_lin_vel_z_range: tuple = (-0.05, 0.05)
+    reset_ang_vel_roll_range: tuple = (-0.2, 0.2)
+    reset_ang_vel_pitch_range: tuple = (-0.2, 0.2)
+    reset_ang_vel_yaw_range: tuple = (-0.3, 0.3)
+
+    # Joint state at reset — Spot: ±0.2 rad pos, ±2.5 rad/s vel
+    reset_joint_pos_noise: float = 0.1    # ±rad around ready_pose
+    reset_joint_vel_noise: float = 1.0    # ±rad/s
+
+    # Mid-episode velocity pushes — Spot: every 10-15s, ±0.5 m/s
+    enable_velocity_pushes: bool = True
+    push_interval_range: tuple = (8.0, 12.0)   # seconds
+    push_vel_xy_range: float = 0.15             # ±m/s
 
 @configclass
 class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):

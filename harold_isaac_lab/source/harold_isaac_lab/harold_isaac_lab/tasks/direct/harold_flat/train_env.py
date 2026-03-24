@@ -75,8 +75,8 @@ def compute_rewards(env) -> torch.Tensor:
     # Linear velocity reward: proportional to forward velocity, capped at commanded.
     # Provides smooth gradient from 0 to cmd_vx — every tiny forward movement gets
     # rewarded, unlike the exponential which saturates at zero for large errors.
-    # Weight 5.0 matches track_lin_vel_xy_weight for comparable magnitude.
-    linear_vel_reward = 5.0 * torch.clamp(vx_b / cmd_vx.clamp(min=0.05), 0.0, 1.0) * (cmd_vx > 0.05).float()
+    # Weight 10.0 — dominant forward signal (replaces forward_motion which has posture gate).
+    linear_vel_reward = 10.0 * torch.clamp(vx_b / cmd_vx.clamp(min=0.05), 0.0, 1.0) * (cmd_vx > 0.05).float()
 
     ang_vel_error = torch.square(wz - cmd_yaw)
     track_ang_vel_z = torch.exp(-ang_vel_error / (cfg.track_ang_vel_z_std ** 2))

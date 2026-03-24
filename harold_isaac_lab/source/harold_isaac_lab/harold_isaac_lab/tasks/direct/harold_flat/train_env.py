@@ -75,8 +75,8 @@ def compute_rewards(env) -> torch.Tensor:
     # Linear velocity reward: proportional to forward velocity, capped at commanded.
     # Provides smooth gradient from 0 to cmd_vx — every tiny forward movement gets
     # rewarded, unlike the exponential which saturates at zero for large errors.
-    # Weight 10.0 — aggressive forward signal. 16384 envs has upright=0.966, can afford aggression.
-    linear_vel_reward = 10.0 * torch.clamp(vx_b / cmd_vx.clamp(min=0.05), 0.0, 1.0) * (cmd_vx > 0.05).float()
+    # Weight 5.0 — matching Spot's base_linear_velocity weight. Smooth gradient from 0 to cmd_vx.
+    linear_vel_reward = 5.0 * torch.clamp(vx_b / cmd_vx.clamp(min=0.05), 0.0, 1.0) * (cmd_vx > 0.05).float()
 
     ang_vel_error = torch.square(wz - cmd_yaw)
     track_ang_vel_z = torch.exp(-ang_vel_error / (cfg.track_ang_vel_z_std ** 2))
@@ -212,27 +212,26 @@ def compute_rewards(env) -> torch.Tensor:
     foot_clearance_reward = 0.5 * torch.exp(-torch.sum(foot_clearance, dim=1) / 0.05)
 
     # === COMPUTE TOTAL ===
-    # EXP-750: Best minimal config (EXP-746 baseline) — seed sweep.
-    # Pure minimal + air_time=2.5 produces best vx (0.025 at EXP-746).
-    # No gait/smoothness — those killed early exploration.
+    # EXP-759: Full Spot reward restored + linear_vel bootstrap + Spot cmd ranges.
+    # Per user: match Spot exemplar as closely as possible.
     rewards = {
         "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
-        "track_ang_vel_z": 0.0 * track_ang_vel_z,  # disabled
-        "base_orientation_penalty": -0.5 * torch.norm(projected_gravity[:, :2], dim=1),  # light safety
-        "base_motion_penalty": 0.0 * base_motion_penalty,  # disabled
-        "action_smoothness": 0.0 * action_smoothness,  # disabled
-        "dof_torques": dof_torques,  # keep tiny torque penalty
-        "dof_acc": dof_acc,  # keep tiny acc penalty
-        "shoulder_joint_vel": 0.0 * shoulder_joint_vel,  # disabled
-        "feet_air_time": 5.0 * air_time_reward,  # Full Spot (aggressive at 16384)
-        "undesired_contacts": cfg.undesired_contacts_weight * undesired_contacts,  # keep safety
-        "forward_motion": forward_motion,  # keep forward incentive
-        "foot_slip_penalty": 0.0 * foot_slip_penalty,  # disabled
-        "continuous_gait_reward": 0.0 * continuous_gait_reward,  # disabled
-        "joint_pos_penalty": 0.0 * joint_pos_penalty,  # disabled
-        "air_time_variance_penalty": 0.0 * air_time_variance_penalty,  # disabled
-        "foot_clearance_reward": 0.0 * foot_clearance_reward,  # disabled
-        "linear_vel_reward": linear_vel_reward,  # strong linear vel incentive
+        "track_ang_vel_z": cfg.track_ang_vel_z_weight * track_ang_vel_z,
+        "base_orientation_penalty": base_orientation_penalty,
+        "base_motion_penalty": base_motion_penalty,
+        "action_smoothness": action_smoothness,
+        "dof_torques": dof_torques,
+        "dof_acc": dof_acc,
+        "shoulder_joint_vel": shoulder_joint_vel,
+        "feet_air_time": cfg.feet_air_time_weight * air_time_reward,
+        "undesired_contacts": cfg.undesired_contacts_weight * undesired_contacts,
+        "forward_motion": forward_motion,
+        "foot_slip_penalty": foot_slip_penalty,
+        "continuous_gait_reward": cfg.continuous_gait_weight * continuous_gait_reward,
+        "joint_pos_penalty": joint_pos_penalty,
+        "air_time_variance_penalty": air_time_variance_penalty,
+        "foot_clearance_reward": foot_clearance_reward,
+        "linear_vel_reward": linear_vel_reward,  # Harold-specific bootstrap (Spot doesn't need it)
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

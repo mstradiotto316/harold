@@ -66,10 +66,10 @@ class RewardsCfg:
 
     # === TASK REWARDS (velocity tracking) ===
     track_lin_vel_xy_weight: float = 5.0      # Spot: 5.0
-    track_lin_vel_xy_std: float = 0.15        # Harold-specific (Spot: 1.0, but Harold's cmd range is 10x smaller)
+    track_lin_vel_xy_std: float = 0.5        # Harold-specific (Spot: 1.0, but Harold's cmd range is 10x smaller)
 
     track_ang_vel_z_weight: float = 2.0       # Harold-specific (Spot: 5.0, but Harold's yaw range is smaller)
-    track_ang_vel_z_std: float = 0.25         # Harold-specific
+    track_ang_vel_z_std: float = 0.5         # Harold-specific
 
     # === BASE QUALITY PENALTIES (Spot-aligned, replace existence rewards) ===
     base_orientation_weight: float = 3.0      # Spot: 3.0. Penalizes tilting (replaces +3.0 upright REWARD)
@@ -117,15 +117,15 @@ class CommandCfg:
     # Forward velocity range (m/s)
     # Session 36: Reverted to conservative for stability
     vx_min: float = 0.15
-    vx_max: float = 0.3
+    vx_max: float = 1.0
 
     # Lateral velocity range (m/s)
-    vy_min: float = -0.15
-    vy_max: float = 0.15
+    vy_min: float = -0.5
+    vy_max: float = 0.5
 
     # Yaw rate range (rad/s) - about ±17 deg/s
-    yaw_min: float = -0.30
-    yaw_max: float = 0.30
+    yaw_min: float = -1.0
+    yaw_max: float = 1.0
 
     # Probability of sampling zero velocity (for stopping behavior)
     zero_velocity_prob: float = 0.02  # 2% standing training
@@ -364,9 +364,9 @@ class DomainRandomizationCfg:
 @configclass
 class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
-    episode_length_s = 30.0
+    episode_length_s = 20.0
     decimation = 9
-    action_scale = 0.5  # Must be literal for autoresearch.py regex rewriting. See common/policy_config.py for canonical default.
+    action_scale = 0.3  # Must be literal for autoresearch.py regex rewriting. See common/policy_config.py for canonical default.
 
     # Space definitions
     # Observation space is always 48D; CPG is open-loop and does not affect policy input size.

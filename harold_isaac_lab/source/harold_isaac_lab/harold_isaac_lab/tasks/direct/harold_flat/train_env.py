@@ -225,7 +225,7 @@ def compute_rewards(env) -> torch.Tensor:
         "dof_torques": dof_torques,  # keep tiny torque penalty
         "dof_acc": dof_acc,  # keep tiny acc penalty
         "shoulder_joint_vel": 0.0 * shoulder_joint_vel,  # disabled
-        "feet_air_time": 2.5 * air_time_reward,  # RE-ENABLED at half Spot weight
+        "feet_air_time": 5.0 * air_time_reward,  # FULL Spot weight
         "undesired_contacts": cfg.undesired_contacts_weight * undesired_contacts,  # keep safety
         "forward_motion": forward_motion,  # keep forward incentive
         "foot_slip_penalty": 0.0 * foot_slip_penalty,  # disabled

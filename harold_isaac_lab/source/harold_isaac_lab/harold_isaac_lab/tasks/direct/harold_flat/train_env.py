@@ -75,8 +75,8 @@ def compute_rewards(env) -> torch.Tensor:
     # Linear velocity reward: proportional to forward velocity, capped at commanded.
     # Provides smooth gradient from 0 to cmd_vx — every tiny forward movement gets
     # rewarded, unlike the exponential which saturates at zero for large errors.
-    # Weight 7.0 — strong forward signal. forward_motion=3.0 provides posture-gated safety.
-    linear_vel_reward = 7.0 * torch.clamp(vx_b / cmd_vx.clamp(min=0.05), 0.0, 1.0) * (cmd_vx > 0.05).float()
+    # Weight 10.0 — aggressive forward signal. 16384 envs has upright=0.966, can afford aggression.
+    linear_vel_reward = 10.0 * torch.clamp(vx_b / cmd_vx.clamp(min=0.05), 0.0, 1.0) * (cmd_vx > 0.05).float()
 
     ang_vel_error = torch.square(wz - cmd_yaw)
     track_ang_vel_z = torch.exp(-ang_vel_error / (cfg.track_ang_vel_z_std ** 2))
@@ -224,7 +224,7 @@ def compute_rewards(env) -> torch.Tensor:
         "dof_torques": dof_torques,  # keep tiny torque penalty
         "dof_acc": dof_acc,  # keep tiny acc penalty
         "shoulder_joint_vel": 0.0 * shoulder_joint_vel,  # disabled
-        "feet_air_time": 2.5 * air_time_reward,  # Half Spot (best at 2.5)
+        "feet_air_time": 5.0 * air_time_reward,  # Full Spot (aggressive at 16384)
         "undesired_contacts": cfg.undesired_contacts_weight * undesired_contacts,  # keep safety
         "forward_motion": forward_motion,  # keep forward incentive
         "foot_slip_penalty": 0.0 * foot_slip_penalty,  # disabled

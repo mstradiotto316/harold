@@ -93,7 +93,7 @@ class RewardsCfg:
     foot_slip_weight: float = 0.5             # Spot: 0.5. Was hardcoded 0.1
 
     # === FORWARD MOTION BOOTSTRAP (Harold-specific, Spot has none) ===
-    forward_motion_weight: float = 7.0        # Reduced from 7.0. Bootstrap only.
+    forward_motion_weight: float = 3.0        # Reduced from 7.0. Bootstrap only.
 
     # === JOINT POSITION REGULARIZATION (Spot original direction) ===
     # Spot: 5x when standing with NO command (keeps tidy when idle).
@@ -341,7 +341,7 @@ class DomainRandomizationCfg:
     # === RESET STATE RANDOMIZATION (Spot-style, Session 55) ===
     # Robot starts each episode with randomized state instead of all-zeros.
     # Forces the policy to learn locomotion from diverse initial conditions.
-    enable_reset_randomization: bool = False
+    enable_reset_randomization: bool = True
 
     # Root velocity at reset (m/s, rad/s) — Spot: ±1.5, ±1.0, ±0.5
     # Harold ranges are ~10% of Spot (proportional to speed capability)
@@ -357,7 +357,7 @@ class DomainRandomizationCfg:
     reset_joint_vel_noise: float = 1.0    # ±rad/s
 
     # Mid-episode velocity pushes — Spot: every 10-15s, ±0.5 m/s
-    enable_velocity_pushes: bool = False
+    enable_velocity_pushes: bool = True
     push_interval_range: tuple = (8.0, 12.0)   # seconds
     push_vel_xy_range: float = 0.15             # ±m/s
 

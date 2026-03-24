@@ -212,24 +212,23 @@ def compute_rewards(env) -> torch.Tensor:
     foot_clearance_reward = 0.5 * torch.exp(-torch.sum(foot_clearance, dim=1) / 0.05)
 
     # === COMPUTE TOTAL ===
-    # EXP-746: MINIMAL + AIR TIME — bootstrap locomotion.
-    # EXP-745 showed minimal reward produces stable standing + vx=0.042 drift.
-    # Add moderate air-time reward (2.5, half of Spot) to incentivize foot lifting.
-    # This explicitly breaks the "all feet planted" equilibrium.
+    # EXP-749: MINIMAL + AIR TIME + GAIT — stabilize discovered locomotion.
+    # Air_time=2.5 bootstraps foot lifting. Gait=5.0 should stabilize any
+    # discovered alternating pattern so the policy doesn't regress past it.
     rewards = {
         "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
         "track_ang_vel_z": 0.0 * track_ang_vel_z,  # disabled
         "base_orientation_penalty": -0.5 * torch.norm(projected_gravity[:, :2], dim=1),  # light safety
         "base_motion_penalty": 0.0 * base_motion_penalty,  # disabled
-        "action_smoothness": 0.0 * action_smoothness,  # disabled
+        "action_smoothness": -0.3 * torch.norm(action_diff, dim=1),  # light smoothness to prevent regression
         "dof_torques": dof_torques,  # keep tiny torque penalty
         "dof_acc": dof_acc,  # keep tiny acc penalty
         "shoulder_joint_vel": 0.0 * shoulder_joint_vel,  # disabled
-        "feet_air_time": 2.5 * air_time_reward,  # Half Spot (EXP-746 best at 2.5)
+        "feet_air_time": 2.5 * air_time_reward,  # Half Spot
         "undesired_contacts": cfg.undesired_contacts_weight * undesired_contacts,  # keep safety
         "forward_motion": forward_motion,  # keep forward incentive
         "foot_slip_penalty": 0.0 * foot_slip_penalty,  # disabled
-        "continuous_gait_reward": 0.0 * continuous_gait_reward,  # disabled
+        "continuous_gait_reward": 5.0 * continuous_gait_reward,  # RE-ENABLED to stabilize gait
         "joint_pos_penalty": 0.0 * joint_pos_penalty,  # disabled
         "air_time_variance_penalty": 0.0 * air_time_variance_penalty,  # disabled
         "foot_clearance_reward": 0.0 * foot_clearance_reward,  # disabled

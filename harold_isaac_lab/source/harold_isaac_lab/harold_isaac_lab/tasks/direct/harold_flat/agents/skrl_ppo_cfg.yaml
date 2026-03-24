@@ -7,7 +7,7 @@ models:
     class: GaussianMixin
     clip_actions: False
     clip_log_std: True
-    min_log_std: -2.0  # Session 54: matched Spot. Was -0.36 (floor std≈0.70) which prevented policy refinement.
+    min_log_std: -20.0  # Session 54: matched Spot. Was -0.36 (floor std≈0.70) which prevented policy refinement.
     max_log_std: 2.0
     initial_log_std: 0.0
     network:

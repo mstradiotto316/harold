@@ -194,6 +194,15 @@ def compute_rewards(env) -> torch.Tensor:
     contact_time_var = torch.var(torch.clip(last_contact_time, max=0.5), dim=1)
     air_time_variance_penalty = -cfg.air_time_variance_weight * (air_time_var + contact_time_var)
 
+    # === STANDSTILL PENALTY (Harold-specific, breaks standing equilibrium) ===
+    # When commanded to move but body velocity is near zero, apply penalty.
+    # This makes standing actively costly when forward commands are issued.
+    standstill_vel_threshold = 0.02  # m/s — below this counts as "standing"
+    standstill_penalty_weight = -2.0
+    is_commanded = cmd_magnitude > 0.05
+    is_still = body_vel < standstill_vel_threshold
+    standstill_penalty = standstill_penalty_weight * (is_commanded & is_still).float()
+
     # === FOOT CLEARANCE REWARD (from Spot) ===
     foot_pos_z = env._robot.data.body_pos_w[:, env._feet_body_ids, 2]
     foot_clearance_target = 0.05  # 5cm (Spot uses 10cm, Harold is smaller)
@@ -223,6 +232,7 @@ def compute_rewards(env) -> torch.Tensor:
         "joint_pos_penalty": joint_pos_penalty,
         "air_time_variance_penalty": air_time_variance_penalty,
         "foot_clearance_reward": foot_clearance_reward,
+        "standstill_penalty": standstill_penalty,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

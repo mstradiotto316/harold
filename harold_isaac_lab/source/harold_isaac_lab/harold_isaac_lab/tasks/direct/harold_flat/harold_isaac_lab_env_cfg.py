@@ -366,7 +366,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
     episode_length_s = 30.0
     decimation = 9
-    action_scale = 0.5  # Must be literal for autoresearch.py regex rewriting. See common/policy_config.py for canonical default.
+    action_scale = 0.3  # Must be literal for autoresearch.py regex rewriting. See common/policy_config.py for canonical default.
 
     # Space definitions
     # Observation space is always 48D; CPG is open-loop and does not affect policy input size.

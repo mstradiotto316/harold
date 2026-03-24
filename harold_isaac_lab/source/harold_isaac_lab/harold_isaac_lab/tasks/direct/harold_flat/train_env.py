@@ -212,24 +212,27 @@ def compute_rewards(env) -> torch.Tensor:
     foot_clearance_reward = 0.5 * torch.exp(-torch.sum(foot_clearance, dim=1) / 0.05)
 
     # === COMPUTE TOTAL ===
+    # EXP-745: MINIMAL REWARD — only forward velocity + safety.
+    # 13 consecutive DISCARDs showed full reward structure always produces standing.
+    # Strip to minimum: just go forward. Let policy discover locomotion freely.
     rewards = {
         "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
-        "track_ang_vel_z": cfg.track_ang_vel_z_weight * track_ang_vel_z,
-        "base_orientation_penalty": base_orientation_penalty,
-        "base_motion_penalty": base_motion_penalty,
-        "action_smoothness": action_smoothness,
-        "dof_torques": dof_torques,
-        "dof_acc": dof_acc,
-        "shoulder_joint_vel": shoulder_joint_vel,
-        "feet_air_time": cfg.feet_air_time_weight * air_time_reward,
-        "undesired_contacts": cfg.undesired_contacts_weight * undesired_contacts,
-        "forward_motion": forward_motion,
-        "foot_slip_penalty": foot_slip_penalty,
-        "continuous_gait_reward": cfg.continuous_gait_weight * continuous_gait_reward,
-        "joint_pos_penalty": joint_pos_penalty,
-        "air_time_variance_penalty": air_time_variance_penalty,
-        "foot_clearance_reward": foot_clearance_reward,
-        "linear_vel_reward": linear_vel_reward,
+        "track_ang_vel_z": 0.0 * track_ang_vel_z,  # disabled
+        "base_orientation_penalty": -0.5 * torch.norm(projected_gravity[:, :2], dim=1),  # light safety
+        "base_motion_penalty": 0.0 * base_motion_penalty,  # disabled
+        "action_smoothness": 0.0 * action_smoothness,  # disabled
+        "dof_torques": dof_torques,  # keep tiny torque penalty
+        "dof_acc": dof_acc,  # keep tiny acc penalty
+        "shoulder_joint_vel": 0.0 * shoulder_joint_vel,  # disabled
+        "feet_air_time": 0.0 * air_time_reward,  # disabled
+        "undesired_contacts": cfg.undesired_contacts_weight * undesired_contacts,  # keep safety
+        "forward_motion": forward_motion,  # keep forward incentive
+        "foot_slip_penalty": 0.0 * foot_slip_penalty,  # disabled
+        "continuous_gait_reward": 0.0 * continuous_gait_reward,  # disabled
+        "joint_pos_penalty": 0.0 * joint_pos_penalty,  # disabled
+        "air_time_variance_penalty": 0.0 * air_time_variance_penalty,  # disabled
+        "foot_clearance_reward": 0.0 * foot_clearance_reward,  # disabled
+        "linear_vel_reward": linear_vel_reward,  # strong linear vel incentive
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

@@ -341,7 +341,7 @@ class DomainRandomizationCfg:
     # === RESET STATE RANDOMIZATION (Spot-style, Session 55) ===
     # Robot starts each episode with randomized state instead of all-zeros.
     # Forces the policy to learn locomotion from diverse initial conditions.
-    enable_reset_randomization: bool = True
+    enable_reset_randomization: bool = False
 
     # Root velocity at reset (m/s, rad/s) — Spot: ±1.5, ±1.0, ±0.5
     # Harold ranges are ~10% of Spot (proportional to speed capability)
@@ -357,7 +357,7 @@ class DomainRandomizationCfg:
     reset_joint_vel_noise: float = 1.0    # ±rad/s
 
     # Mid-episode velocity pushes — Spot: every 10-15s, ±0.5 m/s
-    enable_velocity_pushes: bool = True
+    enable_velocity_pushes: bool = False
     push_interval_range: tuple = (8.0, 12.0)   # seconds
     push_vel_xy_range: float = 0.15             # ±m/s
 

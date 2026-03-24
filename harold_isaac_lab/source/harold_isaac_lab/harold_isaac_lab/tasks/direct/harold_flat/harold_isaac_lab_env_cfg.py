@@ -93,7 +93,7 @@ class RewardsCfg:
     foot_slip_weight: float = 0.5             # Spot: 0.5. Was hardcoded 0.1
 
     # === FORWARD MOTION BOOTSTRAP (Harold-specific, Spot has none) ===
-    forward_motion_weight: float = 0.0        # Reduced from 7.0. Bootstrap only.
+    forward_motion_weight: float = 3.0        # Reduced from 7.0. Bootstrap only.
 
     # === JOINT POSITION REGULARIZATION (Spot original direction) ===
     # Spot: 5x when standing with NO command (keeps tidy when idle).

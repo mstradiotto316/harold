@@ -237,7 +237,19 @@ def compute_rewards(env) -> torch.Tensor:
     env._episode_sums["vx_w_mean"] += env._robot.data.root_lin_vel_w[:, 0]
     env._episode_sums["vy_w_mean"] += torch.abs(env._robot.data.root_lin_vel_w[:, 1])
     env._episode_sums["upright_mean"] += upright.clamp(0.0, 1.0)
+
+    # Height metric (telemetry only, no longer a reward)
+    pos_z = env._height_scanner.data.pos_w[:, 2].unsqueeze(1)
+    ray_z = env._height_scanner.data.ray_hits_w[..., 2]
+    ray_z = torch.where(torch.isfinite(ray_z), ray_z, pos_z)
+    height_data = pos_z - ray_z
+    current_height = torch.mean(height_data, dim=1)
+    target_height = env.cfg.gait.target_height
+    height_error = torch.abs(current_height - target_height)
+    height_reward = torch.tanh(3.0 * torch.exp(-5.0 * height_error))
     env._episode_sums["height_reward"] += height_reward
+
+    body_contact_penalty = -undesired_contacts
     env._episode_sums["body_contact_penalty"] += body_contact_penalty
     cmd_vx_error, cmd_vy_error = compute_body_frame_command_errors(root_lin_vel_b, env._commands)
     env._episode_sums["cmd_vx_error"] += cmd_vx_error

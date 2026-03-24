@@ -72,13 +72,13 @@ class RewardsCfg:
     track_ang_vel_z_std: float = 0.25         # Harold-specific
 
     # === BASE QUALITY PENALTIES (Spot-aligned, replace existence rewards) ===
-    base_orientation_weight: float = 3.0      # Spot: 3.0. Penalizes tilting (replaces +3.0 upright REWARD)
-    base_motion_weight: float = 2.0           # Spot: 2.0. Combined vz + omega_xy (replaces -0.0001 lin_vel_z + -0.01 ang_vel_xy)
+    base_orientation_weight: float = 0.5      # Spot: 3.0. Penalizes tilting (replaces +3.0 upright REWARD)
+    base_motion_weight: float = 0.3           # Spot: 2.0. Combined vz + omega_xy (replaces -0.0001 lin_vel_z + -0.01 ang_vel_xy)
 
     # === SMOOTHNESS PENALTIES (Spot-aligned) ===
     dof_torques_weight: float = -5e-4         # Spot: -5e-4. Was -0.0001 (5x increase)
     dof_acc_weight: float = -2.5e-7           # Kept (negligible)
-    action_smoothness_weight: float = 1.0     # Spot: 1.0. L2 norm of action diff (replaces -0.01 sum-of-squares)
+    action_smoothness_weight: float = 0.1     # Spot: 1.0. L2 norm of action diff (replaces -0.01 sum-of-squares)
     shoulder_joint_vel_weight: float = 0.01   # Spot: 1e-2 on hip joints. Harold shoulders = Spot hips.
 
     # === GAIT REWARDS (Spot-aligned weights) ===

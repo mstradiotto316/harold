@@ -356,7 +356,6 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "joint_pos_penalty",
             "air_time_variance_penalty",
             "foot_clearance_reward",
-            "standstill_penalty",
         ]
 
         self._metric_keys = [

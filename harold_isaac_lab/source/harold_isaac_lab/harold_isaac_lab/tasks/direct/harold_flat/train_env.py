@@ -66,11 +66,17 @@ def compute_rewards(env) -> torch.Tensor:
     cmd_vy = env._commands[:, 1]
     cmd_yaw = env._commands[:, 2]
 
-    # === TASK REWARDS (exponential kernel) ===
+    # === TASK REWARDS (exponential kernel + linear velocity bootstrap) ===
     lin_vel_error = torch.sum(
         torch.square(torch.stack([vx_b - cmd_vx, vy_b - cmd_vy], dim=1)), dim=1
     )
     track_lin_vel_xy = torch.exp(-lin_vel_error / (cfg.track_lin_vel_xy_std ** 2))
+
+    # Linear velocity reward: proportional to forward velocity, capped at commanded.
+    # Provides smooth gradient from 0 to cmd_vx — every tiny forward movement gets
+    # rewarded, unlike the exponential which saturates at zero for large errors.
+    # Weight 5.0 matches track_lin_vel_xy_weight for comparable magnitude.
+    linear_vel_reward = 5.0 * torch.clamp(vx_b / cmd_vx.clamp(min=0.05), 0.0, 1.0) * (cmd_vx > 0.05).float()
 
     ang_vel_error = torch.square(wz - cmd_yaw)
     track_ang_vel_z = torch.exp(-ang_vel_error / (cfg.track_ang_vel_z_std ** 2))
@@ -223,6 +229,7 @@ def compute_rewards(env) -> torch.Tensor:
         "joint_pos_penalty": joint_pos_penalty,
         "air_time_variance_penalty": air_time_variance_penalty,
         "foot_clearance_reward": foot_clearance_reward,
+        "linear_vel_reward": linear_vel_reward,
     }
 
     total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)

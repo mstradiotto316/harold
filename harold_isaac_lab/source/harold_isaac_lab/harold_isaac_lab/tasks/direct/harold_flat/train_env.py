@@ -197,8 +197,9 @@ def compute_rewards(env) -> torch.Tensor:
     # === STANDSTILL PENALTY (Harold-specific, breaks standing equilibrium) ===
     # When commanded to move but body velocity is near zero, apply penalty.
     # This makes standing actively costly when forward commands are issued.
+    # -2.0 was too weak (EXP-740, policy absorbed it). -8.0 forces exploration.
     standstill_vel_threshold = 0.02  # m/s — below this counts as "standing"
-    standstill_penalty_weight = -2.0
+    standstill_penalty_weight = -8.0
     is_commanded = cmd_magnitude > 0.05
     is_still = body_vel < standstill_vel_threshold
     standstill_penalty = standstill_penalty_weight * (is_commanded & is_still).float()

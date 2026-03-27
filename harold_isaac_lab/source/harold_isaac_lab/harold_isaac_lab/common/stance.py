@@ -12,18 +12,18 @@ except ImportError:  # Isaac Lab env should include PyYAML; fall back to default
 
 
 DEFAULT_RL_POSE = [
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.65,
-    0.65,
-    0.65,
-    0.65,
-    -1.13,
-    -1.13,
-    -1.13,
-    -1.13,
+    0.1,    # fl_shoulder — Spot-matched: left legs splay out
+    -0.1,   # fr_shoulder — right legs splay out
+    0.1,    # bl_shoulder
+    -0.1,   # br_shoulder
+    0.9,    # fl_thigh — Spot front hip_y
+    0.9,    # fr_thigh
+    1.1,    # bl_thigh — Spot hind hip_y (more flexed than front)
+    1.1,    # br_thigh
+    -1.5,   # fl_calf — Spot knee
+    -1.5,   # fr_calf
+    -1.5,   # bl_calf
+    -1.5,   # br_calf
 ]
 
 JOINT_NAMES = [

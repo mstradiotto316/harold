@@ -66,20 +66,26 @@ def compute_rewards(env) -> torch.Tensor:
     cmd_vy = env._commands[:, 1]
     cmd_yaw = env._commands[:, 2]
 
-    # === TASK REWARDS (exponential kernel + linear velocity bootstrap) ===
-    lin_vel_error = torch.sum(
-        torch.square(torch.stack([vx_b - cmd_vx, vy_b - cmd_vy], dim=1)), dim=1
+    # === TASK REWARDS (Spot-matched exponential kernels) ===
+    # Spot uses exp(-L2_norm / std), NOT exp(-L2_norm² / std²) (Gaussian).
+    # The exponential kernel provides constant gradient at large errors — critical for
+    # learning with wide command ranges where initial errors are large.
+    lin_vel_error = torch.linalg.norm(
+        torch.stack([vx_b - cmd_vx, vy_b - cmd_vy], dim=1), dim=1
     )
-    track_lin_vel_xy = torch.exp(-lin_vel_error / (cfg.track_lin_vel_xy_std ** 2))
+    # Spot: ramp_rate=0.5, ramp_at_vel=1.0 — increases reward for high-speed commands
+    cmd_magnitude = torch.linalg.norm(torch.stack([cmd_vx, cmd_vy], dim=1), dim=1)
+    velocity_scaling = torch.clamp(1.0 + 0.5 * (cmd_magnitude - 1.0), min=1.0)
+    track_lin_vel_xy = torch.exp(-lin_vel_error / cfg.track_lin_vel_xy_std) * velocity_scaling
 
     # Linear velocity reward: proportional to forward velocity, capped at commanded.
-    # Provides smooth gradient from 0 to cmd_vx — every tiny forward movement gets
-    # rewarded, unlike the exponential which saturates at zero for large errors.
-    # Weight 5.0 — matching Spot's base_linear_velocity weight. Smooth gradient from 0 to cmd_vx.
+    # Harold-specific bootstrap — Spot doesn't need this.
+    # Weight 5.0 — matching Spot's base_linear_velocity weight.
     linear_vel_reward = 5.0 * torch.clamp(vx_b / cmd_vx.clamp(min=0.05), 0.0, 1.0) * (cmd_vx > 0.05).float()
 
-    ang_vel_error = torch.square(wz - cmd_yaw)
-    track_ang_vel_z = torch.exp(-ang_vel_error / (cfg.track_ang_vel_z_std ** 2))
+    # Spot: exp(-|error| / std), NOT exp(-error² / std²)
+    ang_vel_error = torch.abs(wz - cmd_yaw)
+    track_ang_vel_z = torch.exp(-ang_vel_error / cfg.track_ang_vel_z_std)
 
     # === BASE ORIENTATION PENALTY (Spot-aligned, replaces upright reward) ===
     # Spot: -3.0 * norm(projected_gravity_xy). Zero when level, negative when tilted.
@@ -89,25 +95,28 @@ def compute_rewards(env) -> torch.Tensor:
 
     # === BASE MOTION PENALTY (Spot-aligned, replaces lin_vel_z + ang_vel_xy) ===
     # Spot: -2.0 * (0.8 * vz² + 0.2 * |omega_xy|)
+    # Bounded: Spot's robot is inherently stable; Harold's isn't. Cap the raw value
+    # to prevent catastrophic outliers that destabilize the value function.
+    # Cap at 5.0 — for Spot at convergence, raw motion ≈ 0.01. Even badly oscillating
+    # Harold rarely exceeds 5.0 on well-tracked trajectories.
     vz_w = root_lin_vel_w[:, 2]
     omega_xy_norm = torch.norm(root_ang_vel_b[:, :2], dim=1)
-    base_motion_penalty = -cfg.base_motion_weight * (
-        0.8 * torch.square(vz_w) + 0.2 * omega_xy_norm
-    )
+    raw_motion = 0.8 * torch.square(vz_w) + 0.2 * omega_xy_norm
+    base_motion_penalty = -cfg.base_motion_weight * torch.clamp(raw_motion, max=5.0)
 
     # === ACTION SMOOTHNESS (Spot-aligned, replaces action_rate) ===
     # Spot: -1.0 * norm(action_diff). L2 norm, not sum-of-squares.
     action_diff = env._actions - env._previous_actions
     action_smoothness = -cfg.action_smoothness_weight * torch.norm(action_diff, dim=1)
 
-    # === SMOOTHNESS PENALTIES ===
-    dof_torques = cfg.dof_torques_weight * torch.sum(torch.square(applied_torque), dim=1)
-    dof_acc = cfg.dof_acc_weight * torch.sum(torch.square(joint_acc), dim=1)
+    # === SMOOTHNESS PENALTIES (Spot uses L2 norm, not sum of squares) ===
+    dof_torques = cfg.dof_torques_weight * torch.linalg.norm(applied_torque, dim=1)
+    dof_acc = cfg.dof_acc_weight * torch.linalg.norm(joint_acc, dim=1)
 
     # === SHOULDER JOINT VELOCITY PENALTY (Spot's hip joint vel) ===
-    # Harold's shoulders (indices 0-3) = Spot's hips.
-    shoulder_joint_vel = -cfg.shoulder_joint_vel_weight * torch.sum(
-        torch.square(env._robot.data.joint_vel[:, :4]), dim=1
+    # Harold's shoulders (indices 0-3) = Spot's hips. Spot uses L2 norm.
+    shoulder_joint_vel = -cfg.shoulder_joint_vel_weight * torch.linalg.norm(
+        env._robot.data.joint_vel[:, :4], dim=1
     )
 
     # === GAIT: FEET AIR TIME ===
@@ -234,12 +243,16 @@ def compute_rewards(env) -> torch.Tensor:
         "linear_vel_reward": linear_vel_reward,  # Harold-specific bootstrap (Spot doesn't need it)
     }
 
-    total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
+    # Scale rewards by step_dt to match Spot's manager-based reward convention.
+    # IsaacLab's RewardManager: raw * weight * dt (reward_manager.py:150).
+    # With bounded penalties, outlier envs no longer destabilize the value function.
+    dt = env.step_dt  # (1/180) * 9 = 0.05s
+    total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0) * dt
 
     for key, value in rewards.items():
         if key not in env._episode_sums:
             env._episode_sums[key] = torch.zeros(env.num_envs, dtype=torch.float, device=env.device)
-        env._episode_sums[key] += value
+        env._episode_sums[key] += value * dt
 
     # === TELEMETRY (not in reward, just metrics) ===
     upright = -projected_gravity[:, 2]

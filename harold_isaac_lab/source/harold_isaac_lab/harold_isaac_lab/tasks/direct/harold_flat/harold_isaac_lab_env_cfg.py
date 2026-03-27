@@ -141,7 +141,7 @@ class GaitCfg:
     """Gait parameters matched to the rough-terrain setup."""
 
     frequency: float = 2.0
-    target_height: float = 0.275
+    target_height: float = 0.15  # Lower for Spot-matched crouch (was 0.275 for old pose)
 
 
 @configclass

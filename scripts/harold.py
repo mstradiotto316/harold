@@ -79,6 +79,8 @@ TASK_IDS = {
     'flat': 'Template-Harold-Direct-flat-terrain-v0',
     'rough': 'Template-Harold-Direct-rough-terrain-v0',
     'pushup': 'Template-Harold-Direct-pushup-v0',
+    'sim_flat_v1': 'Template-Spot-Direct-sim-flat-v1',
+    'sim_flat_v2': 'Template-Harold-Direct-sim-flat-v2',
 }
 DEFAULT_TASK = 'flat'
 TRAINING_DEFAULTS = {
@@ -101,6 +103,8 @@ _TASK_ENV_CFG_PATHS = {
     'flat': PROJECT_ROOT / "harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_flat/harold_isaac_lab_env_cfg.py",
     'rough': PROJECT_ROOT / "harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_rough/harold_isaac_lab_env_cfg.py",
     'pushup': PROJECT_ROOT / "harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_pushup/harold_isaac_lab_env_cfg.py",
+    'sim_flat_v1': PROJECT_ROOT / "harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/sim_flat_v1/sim_flat_v1_env_cfg.py",
+    'sim_flat_v2': PROJECT_ROOT / "harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/sim_flat_v2/sim_flat_v2_env_cfg.py",
 }
 _ACTION_SCALE_RE = re.compile(r'^\s*action_scale\s*=\s*([0-9.eE+-]+)', re.MULTILINE)
 
@@ -737,6 +741,9 @@ def build_train_command(
     iterations: int,
     task_id: str,
     checkpoint: str | None = None,
+    video: bool = False,
+    video_interval: int = 2000,
+    video_length: int | None = None,
 ) -> list[str]:
     """Build the Isaac Lab training command.
 
@@ -759,6 +766,12 @@ def build_train_command(
     ]
     if checkpoint:
         cmd.extend(['--checkpoint', str(checkpoint)])
+    if video:
+        cmd.extend(['--video', '--video_interval', str(video_interval)])
+        if video_length is not None:
+            cmd.extend(['--video_length', str(video_length)])
+        else:
+            cmd.extend(['--video_length', str(TRAINING_DEFAULTS['video_length'])])
     return cmd
 
 
@@ -826,7 +839,12 @@ def cmd_train(args):
     mode = args.mode
 
     # Build command (validates interpreter path, etc.)
-    cmd = build_train_command(num_envs, iterations, task_id, args.checkpoint)
+    video = getattr(args, 'video', False)
+    video_interval = getattr(args, 'video_interval', 2000)
+    video_length = getattr(args, 'video_length', None)
+    cmd = build_train_command(num_envs, iterations, task_id, args.checkpoint,
+                              video=video, video_interval=video_interval,
+                              video_length=video_length)
 
     # Reject concurrent launches instead of killing in-flight work.
     train_status = is_training_running()
@@ -861,7 +879,10 @@ def cmd_train(args):
     else:
         print(f"  Iterations: {iterations}")
     print(f"  Environments: {num_envs}")
-    print(f"  Video: post-hoc (harold record)")
+    if video:
+        print(f"  Video: inline (every {video_interval} steps, {video_length or TRAINING_DEFAULTS['video_length']} steps/clip)")
+    else:
+        print(f"  Video: post-hoc (harold record)")
     if args.checkpoint:
         print(f"  Checkpoint: {args.checkpoint}")
     print(f"  Mode: {mode}")
@@ -1683,6 +1704,9 @@ def main():
     train_parser.add_argument('--num-envs', type=int, default=None, help='Number of environments (advanced override; default: 16384, pushup: 1)')
     train_parser.add_argument('--mode', choices=MODE_CHOICES, default='rl', help='Control mode: rl, cpg (open-loop), scripted (default: rl)')
     train_parser.add_argument('--gait-scale', type=float, help='Scale scripted/CPG gait amplitude (diagnostic)')
+    train_parser.add_argument('--video', action='store_true', help='Record video during training (inline, not post-hoc)')
+    train_parser.add_argument('--video-interval', type=int, default=2000, help='Steps between video recordings (default: 2000)')
+    train_parser.add_argument('--video-length', type=int, default=None, help='Video clip length in steps (default: 250)')
 
     # status
     status_parser = subparsers.add_parser('status', help='Check training status and metrics')

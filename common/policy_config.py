@@ -68,9 +68,9 @@ JOINT_RANGE_BY_CATEGORY = {
 JOINT_RANGE = tuple(JOINT_RANGE_BY_CATEGORY[name] for name in JOINT_CATEGORIES)
 
 FLAT_JOINT_LIMITS_BY_CATEGORY = {
-    "shoulder": (-0.4363, 0.4363),
-    "thigh": (-0.0873, 0.9599),
-    "calf": (-1.3963, 0.0873),
+    "shoulder": (-0.5236, 0.5236),   # Full mechanical range (Spot: ±0.873, limited by Harold hardware)
+    "thigh": (-0.785, 1.396),        # Spot-matched (within Harold mechanical ±1.5708)
+    "calf": (-1.5708, 0.0),          # Harold mechanical min, no extension past straight (Spot: -2.792 to 0.0)
 }
 MECHANICAL_JOINT_LIMITS_BY_CATEGORY = {
     "shoulder": (-0.5236, 0.5236),
@@ -84,26 +84,30 @@ TASK_ACTION_SCALE_DEFAULTS = {
     "flat": DEFAULT_ACTION_SCALE,
     "rough": 1.0,
     "pushup": 1.0,
+    "sim_flat_v1": 0.2,
+    "sim_flat_v2": 0.2,
 }
 TASK_JOINT_LIMITS_BY_CATEGORY = {
     "flat": FLAT_JOINT_LIMITS_BY_CATEGORY,
     "rough": MECHANICAL_JOINT_LIMITS_BY_CATEGORY,
     "pushup": MECHANICAL_JOINT_LIMITS_BY_CATEGORY,
+    "sim_flat_v1": FLAT_JOINT_LIMITS_BY_CATEGORY,  # Spot uses USD soft limits; placeholder for CLI compat
+    "sim_flat_v2": FLAT_JOINT_LIMITS_BY_CATEGORY,
 }
 
 DEFAULT_RL_POSE = [
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.65,
-    0.65,
-    0.65,
-    0.65,
-    -1.13,
-    -1.13,
-    -1.13,
-    -1.13,
+    0.1,    # fl_shoulder — Spot: left legs splay out (+0.1)
+    -0.1,   # fr_shoulder — Spot: right legs splay out (-0.1)
+    0.1,    # bl_shoulder
+    -0.1,   # br_shoulder
+    0.9,    # fl_thigh — Spot front hip_y
+    0.9,    # fr_thigh
+    1.1,    # bl_thigh — Spot hind hip_y (slightly more flexed than front)
+    1.1,    # br_thigh
+    -1.5,   # fl_calf — Spot knee
+    -1.5,   # fr_calf
+    -1.5,   # bl_calf
+    -1.5,   # br_calf
 ]
 
 

@@ -9,3 +9,5 @@ import gymnasium as gym  # noqa: F401
 from . import harold_flat  # noqa: F401
 from . import harold_rough  # noqa: F401
 from . import harold_pushup  # noqa: F401
+from . import sim_flat_v1  # noqa: F401
+from . import sim_flat_v2  # noqa: F401

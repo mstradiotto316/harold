@@ -55,7 +55,7 @@ class RewardsCfg:
 
     # Task rewards
     air_time_weight: float = 5.0
-    air_time_mode_time: float = 0.3
+    air_time_mode_time: float = 0.15
     air_time_velocity_threshold: float = 0.15
 
     base_linear_velocity_weight: float = 5.0
@@ -67,8 +67,8 @@ class RewardsCfg:
     base_angular_velocity_std: float = 2.0
 
     foot_clearance_weight: float = 0.5
-    foot_clearance_target_height: float = 0.1
-    foot_clearance_std: float = 0.05
+    foot_clearance_target_height: float = 0.03
+    foot_clearance_std: float = 0.02
     foot_clearance_tanh_mult: float = 2.0
 
     gait_weight: float = 10.0
@@ -91,7 +91,7 @@ class RewardsCfg:
     joint_acceleration_weight: float = -1.0e-4  # shoulder+thigh joints only
 
     joint_position_weight: float = -0.7
-    joint_position_stand_still_scale: float = 1.0
+    joint_position_stand_still_scale: float = 2.0
     joint_position_velocity_threshold: float = 0.15
 
     joint_torques_weight: float = -5.0e-4

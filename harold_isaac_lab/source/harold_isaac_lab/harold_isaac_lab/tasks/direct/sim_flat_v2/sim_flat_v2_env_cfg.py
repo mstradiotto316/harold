@@ -91,7 +91,7 @@ class RewardsCfg:
     joint_acceleration_weight: float = -1.0e-4  # shoulder+thigh joints only
 
     joint_position_weight: float = -0.7
-    joint_position_stand_still_scale: float = 2.0
+    joint_position_stand_still_scale: float = 1.0
     joint_position_velocity_threshold: float = 0.15
 
     joint_torques_weight: float = -5.0e-4

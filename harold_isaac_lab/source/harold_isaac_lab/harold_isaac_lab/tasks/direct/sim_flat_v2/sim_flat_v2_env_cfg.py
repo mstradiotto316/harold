@@ -101,14 +101,14 @@ class RewardsCfg:
 
 @configclass
 class CommandsCfg:
-    """Velocity command sampling — Spot values (testing thresholds independently)."""
+    """Velocity command sampling — Froude-scaled for Harold + low thresholds."""
 
-    vx_min: float = -2.0
-    vx_max: float = 3.0
-    vy_min: float = -1.5
-    vy_max: float = 1.5
-    yaw_min: float = -2.0
-    yaw_max: float = 2.0
+    vx_min: float = -0.5
+    vx_max: float = 1.0
+    vy_min: float = -0.5
+    vy_max: float = 0.5
+    yaw_min: float = -1.0
+    yaw_max: float = 1.0
     resample_time: float = 10.0  # seconds between resampling
     standing_probability: float = 0.1  # fraction of envs with zero command
 

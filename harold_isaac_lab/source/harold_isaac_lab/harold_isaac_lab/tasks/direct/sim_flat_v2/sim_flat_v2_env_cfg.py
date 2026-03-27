@@ -56,7 +56,7 @@ class RewardsCfg:
     # Task rewards
     air_time_weight: float = 5.0
     air_time_mode_time: float = 0.3
-    air_time_velocity_threshold: float = 0.5
+    air_time_velocity_threshold: float = 0.15
 
     base_linear_velocity_weight: float = 5.0
     base_linear_velocity_std: float = 1.0
@@ -74,7 +74,7 @@ class RewardsCfg:
     gait_weight: float = 10.0
     gait_std: float = 0.1
     gait_max_err: float = 0.2
-    gait_velocity_threshold: float = 0.5
+    gait_velocity_threshold: float = 0.15
 
     # Penalties (negative weights)
     action_smoothness_weight: float = -1.0
@@ -92,7 +92,7 @@ class RewardsCfg:
 
     joint_position_weight: float = -0.7
     joint_position_stand_still_scale: float = 5.0
-    joint_position_velocity_threshold: float = 0.5
+    joint_position_velocity_threshold: float = 0.15
 
     joint_torques_weight: float = -5.0e-4
 
@@ -101,14 +101,14 @@ class RewardsCfg:
 
 @configclass
 class CommandsCfg:
-    """Velocity command sampling — Froude-scaled for Harold (2kg, ~0.15m leg)."""
+    """Velocity command sampling — Spot values (testing thresholds independently)."""
 
-    vx_min: float = -0.5
-    vx_max: float = 1.0
-    vy_min: float = -0.5
-    vy_max: float = 0.5
-    yaw_min: float = -1.0
-    yaw_max: float = 1.0
+    vx_min: float = -2.0
+    vx_max: float = 3.0
+    vy_min: float = -1.5
+    vy_max: float = 1.5
+    yaw_min: float = -2.0
+    yaw_max: float = 2.0
     resample_time: float = 10.0  # seconds between resampling
     standing_probability: float = 0.1  # fraction of envs with zero command
 

@@ -1106,10 +1106,10 @@ def cmd_status(args):
         vx = metrics.get('vx_w_mean')
         x_disp = metrics.get('x_displacement')
         vx_spec = METRIC_BY_KEY['vx_w_mean']
-        x_disp_spec = METRIC_BY_KEY['x_displacement']
+        x_disp_spec = METRIC_BY_KEY.get('x_displacement')
         vx_pass = vx is not None and metric_passes('vx_w_mean', vx)
-        x_disp_pass = x_disp is not None and metric_passes('x_displacement', x_disp)
-        if vx is not None and x_disp is not None:
+        x_disp_pass = x_disp is not None and x_disp_spec is not None and metric_passes('x_displacement', x_disp)
+        if vx is not None and x_disp is not None and x_disp_spec is not None:
             if vx_pass and x_disp_pass:
                 status = 'PASS'
             elif vx > 0 or (x_disp is not None and x_disp > 0):

@@ -101,14 +101,14 @@ class RewardsCfg:
 
 @configclass
 class CommandsCfg:
-    """Velocity command sampling — exact Spot values."""
+    """Velocity command sampling — Froude-scaled for Harold (2kg, ~0.15m leg)."""
 
-    vx_min: float = -2.0
-    vx_max: float = 3.0
-    vy_min: float = -1.5
-    vy_max: float = 1.5
-    yaw_min: float = -2.0
-    yaw_max: float = 2.0
+    vx_min: float = -0.5
+    vx_max: float = 1.0
+    vy_min: float = -0.5
+    vy_max: float = 0.5
+    yaw_min: float = -1.0
+    yaw_max: float = 1.0
     resample_time: float = 10.0  # seconds between resampling
     standing_probability: float = 0.1  # fraction of envs with zero command
 
@@ -123,29 +123,29 @@ class TerminationCfg:
 
 @configclass
 class DomainRandomizationCfg:
-    """Domain randomization — exact Spot values."""
+    """Domain randomization — scaled for Harold (~2 kg, Spot was ~30 kg)."""
 
     # Startup (applied once)
-    static_friction_range: tuple[float, float] = (0.3, 1.0)
-    dynamic_friction_range: tuple[float, float] = (0.3, 0.8)
-    base_mass_range: tuple[float, float] = (-2.5, 2.5)  # kg, additive
+    static_friction_range: tuple[float, float] = (0.3, 1.0)   # scale-independent, keep
+    dynamic_friction_range: tuple[float, float] = (0.3, 0.8)  # scale-independent, keep
+    base_mass_range: tuple[float, float] = (-0.2, 0.2)        # ~10% of 2 kg body (was ±2.5 for 30 kg Spot)
 
     # Reset (applied each episode)
-    pose_x_range: tuple[float, float] = (-0.5, 0.5)
-    pose_y_range: tuple[float, float] = (-0.5, 0.5)
-    pose_yaw_range: tuple[float, float] = (-3.14, 3.14)
-    vel_x_range: tuple[float, float] = (-1.5, 1.5)
-    vel_y_range: tuple[float, float] = (-1.0, 1.0)
-    vel_z_range: tuple[float, float] = (-0.5, 0.5)
-    vel_roll_range: tuple[float, float] = (-0.7, 0.7)
-    vel_pitch_range: tuple[float, float] = (-0.7, 0.7)
-    vel_yaw_range: tuple[float, float] = (-1.0, 1.0)
-    joint_pos_range: tuple[float, float] = (-0.2, 0.2)  # rad around default
-    joint_vel_range: tuple[float, float] = (-2.5, 2.5)  # rad/s around default (0)
+    pose_x_range: tuple[float, float] = (-0.5, 0.5)           # keep (position is scale-independent)
+    pose_y_range: tuple[float, float] = (-0.5, 0.5)           # keep
+    pose_yaw_range: tuple[float, float] = (-3.14, 3.14)       # keep
+    vel_x_range: tuple[float, float] = (-0.3, 0.3)            # ~5x reduction (was ±1.5)
+    vel_y_range: tuple[float, float] = (-0.2, 0.2)            # ~5x reduction (was ±1.0)
+    vel_z_range: tuple[float, float] = (-0.1, 0.1)            # ~5x reduction (was ±0.5)
+    vel_roll_range: tuple[float, float] = (-0.3, 0.3)         # ~2x reduction (was ±0.7)
+    vel_pitch_range: tuple[float, float] = (-0.3, 0.3)        # ~2x reduction (was ±0.7)
+    vel_yaw_range: tuple[float, float] = (-0.4, 0.4)          # ~2x reduction (was ±1.0)
+    joint_pos_range: tuple[float, float] = (-0.2, 0.2)        # keep (joint-level, not mass-dependent)
+    joint_vel_range: tuple[float, float] = (-2.5, 2.5)        # keep (joint-level)
 
     # Interval (applied periodically)
-    push_interval_range: tuple[float, float] = (10.0, 15.0)  # seconds
-    push_vel_range: tuple[float, float] = (-0.5, 0.5)  # m/s in XY
+    push_interval_range: tuple[float, float] = (10.0, 15.0)   # keep timing
+    push_vel_range: tuple[float, float] = (-0.1, 0.1)         # ~5x reduction (was ±0.5)
 
 
 # ---------------------------------------------------------------------------

@@ -34,9 +34,9 @@ ENV_CFG_PATH = (
     / "harold_isaac_lab"
     / "harold_isaac_lab"
     / "tasks"
-    / "direct"
+    / "manager_based"
     / "harold_flat"
-    / "harold_isaac_lab_env_cfg.py"
+    / "flat_env_cfg.py"
 )
 
 PPO_CFG_PATH = (
@@ -46,23 +46,14 @@ PPO_CFG_PATH = (
     / "harold_isaac_lab"
     / "harold_isaac_lab"
     / "tasks"
-    / "direct"
+    / "manager_based"
     / "harold_flat"
     / "agents"
     / "skrl_ppo_cfg.yaml"
 )
 
-TRAIN_ENV_PATH = (
-    PROJECT_ROOT
-    / "harold_isaac_lab"
-    / "source"
-    / "harold_isaac_lab"
-    / "harold_isaac_lab"
-    / "tasks"
-    / "direct"
-    / "harold_flat"
-    / "train_env.py"
-)
+# Manager-based has no separate train_env.py — rewards live in flat_env_cfg.py
+TRAIN_ENV_PATH = None
 
 BASELINE_SNAPSHOT_PATH = PROJECT_ROOT / ".autoresearch_baseline.json"
 
@@ -166,33 +157,92 @@ def load_baseline_config() -> dict:
 
 
 def _extract_env_cfg_values() -> dict:
-    """Extract float/bool/int assignments from env_cfg.py dataclass fields."""
+    """Extract parameter values from manager-based flat_env_cfg.py.
+
+    Handles three patterns:
+    1. RewardTermCfg weights: `term_name = RewardTermCfg(..., weight=X.X, ...)`
+    2. Command range tuples: `lin_vel_x=(-0.5, 1.0)`
+    3. Env-level assignments: `self.decimation = 10` or `scale=0.2`
+    """
     values = {}
     text = ENV_CFG_PATH.read_text()
+    lines = text.splitlines()
 
     # Target parameters from the registry
     registry = load_parameter_registry()
     env_params = [p for p in registry if p not in _PPO_PARAMS]
 
     for param in env_params:
-        for line in text.splitlines():
-            # Match float assignment
-            float_pat = re.compile(
-                rf"^\s*{re.escape(param)}\s*(?::\s*\w+\s*)?=\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)"
+        # 1. Reward weight: param ends with _weight, maps to RewardTermCfg
+        if param in _REWARD_WEIGHT_MAP:
+            term_name = _REWARD_WEIGHT_MAP[param]
+            val = _find_reward_weight(lines, term_name)
+            if val is not None:
+                values[param] = val
+            continue
+
+        # 2. Command range: param like lin_vel_x_min, lin_vel_x_max
+        if param in _COMMAND_RANGE_MAP:
+            range_name, index = _COMMAND_RANGE_MAP[param]
+            val = _find_command_range(text, range_name, index)
+            if val is not None:
+                values[param] = val
+            continue
+
+        # 3. Env-level params: self.X = Y or scale=Y
+        for line in lines:
+            # Match self.param = value
+            m = re.match(
+                rf"\s*self\.{re.escape(param)}\s*=\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)",
+                line
             )
-            m = float_pat.match(line)
+            if m:
+                values[param] = _parse_value(m.group(1))
+                break
+            # Match param=value (e.g., scale=0.2 in ActionCfg)
+            m = re.match(
+                rf"\s*{re.escape(param)}\s*=\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)",
+                line
+            )
             if m:
                 values[param] = _parse_value(m.group(1))
                 break
 
-            # Match bool assignment
-            bool_pat = re.compile(rf"^\s*{re.escape(param)}\s*(?::\s*\w+\s*)?=\s*(True|False)")
-            m = bool_pat.match(line)
-            if m:
-                values[param] = m.group(1) == "True"
-                break
-
     return values
+
+
+def _find_reward_weight(lines: list, term_name: str) -> float | None:
+    """Find the weight value for a RewardTermCfg term by name."""
+    in_block = False
+    for line in lines:
+        if re.match(rf"\s*{re.escape(term_name)}\s*=\s*RewardTermCfg\(", line):
+            in_block = True
+            # Check if weight is on the same line (single-line RewardTermCfg)
+            m = re.search(r"weight\s*=\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)", line)
+            if m:
+                return _parse_value(m.group(1))
+            continue
+        if in_block:
+            m = re.search(r"weight\s*=\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)", line)
+            if m:
+                return _parse_value(m.group(1))
+            # End of block (unindented line or new assignment)
+            if re.match(r"\s*\)", line) or re.match(r"\s*[a-z_]+\s*=\s*(?:RewardTermCfg|EventTerm)", line):
+                in_block = False
+    return None
+
+
+def _find_command_range(text: str, range_name: str, index: int) -> float | None:
+    """Find min (index=0) or max (index=1) from a command range tuple like lin_vel_x=(-0.5, 1.0)."""
+    m = re.search(
+        rf"{re.escape(range_name)}\s*=\s*\(\s*"
+        rf"([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s*,\s*"
+        rf"([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s*\)",
+        text
+    )
+    if m:
+        return _parse_value(m.group(index + 1))
+    return None
 
 
 # PPO params that live in the YAML file
@@ -283,9 +333,11 @@ def _save_baseline_snapshot() -> None:
         "head_sha": head_sha,
         "files": {}
     }
-    for path in [ENV_CFG_PATH, PPO_CFG_PATH, TRAIN_ENV_PATH]:
-        if path.exists():
+    for path in [ENV_CFG_PATH, PPO_CFG_PATH]:
+        if path and path.exists():
             snapshot["files"][str(path)] = path.read_text()
+    if TRAIN_ENV_PATH and TRAIN_ENV_PATH.exists():
+        snapshot["files"][str(TRAIN_ENV_PATH)] = TRAIN_ENV_PATH.read_text()
 
     BASELINE_SNAPSHOT_PATH.write_text(json.dumps(snapshot, indent=2) + "\n")
 
@@ -345,36 +397,78 @@ def apply_change(delta: dict) -> list:
 
 
 def _apply_env_cfg_change(param: str, value) -> None:
-    """Replace a parameter value in env_cfg.py using targeted text replacement."""
+    """Replace a parameter value in manager-based flat_env_cfg.py.
+
+    Handles RewardTermCfg weights, command range tuples, and env-level params.
+    """
     text = ENV_CFG_PATH.read_text()
     lines = text.splitlines()
     found = False
+    formatted = _format_float(value) if isinstance(value, float) else str(value)
 
-    for i, line in enumerate(lines):
-        # Match the parameter assignment
-        if isinstance(value, bool):
-            pat = re.compile(
-                rf"^(\s*{re.escape(param)}\s*(?::\s*\w+\s*)?=\s*)(True|False)(.*)"
-            )
-            m = pat.match(line)
+    # 1. Reward weight
+    if param in _REWARD_WEIGHT_MAP:
+        term_name = _REWARD_WEIGHT_MAP[param]
+        in_block = False
+        for i, line in enumerate(lines):
+            if re.match(rf"\s*{re.escape(term_name)}\s*=\s*RewardTermCfg\(", line):
+                in_block = True
+                # Check same-line weight
+                m = re.search(r"(weight\s*=\s*)([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)", line)
+                if m:
+                    lines[i] = line[:m.start(2)] + formatted + line[m.end(2):]
+                    found = True
+                    break
+                continue
+            if in_block:
+                m = re.search(r"(weight\s*=\s*)([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)", line)
+                if m:
+                    lines[i] = line[:m.start(2)] + formatted + line[m.end(2):]
+                    found = True
+                    break
+                if re.match(r"\s*\)", line):
+                    in_block = False
+
+    # 2. Command range
+    elif param in _COMMAND_RANGE_MAP:
+        range_name, index = _COMMAND_RANGE_MAP[param]
+        pat = re.compile(
+            rf"({re.escape(range_name)}\s*=\s*\(\s*)"
+            rf"([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)"
+            rf"(\s*,\s*)"
+            rf"([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)"
+            rf"(\s*\))"
+        )
+        for i, line in enumerate(lines):
+            m = pat.search(line)
             if m:
-                lines[i] = f"{m.group(1)}{value}{m.group(3)}"
+                if index == 0:  # min
+                    lines[i] = line[:m.start(2)] + formatted + line[m.end(2):]
+                else:  # max
+                    lines[i] = line[:m.start(4)] + formatted + line[m.end(4):]
                 found = True
                 break
-        elif isinstance(value, (int, float)):
-            pat = re.compile(
-                rf"^(\s*{re.escape(param)}\s*(?::\s*\w+\s*)?=\s*)([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(.*)"
-            )
-            m = pat.match(line)
-            if m:
-                # Format the value appropriately
-                if isinstance(value, float):
-                    formatted = _format_float(value)
-                else:
-                    formatted = str(value)
-                lines[i] = f"{m.group(1)}{formatted}{m.group(3)}"
-                found = True
-                break
+
+    # 3. Env-level params (self.X = Y)
+    else:
+        for i, line in enumerate(lines):
+            if isinstance(value, bool):
+                m = re.match(
+                    rf"^(\s*(?:self\.)?{re.escape(param)}\s*=\s*)(True|False)(.*)", line
+                )
+                if m:
+                    lines[i] = f"{m.group(1)}{value}{m.group(3)}"
+                    found = True
+                    break
+            elif isinstance(value, (int, float)):
+                m = re.match(
+                    rf"^(\s*(?:self\.)?{re.escape(param)}\s*=\s*)([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(.*)",
+                    line
+                )
+                if m:
+                    lines[i] = f"{m.group(1)}{formatted}{m.group(3)}"
+                    found = True
+                    break
 
     if not found:
         raise ValueError(f"Could not find parameter '{param}' in {ENV_CFG_PATH.name}")
@@ -432,7 +526,7 @@ def revert_change(revert_all: bool = False) -> None:
     if BASELINE_SNAPSHOT_PATH.exists():
         snapshot = json.loads(BASELINE_SNAPSHOT_PATH.read_text())
         files_to_revert = [str(ENV_CFG_PATH), str(PPO_CFG_PATH)]
-        if revert_all:
+        if revert_all and TRAIN_ENV_PATH:
             files_to_revert.append(str(TRAIN_ENV_PATH))
 
         for filepath in files_to_revert:
@@ -442,7 +536,7 @@ def revert_change(revert_all: bool = False) -> None:
         BASELINE_SNAPSHOT_PATH.unlink()
     else:
         files = [str(ENV_CFG_PATH), str(PPO_CFG_PATH)]
-        if revert_all:
+        if revert_all and TRAIN_ENV_PATH:
             files.append(str(TRAIN_ENV_PATH))
         subprocess.run(["git", "checkout", "--"] + files, cwd=PROJECT_ROOT, check=True)
 
@@ -598,34 +692,43 @@ def backfill_results() -> int:
 
 # ── Changed Params Parsing ─────────────────────────────────────────────────
 
+# ── Manager-based parameter mappings ──────────────────────────────────────
+
+# Maps autoresearch param name -> RewardTermCfg attribute name in flat_env_cfg.py
+_REWARD_WEIGHT_MAP = {
+    "air_time_weight": "air_time",
+    "base_angular_velocity_weight": "base_angular_velocity",
+    "base_linear_velocity_weight": "base_linear_velocity",
+    "foot_clearance_weight": "foot_clearance",
+    "gait_weight": "gait",
+    "action_smoothness_weight": "action_smoothness",
+    "air_time_variance_weight": "air_time_variance",
+    "base_motion_weight": "base_motion",
+    "base_orientation_weight": "base_orientation",
+    "foot_slip_weight": "foot_slip",
+    "joint_acc_weight": "joint_acc",
+    "joint_pos_weight": "joint_pos",
+    "joint_torques_weight": "joint_torques",
+    "joint_vel_weight": "joint_vel",
+}
+
+# Maps autoresearch param name -> (range tuple name, index: 0=min 1=max)
+_COMMAND_RANGE_MAP = {
+    "lin_vel_x_min": ("lin_vel_x", 0),
+    "lin_vel_x_max": ("lin_vel_x", 1),
+    "lin_vel_y_min": ("lin_vel_y", 0),
+    "lin_vel_y_max": ("lin_vel_y", 1),
+    "ang_vel_z_min": ("ang_vel_z", 0),
+    "ang_vel_z_max": ("ang_vel_z", 1),
+}
+
 # Map parameter names to search axes for plateau detection / synthesis
 _PARAM_AXIS = {}
-_REWARD_PARAMS = {
-    "track_lin_vel_xy_weight", "track_lin_vel_xy_std",
-    "track_ang_vel_z_weight", "track_ang_vel_z_std",
-    "base_orientation_weight", "base_motion_weight",
-    "dof_torques_weight", "dof_acc_weight", "action_smoothness_weight",
-    "feet_air_time_weight", "feet_air_time_threshold",
-    "continuous_gait_weight", "air_time_variance_weight",
-    "foot_slip_weight", "shoulder_joint_vel_weight",
-    "undesired_contacts_weight", "undesired_contacts_threshold",
-    "forward_motion_weight",
-    "joint_pos_weight", "joint_pos_stand_still_scale", "joint_pos_velocity_threshold",
-}
-_COMMAND_PARAMS = {
-    "vx_min", "vx_max", "vy_min", "vy_max", "yaw_min", "yaw_max",
-    "zero_velocity_prob", "command_change_interval",
-}
-_TERMINATION_PARAMS = {
-    "orientation_threshold", "height_threshold", "body_contact_threshold",
-    "elbow_pose_termination",
-}
-_DOMAIN_RAND_PARAMS = {
-    "enable_randomization", "add_imu_noise", "add_joint_noise",
-    "add_lin_vel_noise", "randomize_friction", "randomize_mass",
-    "add_action_noise", "apply_external_forces",
-}
-_ENV_LEVEL_PARAMS = {"episode_length_s", "action_scale", "action_filter_beta"}
+_REWARD_PARAMS = set(_REWARD_WEIGHT_MAP.keys())
+_COMMAND_PARAMS = set(_COMMAND_RANGE_MAP.keys())
+_TERMINATION_PARAMS: set[str] = set()  # Manager-based terminations are in DoneTerm, rarely tuned
+_DOMAIN_RAND_PARAMS: set[str] = set()  # Manager-based uses EventTermCfg, rarely tuned via autoresearch
+_ENV_LEVEL_PARAMS = {"episode_length_s", "action_scale"}
 
 for _p in _REWARD_PARAMS:
     _PARAM_AXIS[_p] = "reward_weights"

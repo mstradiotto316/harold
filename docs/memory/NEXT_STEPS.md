@@ -1,23 +1,16 @@
 # Harold Next Steps
 
-## HIGH PRIORITY — Manager-Based Walking
+## HIGH PRIORITY — Manager-Based Walking (EXP-785 baseline)
 
-0. **Review Harold walking video** — The manager-based Harold training (Harold-Velocity-Flat-v0) achieved gait=9.7/10 with strong velocity tracking. Review the trained policy video to confirm visual walking quality, then proceed to sim-to-real pipeline.
-0a. **Integrate manager-based task with harold.py CLI** — Currently the manager-based task must be run through the Isaac Lab launcher directly. Integrate it into `harold.py train --task harold_flat_manager` for the standard workflow (status monitoring, experiment tracking, video recording).
-0b. **Export manager-based policy to ONNX** — Export the trained policy for hardware deployment. The existing export pipeline may need updates for the manager-based architecture.
-0c. **Debug DirectRLEnv standing trap** — The direct-env architecture still doesn't walk despite fixing action clamping and joint penalty scope. The root cause remains unknown. Lower priority now that manager-based works, but worth investigating for understanding.
+1. **Export manager-based policy to ONNX** — Export the trained policy for hardware deployment. The existing export pipeline may need updates for the manager-based architecture (50Hz control rate, different obs/action scaling).
+2. **Run autoresearch to optimize walking gait** — Use the manager-based env (`harold_mgr`) as baseline. Tune reward weights, command ranges, and training hyperparameters to improve foot clearance, step length, and gait quality.
 
-## EXISTING STEPS
+## MEDIUM PRIORITY — Sim-to-Real Pipeline
 
-1. Rotate the Wi-Fi password that was previously committed in a tracked NetworkManager profile. The public git history was rewritten and force-pushed, but any old clones/forks should still be treated as compromised.
-2. Review the remaining legacy deployment debug scripts (`deployment/test_pipeline.py`, `deployment/test_final.py`, `deployment/test_no_feedback.py`, `deployment/test_sign_conversion.py`, `deployment/test_training_obs.py`, `deployment/test_policy_verbose.py`, `deployment/debug_*`) and either migrate them to the 48D/raw-observation path plus the shared hardware-backed joint-sign resolver, or retire them so they stop advertising stale 50D/phase-based assumptions.
-3. Re-run a default-env-count (`num_envs=8192`) CLI smoke now that the detached launcher, explicit Isaac Lab interpreter pin, and streamed video writer are fixed, so we know whether the temporary 64-env audit override can be dropped.
-4. Run a longer rough-task validation pass and inspect whether the newly real domain-randomization path improves robustness or simply exposes a tuning gap; current rough smoke still fails sanity almost immediately.
-5. Resume the hardware-alignment workflow only after the remaining legacy-tool cleanup and the default-env-count smoke are complete. Start with a suspended shoulder-direction sanity check on the Pi so the freshly unified deployment sign handling is verified before any under-load walking test.
-6. Run a real world hardware test with the robot off of the test stand under its own weight to verify all the changes landed correctly and did not result in regressions to the walking pattern. (Ensure the IMU is recording data)
-7. Take the logs from the real world hardware test and copy them from the robot's raspberry pi to the Desktop computer.
-8. Run the simulated walking and compare the commands from the real robot to the simulated robot. If they do not match, update the simulated robot settings (stiffness and dampening) until the sim matches the real hardware exactly.
-9. Run the simulated walking and compare the actual joint positions from the real robot to the simulated robot. If they do not match, update the simulated robot settings (stiffness and dampening) until the sim matches the real hardware within a realistic margin of error.
-10. Run the simulated walking and compare the actual IMU data from the real robot's IMU data. If they do not match, attempt to add noise to simulated IMU data until it resonably matches what we see in the real world. If the match is impossible, consider ways we can clean or get better data from the real robot. Work with me to plan out a strategy.
-11. If the desktop environment path or Isaac Sim launch workflow changes, update the environment/runtime guidance in `AGENTS.md`, `docs/index.md`, `docs/overview.md`, and `docs/sim/isaac_lab_extension.md` immediately so future agents do not misdiagnose `omni` import failures as missing packages.
-12. If anyone needs a rough-terrain or pushup export for deployment/offline replay, regenerate the artifact with the 2026-03-16 exporter fix instead of trusting older `policy_metadata.json` files that may have flat-task action scale or joint limits baked in.
+3. **Run real-world hardware test** — Deploy the manager-based policy on the robot off the test stand. Ensure IMU recording is active. Compare sim vs real joint positions, commands, and IMU data.
+4. **Sim-to-real alignment** — Compare hardware logs to simulated walking. Tune stiffness/damping if sim doesn't match real servo behavior. Add IMU noise if needed.
+5. **Review legacy deployment scripts** — Audit `deployment/test_*.py` and `deployment/debug_*` scripts. Migrate to 48D/raw-observation path or retire stale 50D/phase-based scripts.
+
+## LOW PRIORITY — Investigation
+
+6. **Debug DirectRLEnv standing trap** — The direct-env architecture doesn't walk despite fixing action clamping and joint penalty scope. Root cause unknown. Lower priority since manager-based works.

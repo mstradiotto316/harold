@@ -83,7 +83,7 @@ TASK_IDS = {
     'sim_flat_v2': 'Template-Harold-Direct-sim-flat-v2',
     'harold_mgr': 'Harold-Velocity-Flat-v0',
 }
-DEFAULT_TASK = 'flat'
+DEFAULT_TASK = 'harold_mgr'
 TRAINING_DEFAULTS = {
     'num_envs': 4096,   # Session 54: matched Spot reference. Was 16384.
     'video_length': 250,

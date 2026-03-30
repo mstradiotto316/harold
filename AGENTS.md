@@ -91,7 +91,7 @@ Start with `docs/index.md` for the full map, then use the role-specific lists be
 - `docs/example_environments/README.md`: Index of all Isaac Lab quadruped locomotion examples (Spot, Go1, Go2, A1, ANYmal B/C/D).
 - Each file covers robot specs, reward structure with weights, observation/action spaces, command ranges, domain randomization, and training config.
 - `docs/example_environments/anymal_c_direct.md`: **Most relevant for Harold** — same direct env architecture, documents the `step_dt` reward multiplication trap.
-- `docs/example_environments/spot_flat.md`: Source of Harold's sim_flat_v2 reward structure.
+- `docs/example_environments/spot_flat.md`: Source of Harold's manager-based reward structure.
 
 ### Shared references
 - `docs/kinematics/harold_8_kinematics.yaml`: USD-derived joint/mesh kinematics spec (review before stance or sim-to-real alignment changes).
@@ -199,7 +199,8 @@ python scripts/harold.py train --duration standard # Preset duration (see script
 python scripts/harold.py train --checkpoint path   # Resume from checkpoint
 python scripts/harold.py train --mode cpg          # CPG open-loop mode
 python scripts/harold.py train --mode scripted     # Scripted gait (policy ignored)
-python scripts/harold.py train --task rough        # Rough terrain task
+python scripts/harold.py train --task harold_mgr   # Manager-based flat (default)
+python scripts/harold.py train --task rough        # Rough terrain task (direct-env, deprecated)
 ```
 
 ### Autonomous Loop (Interactive for Hours)
@@ -346,14 +347,13 @@ Machine-readable output includes:
 
 ```bash
 # Direct training (verbose output - avoid in agents)
-# NOTE: --video is MANDATORY, never omit it
 python harold_isaac_lab/scripts/skrl/train.py \
-  --task=Template-Harold-Direct-flat-terrain-v0 \
-  --num_envs <num_envs> --headless --video --video_length <frames> --video_interval <steps>
+  --task=Harold-Velocity-Flat-v0 \
+  --num_envs 2048 --headless
 
 # Play/evaluate a checkpoint
 python harold_isaac_lab/scripts/skrl/play.py \
-  --task=Template-Harold-Direct-flat-terrain-v0 \
+  --task=Harold-Velocity-Flat-v0 \
   --checkpoint=<path_to_checkpoint.pt>
 
 # TensorBoard monitoring
@@ -391,14 +391,16 @@ harold_isaac_lab/
 │   ├── train.py         # Main training entry point
 │   └── play.py          # Policy evaluation/playback
 └── source/harold_isaac_lab/harold_isaac_lab/
-    └── tasks/direct/
-        ├── harold_flat/     # Flat terrain RL (primary task)
-        │   ├── harold_isaac_lab_env.py      # Environment class
-        │   ├── harold_isaac_lab_env_cfg.py  # Config (rewards, termination)
-        │   ├── harold.py                    # Robot asset definition
-        │   └── agents/skrl_ppo_cfg.yaml     # PPO hyperparameters
-        ├── harold_rough/    # Rough terrain with curriculum
-        └── harold_pushup/   # Scripted playback (no RL)
+    └── tasks/
+        ├── manager_based/           # RECOMMENDED architecture
+        │   └── harold_flat/         # Flat locomotion (produces walking)
+        │       ├── flat_env_cfg.py  # Config (rewards, commands, events)
+        │       ├── harold.py        # Robot asset definition
+        │       └── agents/skrl_ppo_cfg.yaml
+        └── direct/                  # DEPRECATED (standing trap bug)
+            ├── harold_flat/         # Direct-env flat terrain
+            ├── harold_rough/        # Direct-env rough terrain
+            └── harold_pushup/       # Scripted playback (no RL)
 ```
 
 ### Gym Task IDs
@@ -410,9 +412,9 @@ harold_isaac_lab/
 ### Key Configuration Files
 | Purpose | Path |
 |---------|------|
-| Flat env config (rewards, termination) | `.../harold_flat/harold_isaac_lab_env_cfg.py` |
-| PPO hyperparameters | `.../harold_flat/agents/skrl_ppo_cfg.yaml` |
-| Robot asset (joints, actuators) | `.../harold_flat/harold.py` |
+| Manager-based env config (rewards, commands, events) | `.../tasks/manager_based/harold_flat/flat_env_cfg.py` |
+| PPO hyperparameters | `.../tasks/manager_based/harold_flat/agents/skrl_ppo_cfg.yaml` |
+| Robot asset (joints, actuators) | `.../tasks/manager_based/harold_flat/harold.py` |
 | USD model | `part_files/V4/harold_8.usd` |
 
 ### Robot Specifications

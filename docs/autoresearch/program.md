@@ -26,12 +26,12 @@ These cannot be changed. autoresearch.py apply will refuse.
 | Joint limits (shoulders) | +/-0.5236 rad | Mechanical stops |
 | Joint limits (thighs/calves) | +/-1.5708 rad | Mechanical stops |
 | Effort limit | 2.8 Nm | 95% of servo max |
-| Stiffness | 1200 | Session 21: critical for sim-to-real |
-| Damping | 75 | Session 21: matches servo behavior |
-| Control rate | 20 Hz (decimation=9, dt=1/180) | Matches RPi deployment |
+| Stiffness (Kp) | 40.0 | Manager-based ImplicitActuatorCfg |
+| Damping (Kd) | 0.5 | Manager-based ImplicitActuatorCfg |
+| Control rate | 50 Hz (decimation=10, dt=0.002) | Manager-based: 500Hz physics, 50Hz policy |
 | Observation space | 48D | Fixed for ONNX export |
 | Action space | 12D | 12 joints |
-| Observation clipping | +/-5.0 | Matches deployment |
+| Action scale | 0.2 | JointPositionActionCfg scale |
 | Joint order | FL,FR,BL,BR x sh,th,ca | Matches firmware |
 | Sign convention | thighs/calves inverted | Matches servo mounting |
 | Static/dynamic friction | 1.0 / 1.0 | Terrain physics |
@@ -49,19 +49,19 @@ Edit via `python scripts/autoresearch.py apply '{"param": value}'`
 Full parameter tables (current values, ranges, categories): `docs/autoresearch/PARAMETER_REGISTRY.md`
 Live registry: `python scripts/autoresearch.py load-registry`
 
-Parameter categories: reward weights, command ranges, termination thresholds, domain randomization toggles, env-level params (episode_length_s, action_scale, action_filter_beta), and PPO hyperparameters.
+Parameter categories: reward weights (RewardTermCfg), command ranges (UniformVelocityCommandCfg.Ranges), env-level params (episode_length_s), and PPO hyperparameters.
 
-### Research Code (train_env.py)
+### Research Code (flat_env_cfg.py)
 
-You may directly edit `harold_isaac_lab/.../harold_flat/train_env.py`. This file contains the reward computation, observation construction, and action processing -- the "research surface."
+You may directly edit `harold_isaac_lab/.../manager_based/harold_flat/flat_env_cfg.py`. This file contains reward term configurations, command ranges, event/randomization configs, and termination conditions.
 
-RULES for editing train_env.py:
+RULES for editing flat_env_cfg.py:
 - Do NOT change observation_space (must remain 48D) or action_space (12D)
-- Do NOT write to actuators directly (self._robot.write_*)
-- Do NOT modify reset/termination logic
-- Do NOT access self.cfg.sim or physics parameters
-- reward tensor must be shape [num_envs]
-- observation dict must have key 'policy' with shape [num_envs, 48]
+- Do NOT modify the robot asset definition (harold.py)
+- Do NOT change the ManagerBasedRLEnv entry point
+- Reward weights live in `HaroldRewardsCfg` as `RewardTermCfg(weight=X.X)`
+- Command ranges live in `HaroldCommandsCfg` as `Ranges(lin_vel_x=(-min, max))`
+- After editing, verify with `python scripts/autoresearch.py load-baseline`
 
 ## Evaluation: Metrics Gate + Behavioral Analysis
 
@@ -99,7 +99,7 @@ These are complementary, not competing: one decides, the other explains.
 Note: LOCOMOTION in video does NOT imply WALKING in metrics. A robot can show
 cyclic gait (LOCOMOTION) while failing to track commanded velocity (not WALKING).
 
-Current baseline: EXP-478 (vx=0.057, upright=0.906, ep_len=174)
+Current baseline: EXP-785 (manager-based, gait=9.76/10, reward=340.8, ep_len=1000)
 
 ## The Loop
 
@@ -109,10 +109,10 @@ LOOP FOREVER:
      - MUST reference prior video review findings when available
      - If last video showed an exploit/degenerate behavior, hypothesis MUST address it
   1b. CHECK: autoresearch.py check-similarity '{"param": value}' (skip if >2 similar DISCARDs)
-  2. EDIT: config param (autoresearch.py apply) or train_env.py code
+  2. EDIT: config param (autoresearch.py apply) or flat_env_cfg.py code
   3. COMMIT: git commit -m "autoresearch: <hypothesis>"
   4. TRAIN: harold train --hypothesis "..." --tags "autoresearch,..." --duration fast
-     Training runs WITHOUT video at 16384 envs for maximum throughput.
+     Training runs WITHOUT video at 2048 envs (manager-based OOMs at 4096).
   5. WAIT: harold status --json (check at 5 min, then every 5 min)
      Early stop: SANITY_FAIL after 5 min -> harold stop, DISCARD
      Early stop: height FAIL + negative vx after 10 min -> harold stop, DISCARD
@@ -134,7 +134,7 @@ LOOP FOREVER:
   7. LOG: autoresearch.py log -> results.tsv
      - video_verdict field is MANDATORY (LOCOMOTION/STEPPING/STANDING/FALLING/DEGENERATE)
      - Include video review recommendations in notes
-     If DISCARD: revert config (autoresearch.py revert) or git checkout -- train_env.py
+     If DISCARD: revert config (autoresearch.py revert) or git checkout -- flat_env_cfg.py
   8. POST-EXPERIMENT:
      a. Save state:
         python3 scripts/autoresearch.py save-state '{
@@ -161,8 +161,8 @@ LOOP FOREVER:
 1. Run `autoresearch.py detect-plateau` — get a structured view of what's been tried and what hasn't.
 2. Read results.tsv — what was the last KEEP? What has been tried since?
 3. Try a DIFFERENT axis: if you've been tuning rewards, try PPO hyperparameters.
-   If you've been tuning params, try a code change in train_env.py.
-   If you've been editing train_env.py, try reverting to a known-good state and changing a param.
+   If you've been tuning params, try a code change in flat_env_cfg.py.
+   If you've been editing flat_env_cfg.py, try reverting to a known-good state and changing a param.
 4. Try the OPPOSITE: if increasing X failed, try decreasing X.
 5. Try COMBINING: run `autoresearch.py suggest-combinations` for data-driven proposals from near-miss DISCARDs.
 6. Try a LONGER RUN: if fast (15 min) isn't enough, try short (30 min) or standard (60 min).
@@ -197,8 +197,8 @@ At 2fps, each frame spans 0.5s — small inter-frame changes may be postural adj
 
 EXPERIMENT: {alias} - {hypothesis}
 
-BASE RATE: The robot has NEVER achieved WALKING (cmd_tracking_ratio ≥ 0.5) in 700+ experiments.
-STANDING is the expected verdict. When in doubt, choose the less impressive tag.
+BASE RATE: WALKING has been achieved (EXP-785 baseline, manager-based env, gait=9.76/10).
+The robot walks with small choppy steps and low foot clearance. When in doubt, choose the less impressive tag.
 
 BEHAVIOR TAGS (choose exactly one):
   LOCOMOTION — Cyclic gait with visible forward displacement ≥1 body length (0.42m) per episode
@@ -329,8 +329,8 @@ Experiments are numbered sequentially from EXP-729. Experiments 1-478 are archiv
 | `docs/autoresearch/program.md` | This file. Lab policy. | Human only |
 | `scripts/autoresearch.py` | Apply/revert/log helpers | Read only |
 | `scripts/harold.py` | Training CLI | Read only |
-| `harold_isaac_lab/.../harold_isaac_lab_env_cfg.py` | Reward weights, termination, commands | **You edit (via autoresearch.py)** |
+| `harold_isaac_lab/.../manager_based/harold_flat/flat_env_cfg.py` | Reward weights, commands, events | **You edit (via autoresearch.py)** |
 | `harold_isaac_lab/.../agents/skrl_ppo_cfg.yaml` | PPO hyperparameters | **You edit (via autoresearch.py)** |
-| `harold_isaac_lab/.../harold_flat/train_env.py` | Reward/observation/action code | **You edit (directly)** |
+| `harold_isaac_lab/.../harold_flat/flat_env_cfg.py` | Reward/observation/action code | **You edit (directly)** |
 | `docs/memory/OBSERVATIONS.md` | Project insights | Read + append on KEEP |
 | `docs/autoresearch/results.tsv` | Experiment log (gitignored) | Append per experiment |

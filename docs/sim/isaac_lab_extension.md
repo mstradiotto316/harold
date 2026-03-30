@@ -2,8 +2,8 @@
 
 ## Overview
 
-Isaac Lab extension for the Harold quadruped robot. Provides direct RL environments
-for flat and rough terrain locomotion training using skrl.
+Isaac Lab extension for the Harold quadruped robot. Provides manager-based and direct RL environments
+for flat terrain locomotion training using skrl. The manager-based architecture (`Harold-Velocity-Flat-v0`) is recommended.
 
 For Harold workflows, prefer `AGENTS.md` and `python scripts/harold.py`.
 
@@ -42,7 +42,7 @@ python -m pip install -e harold_isaac_lab/source/harold_isaac_lab
 - Run a task:
 
     ```bash
-    python harold_isaac_lab/scripts/skrl/train.py --task=<TASK_NAME>
+    python harold_isaac_lab/scripts/skrl/train.py --task=Harold-Velocity-Flat-v0
     ```
 
 - Run with dummy agents (useful for verifying environment configuration):

@@ -8,6 +8,8 @@ These archives keep `docs/memory/OBSERVATIONS.md` concise. Only read archives wh
 - Avoid loading multiple archives unless necessary.
 
 ## Current Archives
+
+- `OBSERVATIONS_pre_manager_based.md` — Direct-env era observations (Sessions 46-52, 2026-03-15 to 2026-03-28). Covers the standing trap investigation, false positive corrections, and quality ceiling confirmation. Archived 2026-03-30 after manager-based breakthrough.
 - `docs/memory/archives/OBSERVATIONS_2026-01-04_full.md` - Full historical observations through 2026-01-04 (legacy content moved from OBSERVATIONS.md).
 
 ## Archival Rule (Going Forward)

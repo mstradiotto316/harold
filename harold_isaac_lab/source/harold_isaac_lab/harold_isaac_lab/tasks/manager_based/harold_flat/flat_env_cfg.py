@@ -189,7 +189,7 @@ class HaroldRewardsCfg:
     # -- task rewards
     air_time = RewardTermCfg(
         func=spot_mdp.air_time_reward,
-        weight=8.0,
+        weight=5.0,
         params={
             "mode_time": 0.15,
             "velocity_threshold": 0.15,
@@ -204,7 +204,7 @@ class HaroldRewardsCfg:
     )
     base_linear_velocity = RewardTermCfg(
         func=spot_mdp.base_linear_velocity_reward,
-        weight=8.0,
+        weight=5.0,
         params={"std": 1.0, "ramp_rate": 0.5, "ramp_at_vel": 1.0, "asset_cfg": SceneEntityCfg("robot")},
     )
     foot_clearance = RewardTermCfg(
@@ -219,7 +219,7 @@ class HaroldRewardsCfg:
     )
     gait = RewardTermCfg(
         func=spot_mdp.GaitReward,
-        weight=13.0,
+        weight=10.0,
         params={
             "std": 0.1,
             "max_err": 0.2,
@@ -231,14 +231,14 @@ class HaroldRewardsCfg:
     )
 
     # -- penalties
-    action_smoothness = RewardTermCfg(func=spot_mdp.action_smoothness_penalty, weight=-0.5)
+    action_smoothness = RewardTermCfg(func=spot_mdp.action_smoothness_penalty, weight=-1.0)
     air_time_variance = RewardTermCfg(
         func=spot_mdp.air_time_variance_penalty,
         weight=-1.0,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*calf")},
     )
     base_motion = RewardTermCfg(
-        func=spot_mdp.base_motion_penalty, weight=-2.0, params={"asset_cfg": SceneEntityCfg("robot")}
+        func=spot_mdp.base_motion_penalty, weight=-1.0, params={"asset_cfg": SceneEntityCfg("robot")}
     )
     base_orientation = RewardTermCfg(
         func=spot_mdp.base_orientation_penalty, weight=-3.0, params={"asset_cfg": SceneEntityCfg("robot")}

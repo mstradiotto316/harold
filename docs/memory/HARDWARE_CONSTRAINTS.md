@@ -194,10 +194,10 @@ st.WritePosEx(ID, Position, Speed, ACC);
 |  1024 | 18.1 | 0.45M |  6.2 GB |  8.6 GB | OK |
 |  4096 | 16.0 | 1.58M |  7.2 GB |  9.3 GB | OK |
 |  8192 | 11.5 | 2.26M |  8.3 GB | 10.3 GB | OK |
-| 16384 |  7.3 | 2.88M | 10.3 GB | 12.3 GB | **Default** (20% RAM) |
-| 24576 |  5.4 | 3.18M | 12.3 GB | 14.6 GB | OK |
+| 16384 |  7.3 | 2.88M | 10.3 GB | 12.3 GB | Direct-env only (standing trap at this scale) |
+| 24576 |  5.4 | 3.18M | 12.3 GB | 14.6 GB | Direct-env only |
 
-**Default: 16384 envs** (2.88M samples/s, 3.7x faster than previous 4096+video setup).
+**Default: 2048 envs** (manager-based). OOMs at 4096 with ManagerBasedRLEnv on RTX 4080. Benchmark above is for direct-env (deprecated).
 
 ---
 

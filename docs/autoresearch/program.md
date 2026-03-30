@@ -63,22 +63,28 @@ RULES for editing flat_env_cfg.py:
 - Command ranges live in `HaroldCommandsCfg` as `Ranges(lin_vel_x=(-min, max))`
 - After editing, verify with `python scripts/autoresearch.py load-baseline`
 
-## Evaluation: Metrics Gate + Behavioral Analysis
+## Evaluation
 
-Two systems evaluate every experiment. They answer different questions:
+Two complementary systems evaluate every experiment:
 
-| System | Question it answers | Output |
-|--------|-------------------|--------|
-| `harold validate` | Did the robot track its commanded velocity? | WALKING (exit 0) or not |
-| Video review agent | What is the robot doing? What to try next? | Behavioral tag + analysis |
+| System | What it tells you |
+|--------|-------------------|
+| `harold validate` | Reward components: gait quality, velocity tracking, air time, penalties |
+| Video review agent | What the robot is actually doing: gait type, stability, failure modes |
 
-The metric gate (`cmd_tracking_ratio ≥ 0.5`: robot covers ≥50% of commanded distance)
-is the sole KEEP/DISCARD authority. It accounts for command randomization and is
-unambiguous — 50% of commanded distance over a 30s episode requires real locomotion.
+**Video review is the primary authority for KEEP/DISCARD.** Metrics inform strategy but
+only video reveals the true behavior (metrics can be gamed by reward hacking).
 
-The video reviewer describes behavior — gait quality, posture, failure modes —
-and recommends the next experiment. It does NOT determine KEEP/DISCARD.
-These are complementary, not competing: one decides, the other explains.
+### Key Metrics (from `harold validate`)
+
+| Metric | Baseline (EXP-785) | What it means |
+|--------|-------------------|---------------|
+| reward_total | 340.8 | Overall training reward (higher = better) |
+| gait | 9.69/10 | Diagonal trot pattern quality |
+| base_linear_velocity | 3.70/5 | Velocity command tracking |
+| air_time | 0.49 | Feet lifting off ground |
+| episode_length | 1000/1000 | Survival (1000 = full episode, no crashes) |
+| base_orientation | -0.11 | Body tilt penalty (closer to 0 = more stable) |
 
 ### Video Behavior Tags (assigned by video reviewer)
 
@@ -90,16 +96,13 @@ These are complementary, not competing: one decides, the other explains.
 | FALLING | Losing balance, toppling, or 5+ resets in the clip |
 | DEGENERATE | Reward hacking, exploit, or unclassifiable behavior |
 
-### Metric Verdict (assigned by `harold validate`)
+### KEEP/DISCARD Decision
 
-| Verdict | Meaning |
-|---------|---------|
-| WALKING | cmd_tracking_ratio ≥ 0.5 AND vx ≥ 0.05 — the ONLY definition of walking |
+KEEP if the experiment shows **improvement over baseline** in video behavior OR metrics,
+without regression in other areas. DISCARD otherwise. This is your judgment call —
+there is no programmatic gate.
 
-Note: LOCOMOTION in video does NOT imply WALKING in metrics. A robot can show
-cyclic gait (LOCOMOTION) while failing to track commanded velocity (not WALKING).
-
-Current baseline: EXP-785 (manager-based, gait=9.76/10, reward=340.8, ep_len=1000)
+Current baseline: EXP-785 (reward=340.8, gait=9.69, vel=3.70, ep_len=1000)
 
 ## The Loop
 
@@ -113,23 +116,18 @@ LOOP FOREVER:
   3. COMMIT: git commit -m "autoresearch: <hypothesis>"
   4. TRAIN: harold train --hypothesis "..." --tags "autoresearch,..." --duration fast
      Training runs WITHOUT video at 2048 envs (manager-based OOMs at 4096).
-  5. WAIT: harold status --json (check at 5 min, then every 5 min)
-     Early stop: SANITY_FAIL after 5 min -> harold stop, DISCARD
-     Early stop: height FAIL + negative vx after 10 min -> harold stop, DISCARD
+  5. WAIT: harold status (check at 5 min, then every 5 min)
+     Early stop: ep_len < 200 after 5 min -> harold stop, DISCARD
+     Early stop: reward declining after 10 min -> harold stop, DISCARD
   6. EVALUATE:
-     a. METRICS: harold validate (cmd_tracking_ratio, vx, upright, height, contact, ep_len)
-     b. RECORD: harold record (post-hoc multi-camera video)
+     a. METRICS: harold validate (reward, gait, velocity, air_time, ep_len, penalties)
+     b. RECORD: harold record (post-hoc video, 16 envs)
      c. VIDEO REVIEW (BLOCKING): Launch video review agent in foreground. WAIT for result.
         Video describes behavior and guides next hypothesis.
-     d. DECIDE:
-        KEEP if ALL of:
-          - `harold validate` exits 0 (WALKING: cmd_tracking_ratio ≥ 0.5 AND vx ≥ 0.05)
-          - Video behavior is NOT DEGENERATE
-          - No metric regression vs baseline (agent judgment)
-        DISCARD otherwise.
-
-        The metric gate is the sole authority. Video behavior tags (LOCOMOTION,
-        STEPPING, etc.) inform strategy but do not affect KEEP/DISCARD.
+     d. DECIDE (your judgment):
+        KEEP if experiment shows improvement over baseline in video OR metrics
+        without regression in other areas. DISCARD otherwise.
+        Video is the primary authority — metrics can be gamed by reward hacking.
      e. Record video analyst's recommendations for next experiment
   7. LOG: autoresearch.py log -> results.tsv
      - video_verdict field is MANDATORY (LOCOMOTION/STEPPING/STANDING/FALLING/DEGENERATE)
@@ -265,10 +263,10 @@ Use `harold log` to inspect raw training output for debugging:
 
 ## Session Parameters
 
-- duration_per_experiment: fast (~15 min)
+- duration_per_experiment: fast (~15 min at 2048 envs, ~20 it/s)
 - mode: rl
-- task: flat
-- num_envs: 4096
+- task: harold_mgr (default, no --task flag needed)
+- num_envs: 2048 (manager-based default, OOMs at 4096)
 
 ### Context Management
 

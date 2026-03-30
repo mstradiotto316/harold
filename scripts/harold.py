@@ -85,7 +85,7 @@ TASK_IDS = {
 }
 DEFAULT_TASK = 'harold_mgr'
 TRAINING_DEFAULTS = {
-    'num_envs': 4096,   # Session 54: matched Spot reference. Was 16384.
+    'num_envs': 2048,   # Manager-based default. OOMs at 4096 on RTX 4080.
     'video_length': 250,
     'rendering_mode': 'balanced',
 }
@@ -97,7 +97,7 @@ DURATION_PRESETS = {
 }
 DEFAULT_DURATION = 'short'
 MODE_CHOICES = ('rl', 'cpg', 'scripted')
-DATA_POINTS_TAG = 'Info / Episode_Metric/vx_w_mean'
+DATA_POINTS_TAG = 'Reward / Total reward (mean)'
 
 # Map task keys to their env_cfg files (for reading action_scale, etc.)
 _TASK_ENV_CFG_PATHS = {
@@ -129,61 +129,35 @@ SWAP_KILL_THRESHOLD = 70  # Kill only when swap heavily used (thrashing imminent
 
 
 # === METRIC SPECIFICATION (Single Source of Truth) ===
-# All metric-related code derives from this list. To add a metric, add one line here.
+# Manager-based env logs reward components as TensorBoard scalars.
+# No programmatic WALKING/STANDING/FAILING verdict — the agent + video review decide.
 
 @dataclass
 class MetricSpec:
     """Specification for a training metric."""
     key: str                # Internal key used in dicts
     tensorboard_tag: str | tuple[str, ...]    # TensorBoard scalar tag path(s)
-    threshold: float        # Pass threshold value
-    compare_gt: bool        # True = value > threshold is PASS
     display_name: str       # Human-readable name for output
 
-@dataclass
-class AuxMetricSpec:
-    """Specification for auxiliary metrics (no thresholds)."""
-    key: str
-    tensorboard_tag: str | tuple[str, ...]
-    display_name: str
-
+# Core metrics from the manager-based environment (ManagerBasedRLEnv).
+# These are the reward components logged by Isaac Lab's RewardManager.
 METRICS = [
-    MetricSpec('episode_length', 'Episode / Total timesteps (mean)', 200, True, 'Episode Length'),  # Session 51 post-mortem: lowered from 300 to 200 (SANITY_FAIL gate only, not walking indicator)
-    MetricSpec('upright_mean', 'Info / Episode_Metric/upright_mean', 0.9, True, 'Upright Mean'),
-    MetricSpec('height_reward', ('Info / Episode_Reward/height_reward', 'Info / Episode_Metric/height_reward'), 0.5, True, 'Height Reward'),  # Session 24: lowered from 1.2 (CPG gait has different natural height)
-    MetricSpec('body_contact', ('Info / Episode_Reward/body_contact_penalty', 'Info / Episode_Metric/body_contact_penalty'), -0.1, True, 'Body Contact'),
-    MetricSpec('vx_w_mean', 'Info / Episode_Metric/vx_w_mean', 0.05, True, 'Forward Velocity'),  # Session 51 post-mortem: raised from 0.01 (1cm/s trivially satisfied by drift/falling)
-    MetricSpec('cmd_tracking_ratio', 'Info / Episode_Metric/cmd_tracking_ratio', 0.5, True, 'Cmd Tracking Ratio'),  # Session 52 fix: robot must cover ≥50% of commanded distance
-]
-
-AUX_METRICS = [
-    AuxMetricSpec('x_displacement', 'Info / Episode_Metric/x_displacement', 'X Displacement'),
-    AuxMetricSpec('x_displacement_abs', 'Info / Episode_Metric/x_displacement_abs', 'Abs X Displacement'),
-    AuxMetricSpec(
-        'term_orientation',
-        ('Info / Episode_Termination/orientation', 'Info / Episode_Metric/termination_orientation'),
-        'Term: Orientation',
-    ),
-    AuxMetricSpec(
-        'term_height',
-        ('Info / Episode_Termination/height', 'Info / Episode_Metric/termination_height'),
-        'Term: Height',
-    ),
-    AuxMetricSpec(
-        'term_body_contact',
-        ('Info / Episode_Termination/body_contact', 'Info / Episode_Termination/contact', 'Info / Episode_Metric/termination_body_contact', 'Info / Episode_Metric/termination_contact'),
-        'Term: Body Contact',
-    ),
-    AuxMetricSpec(
-        'term_elbow_pose',
-        ('Info / Episode_Termination/elbow_pose', 'Info / Episode_Metric/termination_elbow_pose'),
-        'Term: Elbow Pose',
-    ),
-    AuxMetricSpec(
-        'term_timeout',
-        ('Info / Episode_Termination/time_out', 'Info / Episode_Metric/termination_time_out'),
-        'Term: Timeout',
-    ),
+    MetricSpec('episode_length', 'Episode / Total timesteps (mean)', 'Episode Length'),
+    MetricSpec('reward_total', 'Reward / Total reward (mean)', 'Total Reward'),
+    MetricSpec('gait', 'Info / Episode_Reward/gait', 'Gait (trot pattern)'),
+    MetricSpec('base_linear_velocity', 'Info / Episode_Reward/base_linear_velocity', 'Velocity Tracking'),
+    MetricSpec('base_angular_velocity', 'Info / Episode_Reward/base_angular_velocity', 'Yaw Tracking'),
+    MetricSpec('air_time', 'Info / Episode_Reward/air_time', 'Air Time (feet lifting)'),
+    MetricSpec('foot_clearance', 'Info / Episode_Reward/foot_clearance', 'Foot Clearance'),
+    MetricSpec('base_orientation', 'Info / Episode_Reward/base_orientation', 'Orientation Penalty'),
+    MetricSpec('base_motion', 'Info / Episode_Reward/base_motion', 'Base Motion Penalty'),
+    MetricSpec('action_smoothness', 'Info / Episode_Reward/action_smoothness', 'Action Smoothness'),
+    MetricSpec('foot_slip', 'Info / Episode_Reward/foot_slip', 'Foot Slip Penalty'),
+    MetricSpec('joint_pos', 'Info / Episode_Reward/joint_pos', 'Joint Position Penalty'),
+    MetricSpec('joint_vel', 'Info / Episode_Reward/joint_vel', 'Joint Velocity Penalty'),
+    MetricSpec('joint_torques', 'Info / Episode_Reward/joint_torques', 'Joint Torques Penalty'),
+    MetricSpec('joint_acc', 'Info / Episode_Reward/joint_acc', 'Joint Acceleration Penalty'),
+    MetricSpec('air_time_variance', 'Info / Episode_Reward/air_time_variance', 'Air Time Variance'),
 ]
 
 # Derived lookups (computed once at import time)
@@ -199,15 +173,6 @@ class TrainingStatus:
     elapsed_seconds: float | None = None
 
 
-@dataclass
-class DiagnosisResult:
-    """Result of analyzing training metrics.
-
-    Replaces tuple return from get_diagnosis() - clearer than (str, str, int).
-    """
-    status: str        # 'WALKING', 'STANDING', 'FAILING', 'SANITY_FAIL', 'NO_DATA'
-    diagnosis: str     # Human-readable description
-    exit_code: int     # 0=walking, 1=standing, 2=failing, 3=sanity, 4=no data
 
 
 def get_latest_run() -> Path | None:
@@ -269,13 +234,8 @@ def get_metrics(run_path: Path) -> dict:
                 continue
         return 0
 
-    # Extract metrics from spec lists
+    # Extract metrics from spec list
     result = {spec.key: avg_last(spec.tensorboard_tag) for spec in METRICS}
-    for spec in AUX_METRICS:
-        result[spec.key] = avg_last(spec.tensorboard_tag)
-
-    # Add derived metrics (not in METRICS spec)
-    result['reward_total'] = avg_last('Reward / Total reward (mean)')
     result['data_points'] = get_count(DATA_POINTS_TAG)
 
     return result
@@ -370,12 +330,6 @@ def generate_manifest(run_path: Path) -> dict:
     # Extract metrics from TensorBoard
     metrics = get_metrics(run_path)
 
-    # Determine verdict
-    if metrics.get('episode_length') is not None:
-        diag = get_diagnosis(metrics)
-    else:
-        diag = DiagnosisResult('NO_DATA', 'No metrics available', 4)
-
     # Check if run is still active
     train_status = is_training_running()
     if train_status.running:
@@ -404,7 +358,6 @@ def generate_manifest(run_path: Path) -> dict:
         'notes': [],
         'summary': {
             'final': {k: metrics.get(k) for k in METRIC_KEYS},
-            'verdict': diag.status
         }
     }
 
@@ -420,10 +373,8 @@ def get_or_create_manifest(run_path: Path) -> dict:
         if manifest.get('status') == 'running':
             metrics = get_metrics(run_path)
             if metrics.get('data_points', 0) > 0:
-                diag = get_diagnosis(metrics)
                 manifest['summary'] = {
                     'final': {k: metrics.get(k) for k in METRIC_KEYS},
-                    'verdict': diag.status
                 }
                 # Check if still running
                 if not is_training_running().running:
@@ -510,83 +461,17 @@ def get_recent_experiments(n: int = 5) -> list[str]:
     return result
 
 
-def metric_passes(key: str, value: float | None) -> bool:
-    """Check if a metric value passes its threshold."""
-    if value is None:
-        return False
-    spec = METRIC_BY_KEY[key]
-    return value >= spec.threshold if spec.compare_gt else value <= spec.threshold
-
-
-def format_metric_line(key: str, value: float | None, show_threshold: bool = True) -> str:
-    """Format a metric for display with pass/fail status.
-
-    Reduces repetition across cmd_status(), cmd_validate(), etc.
-    """
+def format_metric_line(key: str, value: float | None) -> str:
+    """Format a metric for display."""
     spec = METRIC_BY_KEY[key]
     if value is None:
         return f"  {spec.display_name}: (no data)"
-
-    passed = metric_passes(key, value)
-    status = "PASS" if passed else "FAIL"
-    cmp = ">" if spec.compare_gt else "<"
-
-    if show_threshold:
-        return f"  {spec.display_name}: {value:.4f} ({status}, need {cmp} {spec.threshold})"
-    else:
-        return f"  {spec.display_name}: {value:.4f} ({status})"
+    return f"  {spec.display_name}: {value:.4f}"
 
 
-def get_diagnosis(metrics: dict) -> DiagnosisResult:
-    """Analyze metrics and return state-only diagnosis.
-
-    State-only reporting: describes current state without prescriptive suggestions.
-    The agent interprets results and decides next steps.
-    """
-    ep_len = metrics.get('episode_length')
-    height = metrics.get('height_reward')
-    contact = metrics.get('body_contact')
-    upright = metrics.get('upright_mean')
-    vx = metrics.get('vx_w_mean')
-
-    # No data
-    if ep_len is None or height is None:
-        return DiagnosisResult('NO_DATA', 'No metrics available yet', 4)
-
-    # Sanity check (episode length)
-    ep_spec = METRIC_BY_KEY['episode_length']
-    if not metric_passes('episode_length', ep_len):
-        return DiagnosisResult('SANITY_FAIL', f'Episodes only {ep_len:.0f} steps (threshold: {ep_spec.threshold})', 3)
-
-    # Failing checks
-    height_spec = METRIC_BY_KEY['height_reward']
-    if not metric_passes('height_reward', height):
-        return DiagnosisResult('FAILING', f'Height {height:.2f} below threshold {height_spec.threshold}', 2)
-
-    contact_spec = METRIC_BY_KEY['body_contact']
-    if contact is not None and not metric_passes('body_contact', contact):
-        return DiagnosisResult('FAILING', f'Body contact {contact:.2f} below threshold {contact_spec.threshold}', 2)
-
-    upright_spec = METRIC_BY_KEY['upright_mean']
-    if upright is not None and not metric_passes('upright_mean', upright):
-        return DiagnosisResult('FAILING', f'Upright {upright:.2f} below threshold {upright_spec.threshold}', 2)
-
-    # Success checks: require BOTH cmd_tracking_ratio AND vx_w_mean to pass
-    tracking = metrics.get('cmd_tracking_ratio')
-
-    vx_pass = vx is not None and metric_passes('vx_w_mean', vx)
-    tracking_pass = tracking is not None and metric_passes('cmd_tracking_ratio', tracking)
-
-    if vx_pass and tracking_pass:
-        return DiagnosisResult('WALKING', f'Forward velocity {vx:.3f} m/s, cmd tracking ratio {tracking:.3f} — both above thresholds', 0)
-
-    # Partial success
-    if vx is not None and tracking is not None:
-        return DiagnosisResult('STANDING', f'Upright and stable, vx={vx:.3f} m/s, tracking={tracking:.3f}', 1)
-    if vx is not None:
-        return DiagnosisResult('STANDING', f'Upright and stable, forward velocity {vx:.3f} m/s', 1)
-
-    return DiagnosisResult('STANDING', 'Upright and stable', 1)
+def has_metric_data(metrics: dict) -> bool:
+    """Check if any meaningful metric data exists."""
+    return metrics.get('reward_total') is not None or metrics.get('episode_length') is not None
 
 
 def is_training_running() -> TrainingStatus:
@@ -750,13 +635,8 @@ def build_train_command(
 
     Encapsulates command construction and benchmark-based defaults.
     """
-    # Benchmark results (2026-03-19, RTX 4080 16GB, 63GB RAM):
-    # Training runs WITHOUT video (video captured post-hoc via `harold record`):
-    #   1024 envs: 18.1 it/s, 0.45M samples/s, GPU  6.2GB, RAM  8.6GB
-    #   4096 envs: 16.0 it/s, 1.58M samples/s, GPU  7.2GB, RAM  9.3GB  <- DEFAULT
-    #   8192 envs: 11.5 it/s, 2.26M samples/s, GPU  8.3GB, RAM 10.3GB
-    #  16384 envs:  7.3 it/s, 2.88M samples/s, GPU 10.3GB, RAM 12.3GB  <- standing policy (batch too large)
-    #  24576 envs:  5.4 it/s, 3.18M samples/s, GPU 12.3GB, RAM 14.6GB
+    # Manager-based env (Harold-Velocity-Flat-v0): ~20 it/s at 2048 envs.
+    # OOMs at 4096 on RTX 4080 16GB. Direct-env benchmarks are in HARDWARE_CONSTRAINTS.md.
     cmd = [
         str(ISAACLAB_PYTHON), str(PROJECT_ROOT / 'harold_isaac_lab' / 'scripts' / 'skrl' / 'train.py'),
         f'--task={task_id}',
@@ -832,8 +712,6 @@ def cmd_train(args):
     if getattr(args, 'num_envs', None) is None:
         if task_key == 'pushup':
             num_envs = 1
-        elif task_key == 'harold_mgr':
-            num_envs = 2048
         else:
             num_envs = TRAINING_DEFAULTS['num_envs']
     else:
@@ -1087,120 +965,66 @@ def cmd_status(args):
     # Get metrics
     if run_path:
         metrics = get_metrics(run_path)
+
+        if not has_metric_data(metrics):
+            print("METRICS: (no data yet)")
+            return 0
+
+        # Show key metrics inline
         reward = metrics.get('reward_total')
-        print(f"REWARD: {reward:.1f}" if reward else "REWARD: (no data)")
-
-        # Sanity check
         ep_len = metrics.get('episode_length')
-        if ep_len is not None:
-            status = 'PASS' if metric_passes('episode_length', ep_len) else 'FAIL'
-            print(f"SANITY: {status} (ep_len={ep_len:.0f})")
-        else:
-            print("SANITY: (no data)")
+        gait = metrics.get('gait')
+        vel = metrics.get('base_linear_velocity')
+        air = metrics.get('air_time')
 
-        # Standing check
-        height = metrics.get('height_reward')
-        contact = metrics.get('body_contact')
-        if height is not None:
-            status = 'PASS' if metric_passes('height_reward', height) else 'FAIL'
-            contact_str = f", contact={contact:.2f}" if contact is not None else ""
-            print(f"STANDING: {status} (height={height:.2f}{contact_str})")
-        else:
-            print("STANDING: (no data)")
+        print(f"REWARD: {reward:.1f}" if reward is not None else "REWARD: (no data)")
+        print(f"EP_LEN: {ep_len:.0f}/1000" if ep_len is not None else "EP_LEN: (no data)")
+        if gait is not None:
+            print(f"GAIT: {gait:.2f}/10")
+        if vel is not None:
+            print(f"VELOCITY: {vel:.2f}/5")
+        if air is not None:
+            print(f"AIR_TIME: {air:.2f}")
 
-        # Walking check: requires both vx and x_displacement
-        vx = metrics.get('vx_w_mean')
-        x_disp = metrics.get('x_displacement')
-        vx_spec = METRIC_BY_KEY['vx_w_mean']
-        x_disp_spec = METRIC_BY_KEY.get('x_displacement')
-        vx_pass = vx is not None and metric_passes('vx_w_mean', vx)
-        x_disp_pass = x_disp is not None and x_disp_spec is not None and metric_passes('x_displacement', x_disp)
-        if vx is not None and x_disp is not None and x_disp_spec is not None:
-            if vx_pass and x_disp_pass:
-                status = 'PASS'
-            elif vx > 0 or (x_disp is not None and x_disp > 0):
-                status = 'WARN'
-            else:
-                status = 'FAIL'
-            print(f"WALKING: {status} (vx={vx:.3f} need >{vx_spec.threshold}, x_disp={x_disp:.3f} need >{x_disp_spec.threshold})")
-        elif vx is not None:
-            status = 'PASS' if vx_pass else ('WARN' if vx > 0 else 'FAIL')
-            print(f"WALKING: {status} (vx={vx:.3f}, need >{vx_spec.threshold})")
-        else:
-            print("WALKING: (no data)")
-
-        x_disp_abs = metrics.get('x_displacement_abs')
-        if x_disp is not None and x_disp_abs is not None:
-            print(f"DISPLACEMENT: x={x_disp:.3f} (|x|={x_disp_abs:.3f})")
-        elif x_disp is not None:
-            print(f"DISPLACEMENT: x={x_disp:.3f}")
-
-        # Diagnosis (state-only, no NEXT field)
-        diag = get_diagnosis(metrics)
-        print(f"VERDICT: {diag.status}")
-        print(f"DIAGNOSIS: {diag.diagnosis}")
-        return diag.exit_code
+        return 0
     else:
-        print("REWARD: (no runs)")
-        print("SANITY: (no runs)")
-        print("STANDING: (no runs)")
-        print("WALKING: (no runs)")
-        print("VERDICT: NO_DATA")
-        print("DIAGNOSIS: No training runs found")
-        return 4
+        print("METRICS: (no runs)")
+        return 0
 
 
 def cmd_validate(args):
-    """Validate a completed training run (state-only reporting)."""
-    # Find run to validate - support aliases
+    """Show all metrics for a completed training run."""
     run_path = resolve_experiment(args.run) if args.run else get_latest_run()
 
     if not run_path or not run_path.exists():
         print(f"ERROR: Run not found: {args.run}")
-        return 4
+        return 1
 
-    # Get manifest for alias and hypothesis
     manifest = get_or_create_manifest(run_path)
     alias = manifest.get('alias', '')
 
     if alias:
-        print(f"Validating: {run_path.name} ({alias})")
+        print(f"Run: {run_path.name} ({alias})")
     else:
-        print(f"Validating: {run_path.name}")
+        print(f"Run: {run_path.name}")
 
     if manifest.get('hypothesis'):
         print(f"HYPOTHESIS: {manifest['hypothesis']}")
     print("-" * 50)
 
     metrics = get_metrics(run_path)
-    if not metrics:
-        print("ERROR: Could not read metrics")
-        return 4
+    if not metrics or not has_metric_data(metrics):
+        print("No metric data available")
+        return 1
 
     print(f"Data points: {metrics.get('data_points', 0)}")
     print()
 
-    # Print each metric (uses METRICS as single source of truth)
     for spec in METRICS:
         val = metrics.get(spec.key)
         print(format_metric_line(spec.key, val))
 
-    if AUX_METRICS:
-        print()
-        print("AUX METRICS:")
-        for spec in AUX_METRICS:
-            val = metrics.get(spec.key)
-            if val is None:
-                print(f"  {spec.display_name}: (no data)")
-            else:
-                print(f"  {spec.display_name}: {val:.4f}")
-
-    print()
-    diag = get_diagnosis(metrics)
-    print(f"VERDICT: {diag.status}")
-    print(f"DIAGNOSIS: {diag.diagnosis}")
-
-    return diag.exit_code
+    return 0
 
 
 def cmd_runs(args):
@@ -1231,13 +1055,14 @@ def cmd_runs(args):
         manifest = load_manifest(run) if show_hypothesis else None
 
         metrics = get_metrics(run)
-        if metrics.get('episode_length'):
-            diag = get_diagnosis(metrics)
+        if has_metric_data(metrics):
             ep_len = metrics.get('episode_length', 0)
-            vx = metrics.get('vx_w_mean', 0)
+            reward = metrics.get('reward_total', 0)
+            gait = metrics.get('gait')
 
             alias_str = f" ({alias})" if alias else ""
-            print(f"  {run.name}{alias_str}  {diag.status:12s}  ep={ep_len:.0f}  vx={vx:.3f}")
+            gait_str = f"  gait={gait:.1f}" if gait is not None else ""
+            print(f"  {run.name}{alias_str}  reward={reward:.0f}  ep={ep_len:.0f}{gait_str}")
 
             if show_hypothesis and manifest and manifest.get('hypothesis'):
                 print(f"    -> {manifest['hypothesis'][:60]}...")
@@ -1322,12 +1147,12 @@ def cmd_compare(args):
         print(row)
     print()
 
-    # Verdicts
-    print("VERDICT:")
+    # Rewards
+    print("REWARD:")
     for e in experiments:
         label = e['manifest'].get('alias') or e['id']
-        verdict = e['manifest'].get('summary', {}).get('verdict', 'UNKNOWN')
-        print(f"  {label}: {verdict}")
+        reward = e['manifest'].get('summary', {}).get('final', {}).get('reward_total', '?')
+        print(f"  {label}: {reward}")
 
     return 0
 

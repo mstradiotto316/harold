@@ -27,7 +27,7 @@ parser.add_argument("--task", type=str, required=True, help="Name of the task.")
 parser.add_argument("--checkpoint", type=str, required=True, help="Path to model checkpoint.")
 parser.add_argument("--output_dir", type=str, required=True, help="Directory for output video files.")
 parser.add_argument("--video_length", type=int, default=250, help="Number of steps to record (default: 250).")
-parser.add_argument("--num_envs", type=int, default=1, help="Number of environments (default: 1).")
+parser.add_argument("--num_envs", type=int, default=16, help="Number of environments (default: 16).")
 parser.add_argument(
     "--ml_framework",
     type=str,
@@ -90,6 +90,15 @@ def main():
     except ValueError:
         experiment_cfg = load_cfg_from_registry(args_cli.task, "skrl_cfg_entry_point")
 
+    # Override command config for reliable recording:
+    # - Disable standing envs (prevent zero-velocity commands at 1 env)
+    # - Force forward movement so the video shows the trained gait
+    if hasattr(env_cfg, "commands") and hasattr(env_cfg.commands, "base_velocity"):
+        env_cfg.commands.base_velocity.rel_standing_envs = 0.0
+        env_cfg.commands.base_velocity.ranges.lin_vel_x = (0.5, 1.0)
+        env_cfg.commands.base_velocity.ranges.lin_vel_y = (-0.1, 0.1)
+        env_cfg.commands.base_velocity.ranges.ang_vel_z = (-0.2, 0.2)
+
     # create isaac environment with rgb_array render mode
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array")
 
@@ -129,6 +138,10 @@ def main():
         while timestep < args_cli.video_length:
             outputs = runner.agent.act(obs, timestep=0, timesteps=0)
             actions = outputs[-1].get("mean_actions", outputs[0])
+            if timestep < 5 or timestep % 50 == 0:
+                act_abs = actions.abs().mean().item()
+                act_max = actions.abs().max().item()
+                print(f"  [DEBUG] step={timestep}: act_abs_mean={act_abs:.4f} act_max={act_max:.4f}")
             obs, _, _, _, _ = env.step(actions)
             timestep += 1
 

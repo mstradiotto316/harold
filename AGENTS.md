@@ -87,6 +87,12 @@ Start with `docs/index.md` for the full map, then use the role-specific lists be
 - `docs/hardware/servos/`: Servo datasheets and protocol references.
 - `docs/memory/OBSERVATIONS.md`: Known issues and logging insights.
 
+### Isaac Lab reference environments
+- `docs/example_environments/README.md`: Index of all Isaac Lab quadruped locomotion examples (Spot, Go1, Go2, A1, ANYmal B/C/D).
+- Each file covers robot specs, reward structure with weights, observation/action spaces, command ranges, domain randomization, and training config.
+- `docs/example_environments/anymal_c_direct.md`: **Most relevant for Harold** — same direct env architecture, documents the `step_dt` reward multiplication trap.
+- `docs/example_environments/spot_flat.md`: Source of Harold's sim_flat_v2 reward structure.
+
 ### Shared references
 - `docs/kinematics/harold_8_kinematics.yaml`: USD-derived joint/mesh kinematics spec (review before stance or sim-to-real alignment changes).
 - `deployment/config/stance.yaml`: Canonical ready stance for hardware + simulation (single source of truth).
@@ -396,7 +402,8 @@ harold_isaac_lab/
 ```
 
 ### Gym Task IDs
-- `Template-Harold-Direct-flat-terrain-v0` - Primary training task
+- `Harold-Velocity-Flat-v0` - **Manager-based flat locomotion (RECOMMENDED — produces walking)**
+- `Template-Harold-Direct-flat-terrain-v0` - Direct-env flat task (legacy — has unresolved standing trap bug)
 - `Template-Harold-Direct-rough-terrain-v0` - Rough terrain variant
 - `Template-Harold-Direct-pushup-v0` - Scripted playback
 

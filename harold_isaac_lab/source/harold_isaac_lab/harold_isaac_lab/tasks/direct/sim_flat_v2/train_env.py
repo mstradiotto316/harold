@@ -165,9 +165,10 @@ def compute_rewards(env: SimFlatV1Env) -> torch.Tensor:
     )
     foot_slip_penalty = torch.sum(is_contact * foot_planar_vel, dim=1)
 
-    # 11. Joint acceleration penalty (weight=-1e-4, hip joints only)
+    # 11. Joint acceleration penalty (weight=-1e-4, all joints)
+    # Note: Spot reference functions ignore joint_names filter and use all joints
     joint_acc = env._robot.data.joint_acc
-    joint_acc_penalty = torch.linalg.norm(joint_acc[:, env._hip_joint_ids], dim=1)
+    joint_acc_penalty = torch.linalg.norm(joint_acc, dim=1)
 
     # 12. Joint position penalty (weight=-0.7)
     joint_pos_error = torch.linalg.norm(joint_pos - default_joint_pos, dim=1)
@@ -185,8 +186,9 @@ def compute_rewards(env: SimFlatV1Env) -> torch.Tensor:
     # 13. Joint torques penalty (weight=-5e-4)
     joint_torques_penalty = torch.linalg.norm(applied_torque, dim=1)
 
-    # 14. Joint velocity penalty (weight=-1e-2, hip joints only)
-    joint_vel_penalty = torch.linalg.norm(joint_vel[:, env._hip_joint_ids], dim=1)
+    # 14. Joint velocity penalty (weight=-1e-2, all joints)
+    # Note: Spot reference functions ignore joint_names filter and use all joints
+    joint_vel_penalty = torch.linalg.norm(joint_vel, dim=1)
 
     # ===== WEIGHTED SUM =====
     rewards = {

@@ -1,5 +1,32 @@
 # Harold Observations & Insights
 
+## 2026-03-29: BREAKTHROUGH — Harold walks in manager-based architecture
+
+**Harold achieves near-perfect trot (gait=9.7/10) in ManagerBasedRLEnv after just 800 iterations.**
+
+The DirectRLEnv architecture that we've been using for all experiments (sim_flat_v1, sim_flat_v2, harold_flat) has a fundamental issue that prevents walking. After exhaustive investigation (7 parallel Opus agents auditing every subsystem), the confirmed differences are:
+
+1. **Action clamping bug (FIXED)**: Our direct env clamped actions to [-1,1] before processing. The reference ActionManager does NOT clamp. This limited joints to ±0.2 rad from default and corrupted the action smoothness penalty + last_action observation.
+2. **Joint penalty scope bug (FIXED)**: Our port filtered joint_acc/joint_vel penalties to hip joints only. The Spot reference functions ignore the SceneEntityCfg joint_names filter and penalize ALL 12 joints.
+3. **Unknown remaining issue**: Even after fixing both bugs, the direct env still doesn't walk (EXP-783: gait=0.14 vs reference gait=9.7). The root cause remains unidentified.
+
+**Solution**: Created `Harold-Velocity-Flat-v0` — a manager-based environment using the proven ManagerBasedRLEnv architecture with the Spot reward structure adapted for Harold's body naming and physical scale.
+
+Key files:
+- Config: `harold_isaac_lab/.../tasks/manager_based/harold_flat/flat_env_cfg.py`
+- Training: `./isaaclab.sh -p harold_isaac_lab/scripts/skrl/train.py --task Harold-Velocity-Flat-v0 --num_envs 2048 --headless`
+
+### Manager-based Harold training metrics (step 355200, 74%):
+- gait: 9.69 (near-perfect trot)
+- air_time: 0.49 (feet lifting)
+- base_linear_velocity: 4.26 (strong velocity tracking)
+- base_angular_velocity: 4.68 (strong yaw tracking)
+- reward: 349
+- episode_length: 999/1000
+
+### Reference environment documentation
+Created `docs/example_environments/` with 11 technical breakdowns of every Isaac Lab quadruped locomotion example (Spot, Go1, Go2, A1, ANYmal B/C/D). The ANYmal C direct env doc is particularly relevant as it documents the `step_dt` reward multiplication pattern for direct envs.
+
 ## 2026-03-23: CRITICAL CORRECTION — ALL historical KEEPs were false positives
 
 **Every historical "walking KEEP" was a false positive.** The robot has NEVER achieved anything remotely approaching real walking behavior. What was labeled as "walking" was actually:

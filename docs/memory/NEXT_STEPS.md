@@ -1,5 +1,14 @@
 # Harold Next Steps
 
+## HIGH PRIORITY — Manager-Based Walking
+
+0. **Review Harold walking video** — The manager-based Harold training (Harold-Velocity-Flat-v0) achieved gait=9.7/10 with strong velocity tracking. Review the trained policy video to confirm visual walking quality, then proceed to sim-to-real pipeline.
+0a. **Integrate manager-based task with harold.py CLI** — Currently the manager-based task must be run through the Isaac Lab launcher directly. Integrate it into `harold.py train --task harold_flat_manager` for the standard workflow (status monitoring, experiment tracking, video recording).
+0b. **Export manager-based policy to ONNX** — Export the trained policy for hardware deployment. The existing export pipeline may need updates for the manager-based architecture.
+0c. **Debug DirectRLEnv standing trap** — The direct-env architecture still doesn't walk despite fixing action clamping and joint penalty scope. The root cause remains unknown. Lower priority now that manager-based works, but worth investigating for understanding.
+
+## EXISTING STEPS
+
 1. Rotate the Wi-Fi password that was previously committed in a tracked NetworkManager profile. The public git history was rewritten and force-pushed, but any old clones/forks should still be treated as compromised.
 2. Review the remaining legacy deployment debug scripts (`deployment/test_pipeline.py`, `deployment/test_final.py`, `deployment/test_no_feedback.py`, `deployment/test_sign_conversion.py`, `deployment/test_training_obs.py`, `deployment/test_policy_verbose.py`, `deployment/debug_*`) and either migrate them to the 48D/raw-observation path plus the shared hardware-backed joint-sign resolver, or retire them so they stop advertising stale 50D/phase-based assumptions.
 3. Re-run a default-env-count (`num_envs=8192`) CLI smoke now that the detached launcher, explicit Isaac Lab interpreter pin, and streamed video writer are fixed, so we know whether the temporary 64-env audit override can be dropped.

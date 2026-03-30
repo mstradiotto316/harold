@@ -203,7 +203,7 @@ class SimFlatV2Env(DirectRLEnv):
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         """Process actions and resample commands."""
         self._previous_actions[:] = self._actions
-        self._actions[:] = actions.clamp(-1.0, 1.0)
+        self._actions[:] = actions
 
         # Process actions via train_env
         train_env.process_actions(self, self._actions)

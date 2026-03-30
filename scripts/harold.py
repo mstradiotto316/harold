@@ -1497,7 +1497,8 @@ def cmd_record(args):
         return 1
 
     manifest = get_or_create_manifest(run_path)
-    task_key = manifest.get('task', DEFAULT_TASK)
+    tc = manifest.get('training_config', {})
+    task_key = tc.get('task', manifest.get('task', DEFAULT_TASK))
     task_id = TASK_IDS.get(task_key, TASK_IDS[DEFAULT_TASK])
 
     # find checkpoint

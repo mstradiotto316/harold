@@ -521,7 +521,7 @@ def revert_change(revert_all: bool = False) -> None:
     Falls back to git checkout if no snapshot exists (backward compatible).
 
     Args:
-        revert_all: If True, also revert train_env.py (default: config only).
+        revert_all: If True, also revert train_env.py (legacy, no-op for manager-based).
     """
     if BASELINE_SNAPSHOT_PATH.exists():
         snapshot = json.loads(BASELINE_SNAPSHOT_PATH.read_text())
@@ -750,7 +750,8 @@ def parse_changed_params(s: str) -> list[dict]:
     Formats handled:
         'param:old->new'
         'param:old->new, param2:old->new'
-        'train_env.py: description'  (free-text code change)
+        'flat_env_cfg.py: description'  (free-text code change)
+        'train_env.py: description'  (legacy direct-env code change)
         'duration:fast->short'
 
     Returns list of dicts:

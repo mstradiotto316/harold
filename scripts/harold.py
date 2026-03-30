@@ -81,6 +81,7 @@ TASK_IDS = {
     'pushup': 'Template-Harold-Direct-pushup-v0',
     'sim_flat_v1': 'Template-Spot-Direct-sim-flat-v1',
     'sim_flat_v2': 'Template-Harold-Direct-sim-flat-v2',
+    'harold_mgr': 'Harold-Velocity-Flat-v0',
 }
 DEFAULT_TASK = 'flat'
 TRAINING_DEFAULTS = {
@@ -829,7 +830,12 @@ def cmd_train(args):
         iterations = DURATION_PRESETS[duration_label]
 
     if getattr(args, 'num_envs', None) is None:
-        num_envs = 1 if task_key == 'pushup' else TRAINING_DEFAULTS['num_envs']
+        if task_key == 'pushup':
+            num_envs = 1
+        elif task_key == 'harold_mgr':
+            num_envs = 2048
+        else:
+            num_envs = TRAINING_DEFAULTS['num_envs']
     else:
         num_envs = args.num_envs
 
@@ -1519,7 +1525,7 @@ def cmd_record(args):
 
     # verify output
     video_dir = run_path / "videos" / "record"
-    cam_names = ["side", "front", "top", "iso"]
+    cam_names = ["side", "front", "top", "iso", "main"]
     found = [c for c in cam_names if list(video_dir.glob(f"rl-video-step-0-{c}.mp4"))]
     if found:
         print(f"  Recorded {len(found)} camera views: {', '.join(found)}")
@@ -1583,7 +1589,7 @@ def cmd_frames(args):
     out_dir.mkdir(parents=True)
 
     manifest = get_or_create_manifest(run_path)
-    cam_names = ["side", "front", "top", "iso"]
+    cam_names = ["side", "front", "top", "iso", "main"]
 
     # Detect multi-camera videos (look for side camera as sentinel)
     multi_cam_videos = sorted(video_dir.glob("rl-video-step-*-side.mp4"),

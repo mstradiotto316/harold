@@ -34,7 +34,7 @@ memory:
 
 agent:
   class: PPO
-  rollouts: 24
+  rollouts: 32
   learning_epochs: 5
   mini_batches: 4
   discount_factor: 0.99

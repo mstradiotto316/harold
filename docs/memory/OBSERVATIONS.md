@@ -1,5 +1,19 @@
 # Harold Observations & Insights
 
+## 2026-03-31: Compound config + PPO tuning — 4 KEEPs, reward 487.9
+
+**Compound config combining 6 validated improvements + PPO tuning pushed Harold to reward 487.9 (+43.2% over EXP-785).**
+
+Key findings:
+- **Compound config composes well**: All 6 validated improvements (vel=8, gait=13, air=8, smooth=-0.5, clear=1.0/0.05, orient=-4, standing=0.02) composed without interference (EXP-802 KEEP, reward 470.0)
+- **learning_epochs 5->8->10**: Monotonic improvement. More gradient passes per rollout improves sample efficiency (EXP-804 KEEP, EXP-805 KEEP)
+- **rollouts 24->32**: Hurt performance (-4%). Slower convergence and lower final reward (EXP-803 DISCARD)
+- **discount_factor 0.99->0.995**: Major regression (-12.6%). Higher gamma slows learning significantly (EXP-806 DISCARD)
+- **base_angular_velocity_weight 5->8**: Reward inflation without quality improvement. All locomotion metrics regressed despite higher total reward (EXP-807 DISCARD)
+- **air_time_variance_weight -1->-0.5**: Freed reward budget, especially improving orientation (-0.073, best ever). Variance was already negligible so penalty was over-constraining (EXP-808 KEEP)
+
+Current best config: vel=8, gait=13, air=8, smooth=-0.5, clear=1.0/0.05, orient=-4, standing=0.02, learning_epochs=10, air_time_variance=-0.5
+
 ## 2026-03-30: Reward tuning session — 5 KEEPs, reward 405.5
 
 **Systematic reward weight tuning improved Harold from baseline EXP-785 (reward=340.8) to EXP-799 (reward=405.5, +19%).**

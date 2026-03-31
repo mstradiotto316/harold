@@ -245,7 +245,7 @@ class HaroldRewardsCfg:
     )
     foot_slip = RewardTermCfg(
         func=spot_mdp.foot_slip_penalty,
-        weight=-0.5,
+        weight=-0.3,
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*calf"),
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*calf"),

@@ -1,7 +1,7 @@
 # Harold flat locomotion PPO config for SKRL
 # Identical to Spot flat config (proven to work)
 
-seed: 42
+seed: 123
 
 models:
   separate: False

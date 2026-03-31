@@ -27,6 +27,9 @@ import isaaclab_tasks.manager_based.locomotion.velocity.config.spot.mdp as spot_
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import LocomotionVelocityRoughEnvCfg
 
+# Harold-specific MDP components
+from .mdp.actions import EMAJointPositionActionCfg
+
 # Harold robot config
 from .harold import HAROLD_V4_CFG
 
@@ -53,10 +56,16 @@ HAROLD_FLAT_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
 
 @configclass
 class HaroldActionsCfg:
-    """Action specifications for the MDP."""
+    """Action specifications for the MDP.
 
-    joint_pos = mdp.JointPositionActionCfg(
-        asset_name="robot", joint_names=[".*"], scale=0.2, use_default_offset=True
+    Uses EMA-filtered joint position action to match the deployment pipeline,
+    where actions are smoothed before sending to hardware servos. This closes
+    the train/deploy gap that causes "shuffling" behavior in sim.
+    """
+
+    joint_pos = EMAJointPositionActionCfg(
+        asset_name="robot", joint_names=[".*"], scale=0.2, use_default_offset=True,
+        ema_beta=0.2,
     )
 
 

@@ -148,9 +148,9 @@ class ActionConverter:
             self.cfg.joint_range[JOINT_CATEGORIES[i]] for i in range(12)
         ], dtype=np.float32)
 
-        # Action smoothing (EMA filter)
+        # Action smoothing (EMA filter) — must match training (flat_env_cfg.py EMAJointPositionActionCfg)
         self._smooth_action: Optional[np.ndarray] = None
-        self._action_beta = 0.18  # Filter coefficient
+        self._action_beta = 0.2  # Filter coefficient (aligned with training ema_beta=0.2)
 
     def compute_policy_targets(
         self,

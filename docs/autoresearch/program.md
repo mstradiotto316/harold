@@ -104,6 +104,21 @@ there is no programmatic gate.
 
 Current baseline: EXP-785 (reward=340.8, gait=9.69, vel=3.70, ep_len=1000)
 
+### Validated Improvements (from EXP-786 to EXP-801 video review)
+
+These changes were video-verified as WALKING with no reward hacking:
+- `base_linear_velocity_weight` 5.0->8.0 (EXP-788: WALKING)
+- `gait_weight` 10.0->13.0 (EXP-789: WALKING)
+- `air_time_weight` 5.0->8.0 (EXP-790: WALKING)
+- `action_smoothness_weight` -1.0->-0.5 (EXP-791: WALKING, seed-robust via EXP-798)
+- `foot_clearance target_height` 0.03->0.05 + `foot_clearance_weight` 0.5->1.0 (EXP-801: WALKING)
+- `rel_standing_envs` 0.1->0.02 (EXP-796: WALKING, all 16 envs walking)
+
+These changes were video-verified as FAILING or STANDING:
+- `base_motion_weight` -2.0->-1.0 (EXP-793: FAILING, collapsed on ground)
+- `base_orientation_weight` -3.0->-4.0 (EXP-800: FAILING, collapsed)
+- `joint_pos_weight` -0.7->-0.3 (EXP-797: STANDING, no locomotion at 625 iter)
+
 ## The Loop
 
 ```
@@ -121,14 +136,22 @@ LOOP FOREVER:
      Early stop: reward declining after 10 min -> harold stop, DISCARD
   6. EVALUATE:
      a. METRICS: harold validate (reward, gait, velocity, air_time, ep_len, penalties)
-     b. RECORD: harold record (post-hoc video, 16 envs)
-     c. VIDEO REVIEW (BLOCKING): Launch video review agent in foreground. WAIT for result.
+     b. RECORD (MANDATORY): harold record (post-hoc video, 16 envs)
+        *** YOU MUST NOT SKIP THIS STEP. NO EXCEPTIONS. ***
+        Video is the ONLY way to detect reward hacking and degenerate policies.
+        If recording fails, retry once. If it fails again, note the error and still
+        extract whatever frames you can.
+     c. VIDEO REVIEW (MANDATORY, BLOCKING): Extract frames and launch video review agent
+        in foreground using the Agent tool. WAIT for result before proceeding.
+        *** YOU MUST NOT SKIP THIS STEP. NO EXCEPTIONS. ***
+        *** YOU MUST NOT LOG A RESULT WITHOUT A VIDEO VERDICT. ***
         Video describes behavior and guides next hypothesis.
-     d. DECIDE (your judgment):
+     d. SAVE ANNOTATION: Write the video review to docs/autoresearch/video_annotations/EXP-NNN.md
+     e. DECIDE (your judgment):
         KEEP if experiment shows improvement over baseline in video OR metrics
         without regression in other areas. DISCARD otherwise.
         Video is the primary authority — metrics can be gamed by reward hacking.
-     e. Record video analyst's recommendations for next experiment
+     f. Record video analyst's recommendations for next experiment
   7. LOG: autoresearch.py log -> results.tsv
      - video_verdict field is MANDATORY (LOCOMOTION/STEPPING/STANDING/FALLING/DEGENERATE)
      - Include video review recommendations in notes
@@ -260,6 +283,8 @@ Use `harold log` to inspect raw training output for debugging:
 - Action filter beta 0.50: prevented walking (Session 35)
 - forward_motion_weight 10.0: regression (Session 36)
 - Smaller network [128,128,128]: worse height reward (EXP-092)
+- base_motion_weight -1.0: robot collapses, penalty needed for posture (EXP-793, video-verified FAILING)
+- base_orientation_weight -4.0: over-penalization kills locomotion (EXP-800, video-verified FAILING)
 
 ## Session Parameters
 

@@ -176,12 +176,12 @@ class HaroldEventCfg:
             "asset_cfg": SceneEntityCfg("robot"),
             "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},
             "velocity_range": {
-                "x": (-0.3, 0.3),
-                "y": (-0.2, 0.2),
-                "z": (-0.1, 0.1),
-                "roll": (-0.3, 0.3),
-                "pitch": (-0.3, 0.3),
-                "yaw": (-0.5, 0.5),
+                "x": (-0.5, 0.5),
+                "y": (-0.3, 0.3),
+                "z": (-0.15, 0.15),
+                "roll": (-0.4, 0.4),
+                "pitch": (-0.4, 0.4),
+                "yaw": (-0.7, 0.7),
             },
         },
     )
@@ -200,10 +200,10 @@ class HaroldEventCfg:
     push_robot = EventTerm(
         func=mdp.push_by_setting_velocity,
         mode="interval",
-        interval_range_s=(10.0, 15.0),
+        interval_range_s=(8.0, 12.0),
         params={
             "asset_cfg": SceneEntityCfg("robot"),
-            "velocity_range": {"x": (-0.1, 0.1), "y": (-0.1, 0.1)},
+            "velocity_range": {"x": (-0.2, 0.2), "y": (-0.2, 0.2)},
         },
     )
 

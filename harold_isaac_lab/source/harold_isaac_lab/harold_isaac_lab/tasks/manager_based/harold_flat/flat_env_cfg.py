@@ -21,6 +21,7 @@ from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
+from isaaclab.utils.noise import UniformNoiseCfg as Unoise
 
 # Reuse Spot's reward and event functions (they work for any quadruped)
 import isaaclab_tasks.manager_based.locomotion.velocity.config.spot.mdp as spot_mdp
@@ -94,18 +95,37 @@ class HaroldObservationsCfg:
 
     @configclass
     class PolicyCfg(ObsGroup):
-        """Observations for policy group."""
+        """Observations for policy group.
 
-        base_lin_vel = ObsTerm(func=mdp.base_lin_vel, params={"asset_cfg": SceneEntityCfg("robot")})
-        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, params={"asset_cfg": SceneEntityCfg("robot")})
-        projected_gravity = ObsTerm(func=mdp.projected_gravity, params={"asset_cfg": SceneEntityCfg("robot")})
+        Noise magnitudes match hardware sensors (MPU6050 IMU, ST3215 encoders)
+        for sim-to-real robustness. enable_corruption=True applies noise per step.
+        """
+
+        base_lin_vel = ObsTerm(
+            func=mdp.base_lin_vel, params={"asset_cfg": SceneEntityCfg("robot")},
+            noise=Unoise(n_min=-0.1, n_max=0.1),
+        )
+        base_ang_vel = ObsTerm(
+            func=mdp.base_ang_vel, params={"asset_cfg": SceneEntityCfg("robot")},
+            noise=Unoise(n_min=-0.1, n_max=0.1),
+        )
+        projected_gravity = ObsTerm(
+            func=mdp.projected_gravity, params={"asset_cfg": SceneEntityCfg("robot")},
+            noise=Unoise(n_min=-0.05, n_max=0.05),
+        )
         velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
-        joint_pos = ObsTerm(func=mdp.joint_pos_rel, params={"asset_cfg": SceneEntityCfg("robot")})
-        joint_vel = ObsTerm(func=mdp.joint_vel_rel, params={"asset_cfg": SceneEntityCfg("robot")})
+        joint_pos = ObsTerm(
+            func=mdp.joint_pos_rel, params={"asset_cfg": SceneEntityCfg("robot")},
+            noise=Unoise(n_min=-0.05, n_max=0.05),
+        )
+        joint_vel = ObsTerm(
+            func=mdp.joint_vel_rel, params={"asset_cfg": SceneEntityCfg("robot")},
+            noise=Unoise(n_min=-0.5, n_max=0.5),
+        )
         actions = ObsTerm(func=mdp.last_action)
 
         def __post_init__(self):
-            self.enable_corruption = False
+            self.enable_corruption = True
             self.concatenate_terms = True
 
     policy: PolicyCfg = PolicyCfg()

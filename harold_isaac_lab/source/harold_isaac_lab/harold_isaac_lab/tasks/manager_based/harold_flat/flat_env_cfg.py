@@ -241,7 +241,7 @@ class HaroldRewardsCfg:
         func=spot_mdp.base_motion_penalty, weight=-2.0, params={"asset_cfg": SceneEntityCfg("robot")}
     )
     base_orientation = RewardTermCfg(
-        func=spot_mdp.base_orientation_penalty, weight=-3.0, params={"asset_cfg": SceneEntityCfg("robot")}
+        func=spot_mdp.base_orientation_penalty, weight=-4.0, params={"asset_cfg": SceneEntityCfg("robot")}
     )
     foot_slip = RewardTermCfg(
         func=spot_mdp.foot_slip_penalty,

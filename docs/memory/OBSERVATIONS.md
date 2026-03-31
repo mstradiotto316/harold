@@ -1,5 +1,22 @@
 # Harold Observations & Insights
 
+## 2026-03-30: Reward tuning session — 5 KEEPs, reward 405.5
+
+**Systematic reward weight tuning improved Harold from baseline EXP-785 (reward=340.8) to EXP-799 (reward=405.5, +19%).**
+
+Key findings:
+- **base_linear_velocity_weight 5->8**: +55% velocity tracking (EXP-788 KEEP)
+- **gait_weight 10->13**: Recovered gait quality, reward 390 (EXP-789 KEEP)
+- **air_time_weight 5->8**: +70% foot lift time (EXP-790 KEEP)
+- **action_smoothness_weight -1->-0.5**: Freed reward budget (EXP-791 KEEP)
+- **foot_clearance target_height 0.03->0.05**: +27% foot clearance (EXP-799 KEEP, broke 7-DISCARD plateau)
+- Longer training (30 min vs 15 min) produced WORSE results — policy converges to conservative stepping
+- base_motion penalty reduction caused major regression — the penalty is needed to drive forward motion
+- Results are seed-robust (seed=42 and seed=123 produce comparable metrics)
+- Higher vel_weight=10 trades stability for speed (ep_len dropped to 992)
+
+Current best config: vel=8, gait=13, air_time=8, smooth=-0.5, foot_clearance target_height=0.05
+
 ## 2026-03-29: BREAKTHROUGH — Harold walks in manager-based architecture
 
 **Harold achieves near-perfect trot (gait=9.7/10) in ManagerBasedRLEnv after just 800 iterations.**

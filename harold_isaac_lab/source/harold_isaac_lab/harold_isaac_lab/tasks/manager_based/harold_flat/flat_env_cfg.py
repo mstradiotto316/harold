@@ -30,6 +30,7 @@ from isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import Lo
 
 # Harold-specific MDP components
 from .mdp.actions import EMAJointPositionActionCfg
+from .mdp.observations import zero_lin_vel
 
 # Harold robot config
 from .harold import HAROLD_V4_CFG
@@ -101,9 +102,13 @@ class HaroldObservationsCfg:
         for sim-to-real robustness. enable_corruption=True applies noise per step.
         """
 
+        # Velocity-blind: zeros instead of true velocity.
+        # Hardware IMU (MPU6050) dead-reckons lin_vel via accelerometer integration
+        # with 0.95 decay — produces noisy, drifting, physically unrealistic signal.
+        # Training without velocity feedback is standard for low-cost quadrupeds.
+        # The velocity tracking REWARD still uses true physics velocity.
         base_lin_vel = ObsTerm(
-            func=mdp.base_lin_vel, params={"asset_cfg": SceneEntityCfg("robot")},
-            noise=Unoise(n_min=-0.1, n_max=0.1),
+            func=zero_lin_vel, params={"asset_cfg": SceneEntityCfg("robot")},
         )
         base_ang_vel = ObsTerm(
             func=mdp.base_ang_vel, params={"asset_cfg": SceneEntityCfg("robot")},
@@ -153,7 +158,10 @@ class HaroldEventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*body"),
-            "mass_distribution_params": (-0.2, 0.2),
+            # URDF body=0.655 kg, total=1.68 kg. Real robot=2.0 kg.
+            # Missing ~0.32 kg: servo internals, electronics, battery, wiring.
+            # Range (0.12, 0.52) centers total at ~2.0 kg (range 1.80-2.20 kg).
+            "mass_distribution_params": (0.12, 0.52),
             "operation": "add",
         },
     )
@@ -354,8 +362,8 @@ class HaroldFlatEnvCfg(LocomotionVelocityRoughEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
-        # Timing — match Spot's 500Hz physics, 50Hz control
-        self.decimation = 10
+        # Timing — 500Hz physics, 20Hz control (matches deployment CONTROL_RATE_HZ=20)
+        self.decimation = 25
         self.episode_length_s = 20.0
         self.sim.dt = 0.002
         self.sim.render_interval = self.decimation

@@ -28,7 +28,8 @@ These cannot be changed. autoresearch.py apply will refuse.
 | Effort limit | 2.8 Nm | 95% of servo max |
 | Stiffness (Kp) | 40.0 | Manager-based ImplicitActuatorCfg |
 | Damping (Kd) | 0.5 | Manager-based ImplicitActuatorCfg |
-| Control rate | 50 Hz (decimation=10, dt=0.002) | Manager-based: 500Hz physics, 50Hz policy |
+| Velocity limit | 4.29 rad/s | ST3215 firmware SERVO_SPEED=2800 (246 deg/s) |
+| Control rate | 20 Hz (decimation=25, dt=0.002) | Matches deployment CONTROL_RATE_HZ=20 |
 | Observation space | 48D | Fixed for ONNX export |
 | Action space | 12D | 12 joints |
 | Action scale | 0.2 | JointPositionActionCfg scale |
@@ -104,13 +105,20 @@ there is no programmatic gate.
 
 Current baseline: EXP-814 (reward=507.8, gait=12.27, vel=6.12, air_time=3.63, ep_len=1000)
 
-### Sim-to-Real Stack (EXP-811 to EXP-814, all validated via video review)
+### Sim-to-Real Stack
 
 The current config includes these sim-to-real transfer improvements:
 - **EMA action filtering** (beta=0.2): matches deployment pipeline, eliminates shuffling
 - **Observation noise**: IMU/encoder noise as regularizer (enable_corruption=True)
 - **Reward tuning**: air_time mode_time=0.25, foot_clearance target=0.07 (wt=1.5), action_smoothness=-1.0, velocity_threshold=0.3
 - **Domain randomization**: push ±0.2 m/s every 8-12s, wider reset velocities
+
+**New sim-to-real gap closures (applied post-EXP-814, require re-baselining):**
+- **20 Hz control** (decimation=25): matches hardware CONTROL_RATE_HZ=20 (was 50 Hz)
+- **Velocity-blind observation**: base_lin_vel zeroed (MPU6050 dead-reckoning is unusable)
+- **Servo velocity limit**: velocity_limit_sim=4.29 rad/s (ST3215 max speed)
+- **Corrected body mass**: +0.32 kg centered (URDF=1.68kg, real=2.0kg)
+- **Action scale pipeline**: export now stores effective_action_scale per-joint in metadata
 
 ### Historical Validated Improvements (EXP-786 to EXP-801)
 

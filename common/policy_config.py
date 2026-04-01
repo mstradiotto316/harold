@@ -86,6 +86,7 @@ TASK_ACTION_SCALE_DEFAULTS = {
     "pushup": 1.0,
     "sim_flat_v1": 0.2,
     "sim_flat_v2": 0.2,
+    "harold_mgr": 0.2,
 }
 TASK_JOINT_LIMITS_BY_CATEGORY = {
     "flat": FLAT_JOINT_LIMITS_BY_CATEGORY,

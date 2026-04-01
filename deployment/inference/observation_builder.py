@@ -139,9 +139,11 @@ class ObservationBuilder:
         self.last_imu_data = imu_data
 
         # [0:3] Body linear velocity (m/s)
-        # Sim trains with identity quaternion (no rotation). Body +X = world +X.
-        # IMU +X must point toward the robot's visual forward for alignment.
-        obs[0:3] = imu_data.lin_vel if imu_data.valid else np.zeros(3)
+        # VELOCITY-BLIND: Zeroed to match training (zero_lin_vel observation).
+        # Hardware IMU (MPU6050) dead-reckons velocity via accelerometer integration
+        # with 0.95 decay — produces noisy, drifting signal unsuitable for policy input.
+        # The policy was trained without velocity feedback (standard for low-cost quadrupeds).
+        obs[0:3] = np.zeros(3)
 
         # [3:6] Body angular velocity (rad/s)
         obs[3:6] = imu_data.gyro if imu_data.valid else np.zeros(3)

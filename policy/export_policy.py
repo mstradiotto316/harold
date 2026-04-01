@@ -22,6 +22,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from common.policy_config import (
+    ACTION_DIM,
     DEFAULT_ACTION_SCALE,
     JOINT_CATEGORIES,
     JOINT_ORDER,
@@ -289,6 +290,47 @@ def load_reference_policy(checkpoint_path: Path) -> tuple[NormalizedPolicy, torc
     return wrapper, running_mean, running_var, action_dim
 
 
+def _compute_effective_action_scale(training_cfg: ExportTrainingConfig) -> list[float]:
+    """Compute the per-joint effective action scale used during training.
+
+    For manager-based envs (e.g. harold_mgr with scale=0.2), this is uniform:
+        effective_scale[i] = action_scale (0.2 for all joints)
+
+    For direct envs (e.g. flat with scale=0.5), this includes per-joint ranges:
+        effective_scale[i] = action_scale * joint_range[category_i]
+
+    The deployment pipeline should use this directly:
+        target = default_pose + action * effective_scale
+    """
+    scale = training_cfg.action_scale
+    joint_range = training_cfg.joint_range
+
+    # Check if joint_range is the default JOINT_RANGE_BY_CATEGORY.
+    # Manager-based envs use uniform scale (scale parameter IS the effective scale),
+    # while direct envs multiply scale * joint_range per category.
+    #
+    # Heuristic: if action_scale <= 0.25, it's likely a manager-based env where
+    # scale=0.2 is the full effective scale. If action_scale >= 0.5, it's a direct env
+    # where scale is multiplied by joint_range.
+    #
+    # To be safe, we always compute scale * joint_range when joint_range differs
+    # from the default, and use uniform scale when joint_range matches defaults.
+    is_default_range = all(
+        abs(joint_range.get(cat, JOINT_RANGE_BY_CATEGORY[cat]) - JOINT_RANGE_BY_CATEGORY[cat]) < 1e-6
+        for cat in JOINT_RANGE_BY_CATEGORY
+    )
+
+    if is_default_range and scale < 0.3:
+        # Manager-based env: scale IS the effective per-joint scale (uniform)
+        return [scale] * ACTION_DIM
+    else:
+        # Direct env: effective_scale = action_scale * joint_range_per_category
+        return [
+            scale * joint_range.get(JOINT_CATEGORIES[i], JOINT_RANGE_BY_CATEGORY[JOINT_CATEGORIES[i]])
+            for i in range(ACTION_DIM)
+        ]
+
+
 def build_policy_metadata(
     checkpoint_path: Path,
     running_mean: torch.Tensor,
@@ -297,11 +339,13 @@ def build_policy_metadata(
 ) -> dict[str, object]:
     """Build deployment metadata from the active training configuration."""
     training_cfg = resolve_export_training_config(checkpoint_path)
+    effective_scale = _compute_effective_action_scale(training_cfg)
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "observation_dim": int(running_mean.numel()),
         "action_dim": len(JOINT_ORDER),
         "action_scale": training_cfg.action_scale,
+        "effective_action_scale": effective_scale,
         "joint_order": JOINT_ORDER,
         "default_joint_pos": load_rl_default_pose_dict(),
         "joint_range": training_cfg.joint_range,

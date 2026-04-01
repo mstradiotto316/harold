@@ -45,6 +45,11 @@ class ActionConfig:
     # Training-time action scale.
     action_scale: float = DEFAULT_ACTION_SCALE
 
+    # Effective per-joint action scale (12D array).
+    # When set (from schema_version >= 3 metadata), this is used instead of
+    # action_scale * joint_range, matching training exactly.
+    effective_action_scale: np.ndarray = None
+
     # Safe joint limits (degrees, in hardware convention)
     safe_limits_deg: dict = None
 
@@ -109,6 +114,12 @@ class ActionConfig:
             dtype=np.float32,
         )
 
+        # Load effective per-joint action scale if present (schema_version >= 3)
+        effective_action_scale = None
+        eas = metadata.get("effective_action_scale")
+        if isinstance(eas, (list, tuple)) and len(eas) == 12:
+            effective_action_scale = np.array(eas, dtype=np.float32)
+
         return cls(
             joint_range=joint_range,
             hw_default_pose=hw_default_pose,
@@ -116,6 +127,7 @@ class ActionConfig:
             joint_sign=joint_sign,
             safe_limits_deg=safe_limits_deg,
             action_scale=float(metadata.get("action_scale", DEFAULT_ACTION_SCALE)),
+            effective_action_scale=effective_action_scale,
         )
 
 
@@ -143,10 +155,17 @@ class ActionConverter:
         for cat, (lo, hi) in self.cfg.safe_limits_deg.items():
             self._limits_rad[cat] = (math.radians(lo), math.radians(hi))
 
-        # Pre-compute joint ranges array
+        # Pre-compute joint ranges array (legacy fallback)
         self._joint_ranges = np.array([
             self.cfg.joint_range[JOINT_CATEGORIES[i]] for i in range(12)
         ], dtype=np.float32)
+
+        # Effective per-joint action scale.
+        # When set from metadata (schema_version >= 3), this is the exact per-joint
+        # scale used during training: target = default + action * effective_scale.
+        # This eliminates the action_scale * joint_range mismatch between training
+        # architectures (manager-based uses uniform scale, direct-env uses per-joint).
+        self._effective_action_scale: Optional[np.ndarray] = self.cfg.effective_action_scale
 
         # Action smoothing (EMA filter) — must match training (flat_env_cfg.py EMAJointPositionActionCfg)
         self._smooth_action: Optional[np.ndarray] = None
@@ -179,8 +198,14 @@ class ActionConverter:
                 self._action_beta * action
             )
 
-        # targets = rl_default + action * action_scale * joint_range
-        scaled = self._smooth_action * self.cfg.action_scale * self._joint_ranges
+        # Compute targets using the effective per-joint scale.
+        # When effective_action_scale is set (schema >= 3), it exactly matches
+        # training: target = default + action * effective_scale.
+        # Otherwise, fall back to legacy: action_scale * joint_range per category.
+        if self._effective_action_scale is not None:
+            scaled = self._smooth_action * self._effective_action_scale
+        else:
+            scaled = self._smooth_action * self.cfg.action_scale * self._joint_ranges
         rl_targets = self.cfg.rl_default_pose + scaled
 
         # Convert from RL convention to hardware convention

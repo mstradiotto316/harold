@@ -55,9 +55,10 @@ HAROLD_V4_CFG = ArticulationCfg(
     actuators={
         "all_joints": ImplicitActuatorCfg(
             joint_names_expr=[".*"],
-            effort_limit_sim=2.8,   # FeeTech ST3215 servo max (2.94 Nm @ 12V, 95%)
-            stiffness=40.0,         # Proportional to effort limit (Spot ratio: Kp/effort ≈ 1.33)
-            damping=0.5,            # Allows max speed (4.71 rad/s) without saturating torque budget
+            effort_limit_sim=2.8,       # FeeTech ST3215 servo max (2.94 Nm @ 12V, 95%)
+            velocity_limit_sim=4.29,    # ST3215 firmware limit (SERVO_SPEED=2800 = 246 deg/s)
+            stiffness=40.0,             # PD stiffness — saturates at ~4 deg error (effort-limited)
+            damping=0.5,                # Near critical damping for Harold's leg inertia
         ),
     },
 )

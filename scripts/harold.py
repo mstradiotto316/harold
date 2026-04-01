@@ -106,6 +106,7 @@ _TASK_ENV_CFG_PATHS = {
     'pushup': PROJECT_ROOT / "harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_pushup/harold_isaac_lab_env_cfg.py",
     'sim_flat_v1': PROJECT_ROOT / "harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/sim_flat_v1/sim_flat_v1_env_cfg.py",
     'sim_flat_v2': PROJECT_ROOT / "harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/sim_flat_v2/sim_flat_v2_env_cfg.py",
+    'harold_mgr': PROJECT_ROOT / "harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/manager_based/harold_flat/flat_env_cfg.py",
 }
 _ACTION_SCALE_RE = re.compile(r'^\s*action_scale\s*=\s*([0-9.eE+-]+)', re.MULTILINE)
 

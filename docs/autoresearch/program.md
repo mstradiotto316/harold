@@ -102,17 +102,25 @@ KEEP if the experiment shows **improvement over baseline** in video behavior OR 
 without regression in other areas. DISCARD otherwise. This is your judgment call —
 there is no programmatic gate.
 
-Current baseline: EXP-785 (reward=340.8, gait=9.69, vel=3.70, ep_len=1000)
+Current baseline: EXP-814 (reward=507.8, gait=12.27, vel=6.12, air_time=3.63, ep_len=1000)
 
-### Validated Improvements (from EXP-786 to EXP-801 video review)
+### Sim-to-Real Stack (EXP-811 to EXP-814, all validated via video review)
+
+The current config includes these sim-to-real transfer improvements:
+- **EMA action filtering** (beta=0.2): matches deployment pipeline, eliminates shuffling
+- **Observation noise**: IMU/encoder noise as regularizer (enable_corruption=True)
+- **Reward tuning**: air_time mode_time=0.25, foot_clearance target=0.07 (wt=1.5), action_smoothness=-1.0, velocity_threshold=0.3
+- **Domain randomization**: push ±0.2 m/s every 8-12s, wider reset velocities
+
+### Historical Validated Improvements (EXP-786 to EXP-801)
 
 These changes were video-verified as WALKING with no reward hacking:
 - `base_linear_velocity_weight` 5.0->8.0 (EXP-788: WALKING)
 - `gait_weight` 10.0->13.0 (EXP-789: WALKING)
 - `air_time_weight` 5.0->8.0 (EXP-790: WALKING)
-- `action_smoothness_weight` -1.0->-0.5 (EXP-791: WALKING, seed-robust via EXP-798)
-- `foot_clearance target_height` 0.03->0.05 + `foot_clearance_weight` 0.5->1.0 (EXP-801: WALKING)
 - `rel_standing_envs` 0.1->0.02 (EXP-796: WALKING, all 16 envs walking)
+
+### Dead Ends from Video Review
 
 These changes were video-verified as FAILING or STANDING:
 - `base_motion_weight` -2.0->-1.0 (EXP-793: FAILING, collapsed on ground)

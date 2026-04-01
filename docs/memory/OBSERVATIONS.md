@@ -1,5 +1,18 @@
 # Harold Observations & Insights
 
+## 2026-03-31: Sim-to-real transfer stack — from shuffling to natural walking
+
+**4-phase sim-to-real overhaul transformed Harold from shuffling (EXP-785: reward=340) to deployment-ready natural walking (EXP-814: reward=508, air_time=3.63).**
+
+Key findings:
+- **EMA action filtering (Phase 1)**: Training with deployment-matched action smoothing (beta=0.2) eliminated jittery micro-movements. Critical insight: train/deploy mismatch was the root cause of shuffling.
+- **Observation noise as regularizer (Phase 2)**: Adding IMU/encoder noise INCREASED reward (+5.4%), not decreased. Noise prevents overfitting to precise sensor values.
+- **Air time threshold was the stride-length lever (Phase 3)**: mode_time 0.15->0.25 produced +64% air time, visibly longer strides. This single change had the most impact on gait naturalness.
+- **Perturbation robustness is free (Phase 4)**: Doubling push forces produced no regression — perturbations act as yet another regularizer.
+- **Each phase composed well**: No negative interactions between EMA, noise, rewards, and perturbations.
+
+Current best config (EXP-814): EMA beta=0.2, obs noise enabled, air_time mode_time=0.25, foot_clearance target=0.07 (wt=1.5), action_smoothness=-1.0, gait vel_threshold=0.3, push ±0.2 m/s.
+
 ## 2026-03-31: Compound config + PPO tuning — 4 KEEPs, reward 487.9
 
 **Compound config combining 6 validated improvements + PPO tuning pushed Harold to reward 487.9 (+43.2% over EXP-785).**

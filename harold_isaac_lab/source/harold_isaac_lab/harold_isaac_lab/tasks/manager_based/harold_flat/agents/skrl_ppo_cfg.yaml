@@ -38,7 +38,7 @@ agent:
   learning_epochs: 10
   mini_batches: 4
   discount_factor: 0.99
-  lambda: 0.95
+  lambda: 0.97
   learning_rate: 1.0e-03
   learning_rate_scheduler: KLAdaptiveLR
   learning_rate_scheduler_kwargs:
@@ -53,7 +53,7 @@ agent:
   ratio_clip: 0.2
   value_clip: 0.2
   clip_predicted_values: True
-  entropy_loss_scale: 0.005
+  entropy_loss_scale: 0.01
   value_loss_scale: 1.0
   kl_threshold: 0.0
   rewards_shaper_scale: 1.0

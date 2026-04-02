@@ -56,7 +56,7 @@ agent:
   entropy_loss_scale: 0.01
   value_loss_scale: 1.0
   kl_threshold: 0.0
-  rewards_shaper_scale: 0.3
+  rewards_shaper_scale: 0.5
   time_limit_bootstrap: False
   experiment:
     directory: "harold_direct"

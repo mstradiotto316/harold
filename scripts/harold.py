@@ -82,6 +82,7 @@ TASK_IDS = {
     'sim_flat_v1': 'Template-Spot-Direct-sim-flat-v1',
     'sim_flat_v2': 'Template-Harold-Direct-sim-flat-v2',
     'harold_mgr': 'Harold-Velocity-Flat-v0',
+    'harold_rough': 'Harold-Velocity-Rough-v0',
 }
 DEFAULT_TASK = 'harold_mgr'
 TRAINING_DEFAULTS = {

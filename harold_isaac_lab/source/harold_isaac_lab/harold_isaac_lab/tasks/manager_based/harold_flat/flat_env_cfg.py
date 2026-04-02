@@ -211,7 +211,7 @@ class HaroldEventCfg:
         interval_range_s=(8.0, 12.0),
         params={
             "asset_cfg": SceneEntityCfg("robot"),
-            "velocity_range": {"x": (-0.2, 0.2), "y": (-0.2, 0.2)},
+            "velocity_range": {"x": (-0.4, 0.4), "y": (-0.4, 0.4)},
         },
     )
 
@@ -268,7 +268,7 @@ class HaroldRewardsCfg:
     )
 
     # -- penalties
-    action_smoothness = RewardTermCfg(func=spot_mdp.action_smoothness_penalty, weight=-1.5)
+    action_smoothness = RewardTermCfg(func=spot_mdp.action_smoothness_penalty, weight=-1.0)
     air_time_variance = RewardTermCfg(
         func=spot_mdp.air_time_variance_penalty,
         weight=-0.5,

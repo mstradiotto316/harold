@@ -208,7 +208,7 @@ class HaroldEventCfg:
     push_robot = EventTerm(
         func=mdp.push_by_setting_velocity,
         mode="interval",
-        interval_range_s=(8.0, 12.0),
+        interval_range_s=(5.0, 8.0),
         params={
             "asset_cfg": SceneEntityCfg("robot"),
             "velocity_range": {"x": (-0.4, 0.4), "y": (-0.4, 0.4)},

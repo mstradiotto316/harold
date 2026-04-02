@@ -87,7 +87,7 @@ class HaroldRoughEnvCfg(HaroldFlatEnvCfg):
         # --- Rough terrain robustness overrides ---
         # Stronger push perturbations on rough terrain for sim-to-real robustness
         self.events.push_robot.params["velocity_range"] = {
-            "x": (-0.6, 0.6), "y": (-0.6, 0.6)
+            "x": (-0.8, 0.8), "y": (-0.8, 0.8)
         }
 
         # Replace flat plane with generated rough terrain

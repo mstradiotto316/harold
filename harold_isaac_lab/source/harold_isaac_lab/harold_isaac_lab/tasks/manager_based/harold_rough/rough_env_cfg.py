@@ -84,11 +84,6 @@ class HaroldRoughEnvCfg(HaroldFlatEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
-        # --- Rough terrain reward overrides ---
-        # Rough terrain induces more body tilt; stronger orientation penalty
-        # prevents posture degradation during extended training (EXP-839 finding)
-        self.rewards.base_orientation.weight = -7.0
-
         # Replace flat plane with generated rough terrain
         self.scene.terrain = TerrainImporterCfg(
             prim_path="/World/ground",

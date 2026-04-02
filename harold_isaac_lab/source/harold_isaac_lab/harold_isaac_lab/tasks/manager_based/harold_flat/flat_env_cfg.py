@@ -250,7 +250,7 @@ class HaroldRewardsCfg:
         params={
             "std": 0.02,
             "tanh_mult": 2.0,
-            "target_height": 0.07,
+            "target_height": 0.09,
             "asset_cfg": SceneEntityCfg("robot", body_names=".*calf"),
         },
     )
@@ -268,7 +268,7 @@ class HaroldRewardsCfg:
     )
 
     # -- penalties
-    action_smoothness = RewardTermCfg(func=spot_mdp.action_smoothness_penalty, weight=-0.7)
+    action_smoothness = RewardTermCfg(func=spot_mdp.action_smoothness_penalty, weight=-1.0)
     air_time_variance = RewardTermCfg(
         func=spot_mdp.air_time_variance_penalty,
         weight=-0.5,

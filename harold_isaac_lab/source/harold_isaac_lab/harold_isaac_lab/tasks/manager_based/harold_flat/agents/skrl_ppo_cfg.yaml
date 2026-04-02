@@ -42,7 +42,7 @@ agent:
   learning_rate: 1.0e-03
   learning_rate_scheduler: KLAdaptiveLR
   learning_rate_scheduler_kwargs:
-    kl_threshold: 0.01
+    kl_threshold: 0.008
   state_preprocessor: null
   state_preprocessor_kwargs: null
   value_preprocessor: null

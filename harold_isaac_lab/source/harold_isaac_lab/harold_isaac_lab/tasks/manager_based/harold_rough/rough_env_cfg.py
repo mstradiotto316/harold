@@ -84,6 +84,11 @@ class HaroldRoughEnvCfg(HaroldFlatEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
+        # --- Rough terrain reward overrides ---
+        # Relax joint position penalty: terrain irregularities require
+        # more varied joint positions than flat ground (EXP-841 finding)
+        self.rewards.joint_pos.weight = -0.4
+
         # Replace flat plane with generated rough terrain
         self.scene.terrain = TerrainImporterCfg(
             prim_path="/World/ground",

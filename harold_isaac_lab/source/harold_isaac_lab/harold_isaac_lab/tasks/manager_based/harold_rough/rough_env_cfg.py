@@ -84,10 +84,6 @@ class HaroldRoughEnvCfg(HaroldFlatEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
-        # --- Rough terrain reward overrides ---
-        # Higher foot clearance incentive to clear 1-4cm terrain bumps
-        self.rewards.foot_clearance.weight = 2.5
-
         # Replace flat plane with generated rough terrain
         self.scene.terrain = TerrainImporterCfg(
             prim_path="/World/ground",

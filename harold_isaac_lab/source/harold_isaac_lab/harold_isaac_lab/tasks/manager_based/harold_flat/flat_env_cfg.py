@@ -83,7 +83,7 @@ class HaroldCommandsCfg:
         heading_command=False,
         debug_vis=True,
         ranges=mdp.UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(0.15, 1.0),
+            lin_vel_x=(-0.5, 1.0),
             lin_vel_y=(-0.5, 0.5),
             ang_vel_z=(-1.0, 1.0),
         ),
@@ -268,7 +268,7 @@ class HaroldRewardsCfg:
     )
 
     # -- penalties
-    action_smoothness = RewardTermCfg(func=spot_mdp.action_smoothness_penalty, weight=-1.0)
+    action_smoothness = RewardTermCfg(func=spot_mdp.action_smoothness_penalty, weight=-1.5)
     air_time_variance = RewardTermCfg(
         func=spot_mdp.air_time_variance_penalty,
         weight=-0.5,

@@ -211,7 +211,7 @@ class HaroldEventCfg:
         interval_range_s=(8.0, 12.0),
         params={
             "asset_cfg": SceneEntityCfg("robot"),
-            "velocity_range": {"x": (-0.4, 0.4), "y": (-0.4, 0.4)},
+            "velocity_range": {"x": (-0.6, 0.6), "y": (-0.6, 0.6)},
         },
     )
 

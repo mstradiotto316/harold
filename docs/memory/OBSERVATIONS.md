@@ -1,5 +1,27 @@
 # Harold Observations & Insights
 
+## 2026-04-04: Reward weight tuning + PPO — 7 KEEPs, reward 701.4
+
+**Systematic reward weight tuning + PPO shaper pushed Harold from EXP-858 (reward=572) to EXP-875 (reward=701.4, +22.6%).**
+
+Key findings:
+- **Network capacity NOT the bottleneck**: [512,512,256] and [512,256,256,128] both no improvement (EXP-856, 857 DISCARD)
+- **gait_weight 15→18**: Cleaner trot, best-ever orientation (-0.078). KEEP.
+- **base_linear_velocity_weight 10→12**: +20.6% velocity tracking. KEEP.
+- **joint_pos_weight -0.7→-0.4**: Raw joint deviation doubled, wider range of motion. KEEP.
+- **base_angular_velocity_weight 5→7**: +42% yaw tracking, critical for deployment turning. KEEP.
+- **air_time_weight 10→12**: +27.8% air time, improved stride. KEEP.
+- **DISCARD insights**: air_time mode_time 0.35 (inflated metric, no visual improvement), entropy 0.02 (zero effect), lin_vel_x_max 1.5 (exceeded capability), orientation -6 (over-constraining)
+- **autoresearch.py revert bug**: `revert` wipes ALL accumulated KEEPs. Must delete .autoresearch_baseline.json after each KEEP to create fresh snapshot.
+
+- **rewards_shaper_scale 0.5→0.3**: Broke 691 plateau! Lower shaper helps PPO converge better. KEEP (EXP-875).
+- **Plateau confirmed**: 20 experiments, 13 DISCARDs after EXP-875. orientation -6, mini_batches 6, foot_slip -0.5, longer training, clearance target 0.10, seed 123, variance -0.2, motion -2.5, shaper 0.25, lambda 0.97 — ALL DISCARD.
+- **Seed-robust**: seed 42 and 123 both converge to ~691-701, confirming config quality.
+- **Longer training degenerates**: 30 min produces belly-shuffling (reward hack, EXP-871). 15 min "fast" is optimal.
+- **lambda 0.97 catastrophic**: -11% reward with robot falls. GAE lambda 0.95 is correct.
+
+Current best config (EXP-875): gait=18, vel=12, angular=7, air_time=12, clearance=3.0, joint_pos=-0.4, smoothness=-1.0, orientation=-5.0, motion=-2.0, shaper=0.3
+
 ## 2026-03-31: Sim-to-real transfer stack — from shuffling to natural walking
 
 **4-phase sim-to-real overhaul transformed Harold from shuffling (EXP-785: reward=340) to deployment-ready natural walking (EXP-814: reward=508, air_time=3.63).**

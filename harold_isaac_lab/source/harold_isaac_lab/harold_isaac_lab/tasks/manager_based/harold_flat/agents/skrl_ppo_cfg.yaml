@@ -55,7 +55,7 @@ agent:
   clip_predicted_values: True
   entropy_loss_scale: 0.01
   value_loss_scale: 1.0
-  kl_threshold: 0.0
+  kl_threshold: 0.008
   rewards_shaper_scale: 0.3
   time_limit_bootstrap: True
   experiment:

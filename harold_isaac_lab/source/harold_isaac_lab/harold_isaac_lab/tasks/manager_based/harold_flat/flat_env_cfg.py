@@ -275,7 +275,7 @@ class HaroldRewardsCfg:
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*calf")},
     )
     base_motion = RewardTermCfg(
-        func=spot_mdp.base_motion_penalty, weight=-2.0, params={"asset_cfg": SceneEntityCfg("robot")}
+        func=spot_mdp.base_motion_penalty, weight=-2.5, params={"asset_cfg": SceneEntityCfg("robot")}
     )
     base_orientation = RewardTermCfg(
         func=spot_mdp.base_orientation_penalty, weight=-5.0, params={"asset_cfg": SceneEntityCfg("robot")}

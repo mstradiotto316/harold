@@ -1,8 +1,8 @@
 # Harold Observations & Insights
 
-## 2026-04-05: Sim-to-real DR + reward tuning — 8 KEEPs, reward 752.6
+## 2026-04-05: Sim-to-real DR + reward tuning + duration — 10 KEEPs, reward 793.2
 
-**Hardware-informed domain randomization + reward weight scaling pushed Harold from EXP-875 (reward=701.4) to EXP-899 (reward=752.6, +7.3%) with much harder DR.**
+**Hardware-informed DR + reward tuning + training duration pushed Harold from EXP-875 (reward=701.4) to EXP-905 (reward=793.2, +13.1%) with much harder DR.**
 
 Key findings:
 - **Phase 1+2 DR only costs 2.9%**: Stronger pushes (Y±0.6), external forces (±2N), wider friction (0.2-1.2), obs noise (±0.08) — only dropped reward from 701.4 to 681.2.
@@ -13,9 +13,12 @@ Key findings:
 - **velocity_weight 12→14**: +18% velocity tracking, +5.9% reward. Faster forward motion resists lateral drift.
 - **angular_velocity_weight 7→8**: +13.4% yaw tracking, +1.5% reward. Better turning on hardware.
 - **entropy 0.01→0.005**: +1.4% reward. More exploitation with well-explored reward landscape.
-- **DISCARD insights**: smoothness -1.5 (over-penalized, -2.8%), foot_slip -0.5 (-7.1%, crouched stance), episode_length 30s (no benefit), learning_epochs 12 (overfit with harder DR)
+- **30-min training (EXP-904)**: +3.5% reward over 15 min. No degeneration with balanced reward weights.
+- **60-min training (EXP-905)**: +1.9% further. Gait 18.04/20 (near max), air_time 6.09 (best ever). No belly-shuffling — balanced rewards prevent degeneration that plagued old config.
+- **DISCARD insights**: smoothness -1.5 (over-penalized), foot_slip -0.5 (crouched stance), episode_length 30s (no benefit), learning_epochs 12 (overfit), clearance_weight 4 (orientation 2x worse), shaper 0.25 (orientation regression), clearance_target 0.08 (negligible benefit)
+- **Seed-robust**: seed 123 produces 756.6 vs seed 42's 752.6 (+0.5%) — config generalizes
 
-Current best config (EXP-899): gait=20, vel=14, angular=8, air_time=14, clearance=3.0, joint_pos=-0.4, smoothness=-1.0, orientation=-5.0, motion=-1.5, torques=-2e-3, shaper=0.3, entropy=0.005
+Current best config (EXP-905, 60-min training): gait=20, vel=14, angular=8, air_time=14, clearance=3.0, joint_pos=-0.4, smoothness=-1.0, orientation=-5.0, motion=-1.5, torques=-2e-3, shaper=0.3, entropy=0.005
 
 ## 2026-04-04: Reward weight tuning + PPO — 7 KEEPs, reward 701.4
 

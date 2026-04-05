@@ -26,6 +26,7 @@ Follow these steps *with the robot safely supported* before running the exported
 1. Flash the chain movement test.
 2. Observe each joint executing centre → +45° → centre → –45° → centre.
 3. Verify direction signs match expectations (e.g., positive shoulder angle abducts the leg).
+   Positive shoulder commands should mean the same body-relative motion on both left and right legs; if a right shoulder is reversed, fix the low-level servo `DIR`/`direction` mapping, not the high-level shoulder sign convention.
 4. Note any joints that stall, jitter, or hit mechanical stops before ±45°.
 
 ## 4. Radian Command Gate (`SinglePositionTest/SinglePositionTest.ino`)
@@ -34,6 +35,7 @@ Follow these steps *with the robot safely supported* before running the exported
    Copy the current joint targets from the YAML so the stance stays in sync.
    The robot should settle into the nominal stance without visible lean.
 3. Test a few additional targets (e.g., +0.2 rad on `fl_thigh`, –0.2 rad on `fr_thigh`) and verify motion directions.
+   Include a shoulder sanity check on both sides so you confirm the left/right shoulders share the same high-level sign semantics.
 4. Confirm the sketch reports any clamping; repeated clamp messages mean trims or limits need adjustment.
 
 ## 5. Torque / Current Limits (optional but recommended)

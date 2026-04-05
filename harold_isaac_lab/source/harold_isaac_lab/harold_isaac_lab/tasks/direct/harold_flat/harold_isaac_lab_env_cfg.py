@@ -1,18 +1,40 @@
-from isaaclab.utils import configclass
-from isaaclab.envs import DirectRLEnvCfg
-from isaaclab.scene import InteractiveSceneCfg
+import math
+import sys
+from pathlib import Path
+
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg
+from isaaclab.envs import DirectRLEnvCfg
+from isaaclab.envs.common import ViewerCfg
+from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns
 from isaaclab.sim import SimulationCfg
-from isaaclab.terrains import TerrainImporterCfg
-from isaaclab.envs.common import ViewerCfg
+from isaaclab.terrains import TerrainGeneratorCfg, TerrainImporterCfg
+from isaaclab.terrains.trimesh import MeshPlaneTerrainCfg
+from isaaclab.utils import configclass
+from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import GaussianNoiseCfg
-import math
 
 from .harold import HAROLD_V4_CFG
-from isaaclab.terrains import TerrainGeneratorCfg
-from isaaclab.terrains.trimesh import MeshPlaneTerrainCfg
+
+_REPO_ROOT = None
+for _parent in Path(__file__).resolve().parents:
+    if (_parent / "AGENTS.md").exists():
+        _REPO_ROOT = _parent
+        break
+if _REPO_ROOT is None:
+    _parents = list(Path(__file__).resolve().parents)
+    if len(_parents) > 8:
+        _REPO_ROOT = _parents[8]
+if _REPO_ROOT and str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from common.policy_config import (
+    DEFAULT_ACTION_SCALE,
+    FLAT_JOINT_ANGLE_MAX,
+    FLAT_JOINT_ANGLE_MIN,
+    JOINT_RANGE,
+)
 
 # Flat terrain configuration for Harold's locomotion training
 HAROLD_FLAT_TERRAIN_CFG = TerrainGeneratorCfg(
@@ -34,53 +56,51 @@ HAROLD_FLAT_TERRAIN_CFG = TerrainGeneratorCfg(
 
 @configclass
 class RewardsCfg:
-    """Simplified reward structure following Isaac Lab reference pattern.
+    """Spot-aligned reward structure (Session 54).
 
-    Session 36: Pure RL for velocity-commanded walking.
-    ~10 core terms for clean gradient signals, no CPG-specific rewards.
+    No existence rewards (upright, stance_height). Only penalize bad states,
+    reward locomotion. Standing earns ~4.2/step, walking earns ~13.0/step.
 
-    Reference: isaaclab_tasks/manager_based/locomotion/velocity/velocity_env_cfg.py
+    Reference: IsaacLab Spot flat config (flat_env_cfg.py, mdp/rewards.py)
     """
 
-    # === TASK REWARDS (exponential kernels for smooth gradients) ===
-    # Session 36d: Increased weights for stronger velocity incentive
-    # With std=0.5, standing gives ~0.91 reward, walking gives ~1.0
-    # Increasing weight amplifies this difference
-    track_lin_vel_xy_weight: float = 5.0      # Primary: velocity tracking (was 1.5)
-    track_lin_vel_xy_std: float = 0.25        # Steeper gradient (was 0.5)
+    # === TASK REWARDS (velocity tracking) ===
+    track_lin_vel_xy_weight: float = 5.0      # Spot: 5.0
+    track_lin_vel_xy_std: float = 0.5        # Harold-specific (Spot: 1.0, but Harold's cmd range is 10x smaller)
 
-    track_ang_vel_z_weight: float = 2.0       # Yaw rate tracking (was 0.75)
-    track_ang_vel_z_std: float = 0.25         # Steeper gradient
+    track_ang_vel_z_weight: float = 2.0       # Harold-specific (Spot: 5.0, but Harold's yaw range is smaller)
+    track_ang_vel_z_std: float = 0.5         # Harold-specific
 
-    # === MOTION QUALITY PENALTIES ===
-    # Session 36 fix: -2.0 caused -43800/ep, -0.05 caused -1149/ep
-    # Harold produces higher body-frame vertical velocities than larger robots
-    # Session 36h: -0.0005 still limits movement, trying -0.0001
-    lin_vel_z_weight: float = -0.0001         # Allow more vertical movement
-    ang_vel_xy_weight: float = -0.0001        # Also reduced for consistency
+    # === BASE QUALITY PENALTIES (Spot-aligned, replace existence rewards) ===
+    base_orientation_weight: float = 3.0      # Spot: 3.0. Penalizes tilting (replaces +3.0 upright REWARD)
+    base_motion_weight: float = 2.0           # Spot: 2.0. Combined vz + omega_xy (replaces -0.0001 lin_vel_z + -0.01 ang_vel_xy)
 
-    # === SMOOTHNESS PENALTIES ===
-    dof_torques_weight: float = -0.0001       # Smooth torques
-    dof_acc_weight: float = -2.5e-7           # Smooth joint accelerations
-    action_rate_weight: float = -0.01         # Smooth actions (was -0.05, reduced to allow movement)
+    # === SMOOTHNESS PENALTIES (Spot-aligned) ===
+    dof_torques_weight: float = -5e-4         # Spot: -5e-4. Was -0.0001 (5x increase)
+    dof_acc_weight: float = -2.5e-7           # Kept (negligible)
+    action_smoothness_weight: float = 1.0     # Spot: 1.0. L2 norm of action diff (replaces -0.01 sum-of-squares)
+    shoulder_joint_vel_weight: float = 0.01   # Spot: 1e-2 on hip joints. Harold shoulders = Spot hips.
 
-    # === GAIT REWARDS ===
-    # Session 36i: Increased 0.2 → 1.0 to force stepping behavior
-    feet_air_time_weight: float = 1.0         # Strongly encourage stepping
-    feet_air_time_threshold: float = 0.3      # Target air time (seconds)
+    # === GAIT REWARDS (Spot-aligned weights) ===
+    feet_air_time_weight: float = 5.0         # Spot: 5.0. Was 2.0
+    feet_air_time_threshold: float = 0.3      # Spot: 0.3
+    continuous_gait_weight: float = 10.0      # Spot: 10.0. Was hardcoded 5.0
+    air_time_variance_weight: float = 1.0     # Spot: 1.0. Was hardcoded 0.5
 
+    # === CONTACT PENALTIES ===
     undesired_contacts_weight: float = -1.0   # Penalize body contact
     undesired_contacts_threshold: float = 1.0 # Force threshold (Newtons)
+    foot_slip_weight: float = 0.5             # Spot: 0.5. Was hardcoded 0.1
 
-    # === STABILITY REWARD ===
-    upright_weight: float = 2.0               # Stay upright (uses projected gravity)
+    # === FORWARD MOTION BOOTSTRAP (Harold-specific, Spot has none) ===
+    forward_motion_weight: float = 3.0        # Reduced from 7.0. Bootstrap only.
 
-    # === FORWARD MOTION BONUS ===
-    # Session 36e: Direct reward for positive vx to bootstrap walking
-    # Without this, policy converges to standing still (local minimum)
-    # Session 36f-g: Weight sweep: 3.0→+0.01, 5.0→+0.001, 10.0→-0.017
-    # 3.0 is optimal, trying longer training (4000 iter) to see if vx improves
-    forward_motion_weight: float = 3.0        # Optimal weight (verified by sweep)
+    # === JOINT POSITION REGULARIZATION (Spot original direction) ===
+    # Spot: 5x when standing with NO command (keeps tidy when idle).
+    # Safe to use Spot direction now that existence rewards are removed.
+    joint_pos_weight: float = 0.7             # Spot: 0.7
+    joint_pos_stand_still_scale: float = 5.0  # Spot: 5.0
+    joint_pos_velocity_threshold: float = 0.1 # Harold-specific (Spot: 0.5)
 
 
 @configclass
@@ -96,22 +116,22 @@ class CommandCfg:
 
     # Forward velocity range (m/s)
     # Session 36: Reverted to conservative for stability
-    vx_min: float = 0.0
-    vx_max: float = 0.3
+    vx_min: float = 0.15
+    vx_max: float = 1.0
 
     # Lateral velocity range (m/s)
-    vy_min: float = -0.15
-    vy_max: float = 0.15
+    vy_min: float = -0.5
+    vy_max: float = 0.5
 
     # Yaw rate range (rad/s) - about ±17 deg/s
-    yaw_min: float = -0.30
-    yaw_max: float = 0.30
+    yaw_min: float = -1.0
+    yaw_max: float = 1.0
 
     # Probability of sampling zero velocity (for stopping behavior)
     zero_velocity_prob: float = 0.02  # 2% standing training
 
     # Dynamic command updates during episode
-    dynamic_commands: bool = True
+    dynamic_commands: bool = False
     command_change_interval: float = 10.0  # seconds
     command_change_prob: float = 1.0
 
@@ -121,7 +141,7 @@ class GaitCfg:
     """Gait parameters matched to the rough-terrain setup."""
 
     frequency: float = 2.0
-    target_height: float = 0.275
+    target_height: float = 0.15  # Lower for Spot-matched crouch (was 0.275 for old pose)
 
 
 @configclass
@@ -197,7 +217,7 @@ class TerminationCfg:
 
     base_contact_force_threshold: float = math.inf
     undesired_contact_force_threshold: float = math.inf
-    orientation_threshold: float = -0.5
+    orientation_threshold: float = -0.6
     # Height termination: terminate if base height < threshold
     # EXP-002: 10N contact alone wasn't enough - robot stayed low (height=1.76)
     # EXP-003-007: Height termination has issues - scanner returns bad values
@@ -263,75 +283,20 @@ class BacklashCfg:
 class DomainRandomizationCfg:
     """Domain randomization configuration for sim-to-real transfer.
 
-    To enable domain randomization in training, set:
-    ```python
-    cfg.domain_randomization.enable_randomization = True
-    cfg.domain_randomization.randomize_on_reset = True  # Per-episode randomization
-    cfg.domain_randomization.randomize_per_step = True   # Per-step noise
-    ```
+    Active features: per-step sensor noise (IMU, joint, lin_vel) and
+    reset state randomization (Spot-style, Session 55).
 
-    Provides controlled variation in simulation parameters to improve policy
-    robustness when deployed on physical hardware. Parameters are tuned
-    specifically for Harold's lightweight construction and servo capabilities.
-
-    Randomization Categories:
-    - Physics: Material properties affecting contact dynamics
-    - Robot: Mass, inertia, and actuator characteristics
-    - Sensors: Observation noise modeling real sensor imperfections
-    - Actions: Control delays and noise
-    - External: Environmental disturbances
-
-    All randomization can be toggled on/off for debugging and gradual
-    introduction during training curriculum.
+    Dead features removed in Session 55 cleanup:
+    - Physics/robot property randomization (EXP-090: made training worse)
+    - Action noise/delays (EXP-154/155/156: hurt learning)
+    - External forces (EXP-164: caused instability)
+    - Terrain/gravity randomization (never enabled)
     """
 
     # === MASTER SWITCHES ===
-    # EXP-090: FULL domain randomization made training HARDER - vx=0.0056 (MUCH WORSE)
-    # Robot learned to stand still to cope with uncertainty
-    # Session 28: Re-enabled for SENSOR NOISE ONLY to simulate gear backlash (~2°)
-    # Session 37: Replaced noise with explicit hysteresis model (BacklashCfg)
     enable_randomization: bool = True   # Session 28: OPTIMAL for backlash robustness
-    randomize_on_reset: bool = False
     randomize_per_step: bool = True     # Session 28: Per-step noise for backlash
-    
-    # === PHYSICS RANDOMIZATION ===
-    # EXP-090: Domain randomization made training WORSE - DISABLED
-    randomize_friction: bool = False  # DISABLED - caused vx=0.0056 (robot stood still)
-    friction_range: tuple = (0.5, 0.9)        # Conservative range (was 0.4-1.0)
-                                              # Base: 0.7, slight variation
 
-    randomize_restitution: bool = False       # Randomize bounce characteristics
-    restitution_range: tuple = (0.0, 0.2)     # Keep low for realistic ground contact
-
-    # === ROBOT PROPERTIES RANDOMIZATION ===
-    # EXP-090: Domain randomization made training WORSE - DISABLED
-    randomize_mass: bool = False              # DISABLED - caused robot to stand still
-    mass_range: tuple = (0.9, 1.1)            # ±10% mass variation (conservative)
-                                              # Was ±15%, reduced for stability
-    
-    randomize_com: bool = False               # Randomize center of mass offsets
-    com_offset_range: tuple = (-0.02, 0.02)   # ±2cm COM shift in X/Y/Z
-                                              # Small shifts for balance variation
-    
-    randomize_inertia: bool = False           # Randomize rotational inertia
-    inertia_range: tuple = (0.9, 1.1)         # ±10% inertia variation
-    
-    # === ACTUATOR RANDOMIZATION ===
-    randomize_joint_stiffness: bool = False   # Vary joint PD controller stiffness
-    stiffness_range: tuple = (150, 250)       # Base: 200, allows ±25% variation
-                                              # Models servo response differences
-    
-    randomize_joint_damping: bool = False     # Vary joint PD controller damping
-    damping_range: tuple = (50, 100)          # Base: 75, allows ±33% variation
-                                              # Models servo damping characteristics
-    
-    randomize_effort_limit: bool = False      # Vary maximum joint torques
-    effort_limit_range: tuple = (0.8, 1.0)    # 80-100% of nominal torque
-                                              # Conservative to prevent servo damage
-    
-    randomize_joint_limits: bool = False      # Add small variations to joint limits
-    joint_limit_noise: float = 0.02           # ±0.02 rad (~1.15°) variation
-    
     # === SENSOR NOISE CONFIGURATION ===
     # IMU Noise (Body angular velocity and gravity projection)
     add_imu_noise: bool = True                # Add noise to IMU measurements
@@ -360,13 +325,11 @@ class DomainRandomizationCfg:
 
     # Joint Sensor Noise
     # Session 28: Position noise simulates gear backlash (~1-3° in ST3215 servos)
-    # - 2° (0.035 rad): STANDING, vx=0.007 - too much noise
     # - 1° (0.0175 rad): WALKING, vx=0.022 - OPTIMAL (31% better than baseline!)
-    # Session 37: Re-enabling as explicit hysteresis didn't help
     add_joint_noise: bool = True              # Session 28: OPTIMAL for backlash robustness
     joint_position_noise: GaussianNoiseCfg = GaussianNoiseCfg(
         mean=0.0,
-        std=0.0175,                           # Not used when disabled
+        std=0.0175,
         operation="add"
     )
     joint_velocity_noise: GaussianNoiseCfg = GaussianNoiseCfg(
@@ -374,47 +337,36 @@ class DomainRandomizationCfg:
         std=0.05,                             # 0.05 rad/s velocity noise
         operation="add"
     )
-    
-    # === ACTION RANDOMIZATION ===
-    # Session 29: Testing action noise for sim-to-real transfer
-    # EXP-154: 0.5% (0.005) -> STANDING (vx=0.009), hurt training
-    # EXP-155: 0.2% (0.002) -> STANDING (vx=0.009), still hurt training
-    # CONCLUSION: Action noise hurts learning, disabled
-    add_action_noise: bool = False             # DISABLED - hurts learning
-    action_noise: GaussianNoiseCfg = GaussianNoiseCfg(
-        mean=0.0,
-        std=0.002,                            # Not used when disabled
-        operation="add"
-    )
 
-    # EXP-156: Action delays hurt training -> DISABLED
-    # Adding any action-side randomization hurts when observation noise already present
-    add_action_delay: bool = False            # DISABLED - hurts learning
-    action_delay_steps: tuple = (0, 1)        # Not used when disabled
+    # === RESET STATE RANDOMIZATION (Spot-style, Session 55) ===
+    # Robot starts each episode with randomized state instead of all-zeros.
+    # Forces the policy to learn locomotion from diverse initial conditions.
+    enable_reset_randomization: bool = False
 
-    # === EXTERNAL DISTURBANCES ===
-    # EXP-164: External perturbations FAILED - caused falling and backward drift
-    # Even light forces (0.2-0.5N, 0.5% prob) broke training
-    apply_external_forces: bool = False       # DISABLED - causes instability
-    external_force_probability: float = 0.005 # 0.5% per step (conservative)
-    external_force_range: tuple = (0.2, 0.5)  # Light forces (0.2-0.5 N)
-    external_torque_range: tuple = (0.02, 0.1) # Light torques (0.02-0.1 Nm)
-    
-    # === TERRAIN RANDOMIZATION ===
-    add_terrain_noise: bool = False           # Add height noise to terrain
-    terrain_noise_magnitude: float = 0.01     # ±1cm height variations
-    
-    # === GRAVITY RANDOMIZATION ===
-    randomize_gravity: bool = False               # Vary gravity magnitude and direction
-    gravity_magnitude_range: tuple = (9.6, 10.0)  # 9.6-10.0 m/s² (small variation)
-    gravity_angle_range: float = 0.05             # ±0.05 rad (~3°) tilt in gravity vector
+    # Root velocity at reset (m/s, rad/s) — Spot: ±1.5, ±1.0, ±0.5
+    # Harold ranges are ~10% of Spot (proportional to speed capability)
+    reset_lin_vel_x_range: tuple = (-0.15, 0.15)
+    reset_lin_vel_y_range: tuple = (-0.1, 0.1)
+    reset_lin_vel_z_range: tuple = (-0.05, 0.05)
+    reset_ang_vel_roll_range: tuple = (-0.2, 0.2)
+    reset_ang_vel_pitch_range: tuple = (-0.2, 0.2)
+    reset_ang_vel_yaw_range: tuple = (-0.3, 0.3)
+
+    # Joint state at reset — Spot: ±0.2 rad pos, ±2.5 rad/s vel
+    reset_joint_pos_noise: float = 0.1    # ±rad around ready_pose
+    reset_joint_vel_noise: float = 1.0    # ±rad/s
+
+    # Mid-episode velocity pushes — Spot: every 10-15s, ±0.5 m/s
+    enable_velocity_pushes: bool = False
+    push_interval_range: tuple = (8.0, 12.0)   # seconds
+    push_vel_xy_range: float = 0.15             # ±m/s
 
 @configclass
 class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # env parameters
-    episode_length_s = 30.0
+    episode_length_s = 20.0
     decimation = 9
-    action_scale = 0.5  # Session 23: 0.7 was worse (vx=0.029, contact failing)
+    action_scale = 0.3  # Must be literal for autoresearch.py regex rewriting. See common/policy_config.py for canonical default.
 
     # Space definitions
     # Observation space is always 48D; CPG is open-loop and does not affect policy input size.
@@ -425,13 +377,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # Action filtering (EMA low-pass)
     # Session 35: beta=0.40 is optimal (0.50 prevented walking)
     # Lower beta = more smoothing (60% carryover from previous action)
-    action_filter_beta: float = 0.40
-
-    # Observation clipping (matches deployment clip_obs=5.0)
-    # Session 29: Hardware deployment clips normalized obs to ±5.0
-    # Training without clipping causes policy to see larger ranges than deployment
-    clip_observations: bool = True
-    clip_observations_value: float = 5.0      # Match deployment clipping
+    action_filter_beta: float = 0.2
 
     # Reward configuration
     rewards = RewardsCfg()
@@ -493,8 +439,10 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
             dynamic_friction=1.0,
             restitution=0.0,
         ),
-        visual_material=sim_utils.PreviewSurfaceCfg(
-            diffuse_color=(0.15, 0.2, 0.25),  # Dark blue-gray for contrast with white robot
+        visual_material=sim_utils.MdlFileCfg(
+            mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
+            project_uvw=True,
+            texture_scale=(0.25, 0.25),
         ),
         debug_vis=False,
     )
@@ -504,7 +452,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
         prim_path="/World/envs/env_.*/Robot/body",
         update_period=0.05,
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.0)),
-        attach_yaw_only=True,
+        ray_alignment="yaw",
         pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=(0.25, 0.25)),
         debug_vis=False,
         mesh_prim_paths=["/World/ground"],
@@ -546,26 +494,8 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
     # === Joint configuration (moved from env implementation) ===
     # Per-joint normalized action ranges (scaled later by action_scale)
     # Order: [shoulders(4), thighs(4), calves(4)]
-    joint_range: tuple = (
-        0.30, 0.30, 0.30, 0.30,
-        0.90, 0.90, 0.90, 0.90,
-        0.90, 0.90, 0.90, 0.90,
-    )
+    joint_range: tuple = JOINT_RANGE
 
-    # === Joint configuration for push-up routine ===
-    # Absolute joint angle limits in radians
-    # Joint limits (Session 30: aligned with hardware safe limits)
-    # Sign convention: thighs/calves are inverted between sim and hardware
-    # Hardware limits from deployment/config/hardware.yaml
-    # thigh hardware: [-55°, +5°] → sim: [-5°, +55°] = [-0.0873, +0.9599] rad
-    # calf hardware: [-5°, +80°] → sim: [-80°, +5°] = [-1.3963, +0.0873] rad
-    joint_angle_max: tuple = (
-        0.4363, 0.4363, 0.4363, 0.4363,  # shoulders: ±25° (hardware safe limit)
-        0.9599, 0.9599, 0.9599, 0.9599,  # thighs: sim +55° (hw -55°)
-        0.0873, 0.0873, 0.0873, 0.0873   # calves: sim +5° (hw -5°)
-    )
-    joint_angle_min: tuple = (
-        -0.4363, -0.4363, -0.4363, -0.4363,  # shoulders: ±25°
-        -0.0873, -0.0873, -0.0873, -0.0873,  # thighs: sim -5° (hw +5°)
-        -1.3963, -1.3963, -1.3963, -1.3963   # calves: sim -80° (hw +80°)
-    )
+    # Absolute joint angle limits in radians.
+    joint_angle_max: tuple = FLAT_JOINT_ANGLE_MAX
+    joint_angle_min: tuple = FLAT_JOINT_ANGLE_MIN

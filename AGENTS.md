@@ -25,6 +25,14 @@ This file is the primary agent quickstart and coordination guide for this reposi
 - Avoid temporal decomposition: document by role (experiment vs hardware), not by "first do X then Y" fragments.
 - Define errors out of existence: prefer tooling that handles missing/stale state without manual cleanup.
 
+## Python Environment Rules
+
+- Desktop Isaac Lab work uses `/home/matteo/Desktop/env_isaaclab`. Activate it with `source ~/Desktop/env_isaaclab/bin/activate`.
+- Raspberry Pi runtime work uses system `python3` and no virtualenv.
+- `isaaclab` being importable in the desktop venv does not mean Isaac Sim runtime modules are available.
+- Imports under `omni.*`, `isaacsim.*`, and related simulator-backed modules require the Isaac Sim app/runtime context. Use `python scripts/harold.py ...` or the Isaac Lab launcher entrypoints for those checks.
+- If `isaaclab` imports succeed but `omni` imports fail in a plain shell, treat that as a runtime-context issue, not a missing `pip` dependency.
+
 ## CRITICAL: Memory System Protocol
 
 This project uses a persistent memory system for cross-session continuity.
@@ -60,7 +68,7 @@ Start with `docs/index.md` for the full map, then use the role-specific lists be
 - `docs/memory/OBSERVABILITY.md`: Metrics and validation protocol.
 - `docs/memory/REFERENCE_ANALYSIS.md`: Isaac Lab reference implementation analysis.
 - `docs/reference/sim_reference.md`: Simulation task and config reference.
-- `docs/sim/isaac_lab_extension.md`: Isaac Lab extension template details.
+- `docs/sim/isaac_lab_extension.md`: Harold Isaac Lab extension setup.
 - `docs/overview.md`: Repo overview and installation notes.
 
 ### Hardware walking tests (RPi)
@@ -78,6 +86,12 @@ Start with `docs/index.md` for the full map, then use the role-specific lists be
 - `docs/reference/hardware_reference.md`: Joint order, axes, and hardware specs.
 - `docs/hardware/servos/`: Servo datasheets and protocol references.
 - `docs/memory/OBSERVATIONS.md`: Known issues and logging insights.
+
+### Isaac Lab reference environments
+- `docs/example_environments/README.md`: Index of all Isaac Lab quadruped locomotion examples (Spot, Go1, Go2, A1, ANYmal B/C/D).
+- Each file covers robot specs, reward structure with weights, observation/action spaces, command ranges, domain randomization, and training config.
+- `docs/example_environments/anymal_c_direct.md`: **Most relevant for Harold** — same direct env architecture, documents the `step_dt` reward multiplication trap.
+- `docs/example_environments/spot_flat.md`: Source of Harold's manager-based reward structure.
 
 ### Shared references
 - `docs/kinematics/harold_8_kinematics.yaml`: USD-derived joint/mesh kinematics spec (review before stance or sim-to-real alignment changes).
@@ -185,7 +199,8 @@ python scripts/harold.py train --duration standard # Preset duration (see script
 python scripts/harold.py train --checkpoint path   # Resume from checkpoint
 python scripts/harold.py train --mode cpg          # CPG open-loop mode
 python scripts/harold.py train --mode scripted     # Scripted gait (policy ignored)
-python scripts/harold.py train --task rough        # Rough terrain task
+python scripts/harold.py train --task harold_mgr   # Manager-based flat (default)
+python scripts/harold.py train --task rough        # Rough terrain task (direct-env, deprecated)
 ```
 
 ### Autonomous Loop (Interactive for Hours)
@@ -250,8 +265,8 @@ Videos are saved under:
 For overnight autonomous experiment sessions, Harold has an autoresearch system:
 
 ```bash
-# Read the strategy (human-edited goals and constraints)
-cat docs/autoresearch/strategy.md
+# Read the lab policy (experiment loop, decision rules, video review)
+cat docs/autoresearch/program.md
 
 # Check what parameters can be tuned
 python scripts/autoresearch.py load-registry
@@ -262,9 +277,6 @@ python scripts/autoresearch.py apply '{"forward_motion_weight": 5.0}'
 # Revert config to git HEAD
 python scripts/autoresearch.py revert
 
-# Compute score from metrics
-python scripts/autoresearch.py score '{"vx_w_mean": 0.02, "upright_mean": 0.96, ...}'
-
 # Log result
 python scripts/autoresearch.py log '{"exp_alias": "EXP-228", "decision": "KEEP", ...}'
 
@@ -272,9 +284,8 @@ python scripts/autoresearch.py log '{"exp_alias": "EXP-228", "decision": "KEEP",
 python scripts/harold.py snapshot-config
 ```
 
-Full protocol: `docs/autoresearch/AGENT_PROTOCOL.md`
+Full protocol: `docs/autoresearch/program.md`
 Parameter registry: `docs/autoresearch/PARAMETER_REGISTRY.md`
-Strategy doc: `docs/autoresearch/strategy.md`
 
 ### Process Management
 
@@ -336,14 +347,13 @@ Machine-readable output includes:
 
 ```bash
 # Direct training (verbose output - avoid in agents)
-# NOTE: --video is MANDATORY, never omit it
 python harold_isaac_lab/scripts/skrl/train.py \
-  --task=Template-Harold-Direct-flat-terrain-v0 \
-  --num_envs <num_envs> --headless --video --video_length <frames> --video_interval <steps>
+  --task=Harold-Velocity-Flat-v0 \
+  --num_envs 2048 --headless
 
 # Play/evaluate a checkpoint
 python harold_isaac_lab/scripts/skrl/play.py \
-  --task=Template-Harold-Direct-flat-terrain-v0 \
+  --task=Harold-Velocity-Flat-v0 \
   --checkpoint=<path_to_checkpoint.pt>
 
 # TensorBoard monitoring
@@ -381,27 +391,30 @@ harold_isaac_lab/
 │   ├── train.py         # Main training entry point
 │   └── play.py          # Policy evaluation/playback
 └── source/harold_isaac_lab/harold_isaac_lab/
-    └── tasks/direct/
-        ├── harold_flat/     # Flat terrain RL (primary task)
-        │   ├── harold_isaac_lab_env.py      # Environment class
-        │   ├── harold_isaac_lab_env_cfg.py  # Config (rewards, termination)
-        │   ├── harold.py                    # Robot asset definition
-        │   └── agents/skrl_ppo_cfg.yaml     # PPO hyperparameters
-        ├── harold_rough/    # Rough terrain with curriculum
-        └── harold_pushup/   # Scripted playback (no RL)
+    └── tasks/
+        ├── manager_based/           # RECOMMENDED architecture
+        │   └── harold_flat/         # Flat locomotion (produces walking)
+        │       ├── flat_env_cfg.py  # Config (rewards, commands, events)
+        │       ├── harold.py        # Robot asset definition
+        │       └── agents/skrl_ppo_cfg.yaml
+        └── direct/                  # DEPRECATED (standing trap bug)
+            ├── harold_flat/         # Direct-env flat terrain
+            ├── harold_rough/        # Direct-env rough terrain
+            └── harold_pushup/       # Scripted playback (no RL)
 ```
 
 ### Gym Task IDs
-- `Template-Harold-Direct-flat-terrain-v0` - Primary training task
+- `Harold-Velocity-Flat-v0` - **Manager-based flat locomotion (RECOMMENDED — produces walking)**
+- `Template-Harold-Direct-flat-terrain-v0` - Direct-env flat task (legacy — has unresolved standing trap bug)
 - `Template-Harold-Direct-rough-terrain-v0` - Rough terrain variant
 - `Template-Harold-Direct-pushup-v0` - Scripted playback
 
 ### Key Configuration Files
 | Purpose | Path |
 |---------|------|
-| Flat env config (rewards, termination) | `.../harold_flat/harold_isaac_lab_env_cfg.py` |
-| PPO hyperparameters | `.../harold_flat/agents/skrl_ppo_cfg.yaml` |
-| Robot asset (joints, actuators) | `.../harold_flat/harold.py` |
+| Manager-based env config (rewards, commands, events) | `.../tasks/manager_based/harold_flat/flat_env_cfg.py` |
+| PPO hyperparameters | `.../tasks/manager_based/harold_flat/agents/skrl_ppo_cfg.yaml` |
+| Robot asset (joints, actuators) | `.../tasks/manager_based/harold_flat/harold.py` |
 | USD model | `part_files/V4/harold_8.usd` |
 
 ### Robot Specifications
@@ -429,6 +442,9 @@ Robot falls forward onto elbows with back elevated. Passes `upright_mean > 0.9` 
 
 ### Height Termination Bug
 If using height-based termination, check height above terrain, NOT world Z coordinate. Spawn pose must be above threshold.
+
+### Coordinate Frame (RESOLVED)
+Investigated 2026-03-18/19 — no bug found. Identity quaternion `(1,0,0,0)` is correct; body +X = world +X = visual forward. A temporary 180° Z rotation was applied and reverted. See `COORDINATE_FRAME_BUG.md` for details. Isaac Lab uses **(w, x, y, z)** quaternion format.
 
 ### Context Overflow
 Long training runs flood context with tqdm output. Always use `python scripts/harold.py train` which runs training in background.

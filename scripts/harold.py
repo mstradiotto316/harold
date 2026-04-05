@@ -71,29 +71,58 @@ WATCHDOG_PID_FILE = Path("/tmp/harold_watchdog.pid")
 WATCHDOG_LOG_FILE = Path("/tmp/harold_watchdog.log")
 WATCHDOG_KILL_MARKER = Path("/tmp/harold_watchdog_killed.json")
 ENV_PATH = Path.home() / "Desktop" / "env_isaaclab" / "bin" / "activate"
-RUN_DIR_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_ppo_")
+ISAACLAB_PYTHON = ENV_PATH.parent / "python"
+RUN_DIR_PATTERN = re.compile(r"^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_ppo_|EXP-\d+)")
 
 # Training defaults (single source of truth for run configuration)
 TASK_IDS = {
     'flat': 'Template-Harold-Direct-flat-terrain-v0',
     'rough': 'Template-Harold-Direct-rough-terrain-v0',
     'pushup': 'Template-Harold-Direct-pushup-v0',
+    'sim_flat_v1': 'Template-Spot-Direct-sim-flat-v1',
+    'sim_flat_v2': 'Template-Harold-Direct-sim-flat-v2',
+    'harold_mgr': 'Harold-Velocity-Flat-v0',
+    'harold_rough': 'Harold-Velocity-Rough-v0',
 }
-DEFAULT_TASK = 'flat'
+DEFAULT_TASK = 'harold_mgr'
 TRAINING_DEFAULTS = {
-    'num_envs': 8192,
-    'video_interval': 3200,
+    'num_envs': 2048,   # Manager-based default. OOMs at 4096 on RTX 4080.
     'video_length': 250,
-    'rendering_mode': 'performance',
+    'rendering_mode': 'balanced',
 }
 DURATION_PRESETS = {
-    'short': 1250,     # ~30 minutes
+    'fast': 625,       # ~15 minutes (screening)
+    'short': 1250,     # ~30 minutes (confirmation)
     'standard': 2500,  # ~60 minutes
     'long': 4167,      # ~100 minutes
 }
 DEFAULT_DURATION = 'short'
 MODE_CHOICES = ('rl', 'cpg', 'scripted')
-DATA_POINTS_TAG = 'Info / Episode_Metric/vx_w_mean'
+DATA_POINTS_TAG = 'Reward / Total reward (mean)'
+
+# Map task keys to their env_cfg files (for reading action_scale, etc.)
+_TASK_ENV_CFG_PATHS = {
+    'flat': PROJECT_ROOT / "harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_flat/harold_isaac_lab_env_cfg.py",
+    'rough': PROJECT_ROOT / "harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_rough/harold_isaac_lab_env_cfg.py",
+    'pushup': PROJECT_ROOT / "harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_pushup/harold_isaac_lab_env_cfg.py",
+    'sim_flat_v1': PROJECT_ROOT / "harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/sim_flat_v1/sim_flat_v1_env_cfg.py",
+    'sim_flat_v2': PROJECT_ROOT / "harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/sim_flat_v2/sim_flat_v2_env_cfg.py",
+    'harold_mgr': PROJECT_ROOT / "harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/manager_based/harold_flat/flat_env_cfg.py",
+}
+_ACTION_SCALE_RE = re.compile(r'^\s*action_scale\s*=\s*([0-9.eE+-]+)', re.MULTILINE)
+
+
+def read_action_scale(task_key: str) -> float | None:
+    """Read action_scale from the env_cfg for the given task, or None if unreadable."""
+    cfg_path = _TASK_ENV_CFG_PATHS.get(task_key)
+    if cfg_path and cfg_path.exists():
+        m = _ACTION_SCALE_RE.search(cfg_path.read_text(encoding="utf-8"))
+        if m:
+            try:
+                return float(m.group(1))
+            except ValueError:
+                pass
+    return None
 
 # Memory safety (prevents OOM-induced system hangs)
 # Only intervene at truly dangerous levels to avoid interrupting legitimate training
@@ -102,35 +131,35 @@ SWAP_KILL_THRESHOLD = 70  # Kill only when swap heavily used (thrashing imminent
 
 
 # === METRIC SPECIFICATION (Single Source of Truth) ===
-# All metric-related code derives from this list. To add a metric, add one line here.
+# Manager-based env logs reward components as TensorBoard scalars.
+# No programmatic WALKING/STANDING/FAILING verdict — the agent + video review decide.
 
 @dataclass
 class MetricSpec:
     """Specification for a training metric."""
     key: str                # Internal key used in dicts
     tensorboard_tag: str | tuple[str, ...]    # TensorBoard scalar tag path(s)
-    threshold: float        # Pass threshold value
-    compare_gt: bool        # True = value > threshold is PASS
     display_name: str       # Human-readable name for output
 
-@dataclass
-class AuxMetricSpec:
-    """Specification for auxiliary metrics (no thresholds)."""
-    key: str
-    tensorboard_tag: str | tuple[str, ...]
-    display_name: str
-
+# Core metrics from the manager-based environment (ManagerBasedRLEnv).
+# These are the reward components logged by Isaac Lab's RewardManager.
 METRICS = [
-    MetricSpec('episode_length', 'Episode / Total timesteps (mean)', 300, True, 'Episode Length'),  # Session 35: raised from 100 (15s minimum for stable walking)
-    MetricSpec('upright_mean', 'Info / Episode_Metric/upright_mean', 0.9, True, 'Upright Mean'),
-    MetricSpec('height_reward', ('Info / Episode_Reward/height_reward', 'Info / Episode_Metric/height_reward'), 0.5, True, 'Height Reward'),  # Session 24: lowered from 1.2 (CPG gait has different natural height)
-    MetricSpec('body_contact', ('Info / Episode_Reward/body_contact_penalty', 'Info / Episode_Metric/body_contact_penalty'), -0.1, True, 'Body Contact'),
-    MetricSpec('vx_w_mean', 'Info / Episode_Metric/vx_w_mean', 0.01, True, 'Forward Velocity'),  # Session 24: lowered from 0.1 (slow controlled gait is acceptable)
-]
-
-AUX_METRICS = [
-    AuxMetricSpec('x_displacement', 'Info / Episode_Metric/x_displacement', 'X Displacement'),
-    AuxMetricSpec('x_displacement_abs', 'Info / Episode_Metric/x_displacement_abs', 'Abs X Displacement'),
+    MetricSpec('episode_length', 'Episode / Total timesteps (mean)', 'Episode Length'),
+    MetricSpec('reward_total', 'Reward / Total reward (mean)', 'Total Reward'),
+    MetricSpec('gait', 'Info / Episode_Reward/gait', 'Gait (trot pattern)'),
+    MetricSpec('base_linear_velocity', 'Info / Episode_Reward/base_linear_velocity', 'Velocity Tracking'),
+    MetricSpec('base_angular_velocity', 'Info / Episode_Reward/base_angular_velocity', 'Yaw Tracking'),
+    MetricSpec('air_time', 'Info / Episode_Reward/air_time', 'Air Time (feet lifting)'),
+    MetricSpec('foot_clearance', 'Info / Episode_Reward/foot_clearance', 'Foot Clearance'),
+    MetricSpec('base_orientation', 'Info / Episode_Reward/base_orientation', 'Orientation Penalty'),
+    MetricSpec('base_motion', 'Info / Episode_Reward/base_motion', 'Base Motion Penalty'),
+    MetricSpec('action_smoothness', 'Info / Episode_Reward/action_smoothness', 'Action Smoothness'),
+    MetricSpec('foot_slip', 'Info / Episode_Reward/foot_slip', 'Foot Slip Penalty'),
+    MetricSpec('joint_pos', 'Info / Episode_Reward/joint_pos', 'Joint Position Penalty'),
+    MetricSpec('joint_vel', 'Info / Episode_Reward/joint_vel', 'Joint Velocity Penalty'),
+    MetricSpec('joint_torques', 'Info / Episode_Reward/joint_torques', 'Joint Torques Penalty'),
+    MetricSpec('joint_acc', 'Info / Episode_Reward/joint_acc', 'Joint Acceleration Penalty'),
+    MetricSpec('air_time_variance', 'Info / Episode_Reward/air_time_variance', 'Air Time Variance'),
 ]
 
 # Derived lookups (computed once at import time)
@@ -146,25 +175,16 @@ class TrainingStatus:
     elapsed_seconds: float | None = None
 
 
-@dataclass
-class DiagnosisResult:
-    """Result of analyzing training metrics.
-
-    Replaces tuple return from get_diagnosis() - clearer than (str, str, int).
-    """
-    status: str        # 'WALKING', 'STANDING', 'FAILING', 'SANITY_FAIL', 'NO_DATA'
-    diagnosis: str     # Human-readable description
-    exit_code: int     # 0=walking, 1=standing, 2=failing, 3=sanity, 4=no data
 
 
 def get_latest_run() -> Path | None:
-    """Get the most recent training run directory."""
+    """Get the most recent training run directory (by modification time)."""
     if not LOG_DIR.exists():
         return None
-    runs = sorted([
-        d for d in LOG_DIR.iterdir()
-        if d.is_dir() and RUN_DIR_PATTERN.match(d.name)
-    ])
+    runs = sorted(
+        [d for d in LOG_DIR.iterdir() if d.is_dir() and RUN_DIR_PATTERN.match(d.name)],
+        key=lambda d: d.stat().st_mtime,
+    )
     return runs[-1] if runs else None
 
 
@@ -216,13 +236,8 @@ def get_metrics(run_path: Path) -> dict:
                 continue
         return 0
 
-    # Extract metrics from spec lists
+    # Extract metrics from spec list
     result = {spec.key: avg_last(spec.tensorboard_tag) for spec in METRICS}
-    for spec in AUX_METRICS:
-        result[spec.key] = avg_last(spec.tensorboard_tag)
-
-    # Add derived metrics (not in METRICS spec)
-    result['reward_total'] = avg_last('Reward / Total reward (mean)')
     result['data_points'] = get_count(DATA_POINTS_TAG)
 
     return result
@@ -317,12 +332,6 @@ def generate_manifest(run_path: Path) -> dict:
     # Extract metrics from TensorBoard
     metrics = get_metrics(run_path)
 
-    # Determine verdict
-    if metrics.get('episode_length') is not None:
-        diag = get_diagnosis(metrics)
-    else:
-        diag = DiagnosisResult('NO_DATA', 'No metrics available', 4)
-
     # Check if run is still active
     train_status = is_training_running()
     if train_status.running:
@@ -351,7 +360,6 @@ def generate_manifest(run_path: Path) -> dict:
         'notes': [],
         'summary': {
             'final': {k: metrics.get(k) for k in METRIC_KEYS},
-            'verdict': diag.status
         }
     }
 
@@ -367,10 +375,8 @@ def get_or_create_manifest(run_path: Path) -> dict:
         if manifest.get('status') == 'running':
             metrics = get_metrics(run_path)
             if metrics.get('data_points', 0) > 0:
-                diag = get_diagnosis(metrics)
                 manifest['summary'] = {
                     'final': {k: metrics.get(k) for k in METRIC_KEYS},
-                    'verdict': diag.status
                 }
                 # Check if still running
                 if not is_training_running().running:
@@ -388,7 +394,8 @@ def register_experiment(
     run_path: Path,
     hypothesis: str = '',
     tags: list[str] = None,
-    training_config: dict = None
+    training_config: dict = None,
+    alias: str | None = None,
 ) -> str:
     """Register a new experiment and return its alias.
 
@@ -397,9 +404,11 @@ def register_experiment(
         hypothesis: Hypothesis being tested
         tags: List of tags for categorization
         training_config: Training parameters (num_envs, iterations) for STATUS display
+        alias: Pre-computed alias (e.g. from pre-launch). If None, generates next.
     """
     index = load_index()
-    alias = get_next_alias(index)
+    if alias is None:
+        alias = get_next_alias(index)
 
     # Update index
     index['experiments'][alias] = run_path.name
@@ -437,10 +446,10 @@ def get_recent_experiments(n: int = 5) -> list[str]:
     if not LOG_DIR.exists():
         return []
 
-    runs = sorted([
-        d for d in LOG_DIR.iterdir()
-        if d.is_dir() and RUN_DIR_PATTERN.match(d.name)
-    ])
+    runs = sorted(
+        [d for d in LOG_DIR.iterdir() if d.is_dir() and RUN_DIR_PATTERN.match(d.name)],
+        key=lambda d: d.stat().st_mtime,
+    )
 
     # Get aliases for runs that have them, or directory names
     index = load_index()
@@ -454,77 +463,17 @@ def get_recent_experiments(n: int = 5) -> list[str]:
     return result
 
 
-def metric_passes(key: str, value: float | None) -> bool:
-    """Check if a metric value passes its threshold."""
-    if value is None:
-        return False
-    spec = METRIC_BY_KEY[key]
-    return value >= spec.threshold if spec.compare_gt else value <= spec.threshold
-
-
-def format_metric_line(key: str, value: float | None, show_threshold: bool = True) -> str:
-    """Format a metric for display with pass/fail status.
-
-    Reduces repetition across cmd_status(), cmd_validate(), etc.
-    """
+def format_metric_line(key: str, value: float | None) -> str:
+    """Format a metric for display."""
     spec = METRIC_BY_KEY[key]
     if value is None:
         return f"  {spec.display_name}: (no data)"
-
-    passed = metric_passes(key, value)
-    status = "PASS" if passed else "FAIL"
-    cmp = ">" if spec.compare_gt else "<"
-
-    if show_threshold:
-        return f"  {spec.display_name}: {value:.4f} ({status}, need {cmp} {spec.threshold})"
-    else:
-        return f"  {spec.display_name}: {value:.4f} ({status})"
+    return f"  {spec.display_name}: {value:.4f}"
 
 
-def get_diagnosis(metrics: dict) -> DiagnosisResult:
-    """Analyze metrics and return state-only diagnosis.
-
-    State-only reporting: describes current state without prescriptive suggestions.
-    The agent interprets results and decides next steps.
-    """
-    ep_len = metrics.get('episode_length')
-    height = metrics.get('height_reward')
-    contact = metrics.get('body_contact')
-    upright = metrics.get('upright_mean')
-    vx = metrics.get('vx_w_mean')
-
-    # No data
-    if ep_len is None or height is None:
-        return DiagnosisResult('NO_DATA', 'No metrics available yet', 4)
-
-    # Sanity check (episode length)
-    ep_spec = METRIC_BY_KEY['episode_length']
-    if not metric_passes('episode_length', ep_len):
-        return DiagnosisResult('SANITY_FAIL', f'Episodes only {ep_len:.0f} steps (threshold: {ep_spec.threshold})', 3)
-
-    # Failing checks
-    height_spec = METRIC_BY_KEY['height_reward']
-    if not metric_passes('height_reward', height):
-        return DiagnosisResult('FAILING', f'Height {height:.2f} below threshold {height_spec.threshold}', 2)
-
-    contact_spec = METRIC_BY_KEY['body_contact']
-    if contact is not None and not metric_passes('body_contact', contact):
-        return DiagnosisResult('FAILING', f'Body contact {contact:.2f} below threshold {contact_spec.threshold}', 2)
-
-    upright_spec = METRIC_BY_KEY['upright_mean']
-    if upright is not None and not metric_passes('upright_mean', upright):
-        return DiagnosisResult('FAILING', f'Upright {upright:.2f} below threshold {upright_spec.threshold}', 2)
-
-    # Success checks
-    vx_spec = METRIC_BY_KEY['vx_w_mean']
-    if vx is not None and metric_passes('vx_w_mean', vx):
-        return DiagnosisResult('WALKING', f'Forward velocity {vx:.3f} m/s exceeds threshold {vx_spec.threshold}', 0)
-
-    # Partial success
-    if vx is not None:
-        return DiagnosisResult('STANDING', f'Upright and stable, forward velocity {vx:.3f} m/s', 1)
-
-    return DiagnosisResult('STANDING', 'Upright and stable', 1)
+def has_metric_data(metrics: dict) -> bool:
+    """Check if any meaningful metric data exists."""
+    return metrics.get('reward_total') is not None or metrics.get('episode_length') is not None
 
 
 def is_training_running() -> TrainingStatus:
@@ -641,7 +590,6 @@ def get_progress(run_path: Path) -> tuple[float | None, int | None, int | None]:
         # Look for iteration progress in log
         content = LOG_FILE.read_text()
         # Find patterns like "1234/4167" or similar
-        import re
         matches = re.findall(r'(\d+)/(\d+)', content)
         if matches:
             current, total = map(int, matches[-1])
@@ -661,7 +609,6 @@ def get_training_rate() -> tuple[float | None, float | None]:
         return None, None
 
     try:
-        import re
         content = LOG_FILE.read_text()
         # Match patterns like "17.02it/s" or "6.31it/s"
         matches = re.findall(r'(\d+\.?\d*)it/s', content)
@@ -682,31 +629,32 @@ def build_train_command(
     iterations: int,
     task_id: str,
     checkpoint: str | None = None,
+    video: bool = False,
+    video_interval: int = 2000,
+    video_length: int | None = None,
 ) -> list[str]:
     """Build the Isaac Lab training command.
 
     Encapsulates command construction and benchmark-based defaults.
     """
-    # Benchmark results (2025-12-25, 64GB RAM):
-    #   4096 envs: 18.0 it/s, 1.77M samples/s, GPU 4.3GB, RAM  8GB
-    #   6144 envs: 15.2 it/s, 2.25M samples/s, GPU 5.0GB, RAM  9GB
-    #   8192 envs: 12.9 it/s, 2.54M samples/s, GPU 5.6GB, RAM  9GB  <- DEFAULT
-    #  10000 envs: 11.3 it/s, 2.71M samples/s, GPU 6.0GB, RAM 10GB
-    #  12000 envs: 10.6 it/s, 3.05M samples/s, GPU 6.4GB, RAM 10GB
-    #  16384 envs:  8.7 it/s, 3.43M samples/s, GPU 7.6GB, RAM 11GB  <- MAX THROUGHPUT
+    # Manager-based env (Harold-Velocity-Flat-v0): ~20 it/s at 2048 envs.
+    # OOMs at 4096 on RTX 4080 16GB. Direct-env benchmarks are in HARDWARE_CONSTRAINTS.md.
     cmd = [
-        'python', str(PROJECT_ROOT / 'harold_isaac_lab' / 'scripts' / 'skrl' / 'train.py'),
+        str(ISAACLAB_PYTHON), str(PROJECT_ROOT / 'harold_isaac_lab' / 'scripts' / 'skrl' / 'train.py'),
         f'--task={task_id}',
         '--num_envs', str(num_envs),
         '--max_iterations', str(iterations),
         '--headless',
         '--rendering_mode', TRAINING_DEFAULTS['rendering_mode'],
-        '--video',
-        '--video_interval', str(TRAINING_DEFAULTS['video_interval']),
-        '--video_length', str(TRAINING_DEFAULTS['video_length']),
     ]
     if checkpoint:
         cmd.extend(['--checkpoint', str(checkpoint)])
+    if video:
+        cmd.extend(['--video', '--video_interval', str(video_interval)])
+        if video_length is not None:
+            cmd.extend(['--video_length', str(video_length)])
+        else:
+            cmd.extend(['--video_length', str(TRAINING_DEFAULTS['video_length'])])
     return cmd
 
 
@@ -719,35 +667,33 @@ def start_watchdog(pid: str) -> bool:
     if not watchdog_script.exists():
         return False
 
-    watchdog_cmd = (
-        f"python {watchdog_script} --pid {pid} "
-        f"--ram-kill {RAM_KILL_THRESHOLD} --swap-kill {SWAP_KILL_THRESHOLD} "
-        f"> {WATCHDOG_LOG_FILE} 2>&1 & echo $! > {WATCHDOG_PID_FILE}"
-    )
-    subprocess.run(['bash', '-c', watchdog_cmd])
+    with open(WATCHDOG_LOG_FILE, 'w', encoding='utf-8') as watchdog_log:
+        process = subprocess.Popen(
+            [
+                str(ISAACLAB_PYTHON),
+                str(watchdog_script),
+                '--pid',
+                str(pid),
+                '--ram-kill',
+                str(RAM_KILL_THRESHOLD),
+                '--swap-kill',
+                str(SWAP_KILL_THRESHOLD),
+            ],
+            cwd=PROJECT_ROOT,
+            stdout=watchdog_log,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    WATCHDOG_PID_FILE.write_text(str(process.pid))
     return True
 
 
 def cmd_train(args):
     """Start training in background with optional hypothesis and tags."""
-    # Check if already running
-    train_status = is_training_running()
-    if train_status.running:
-        print(f"ERROR: Training already running (PID: {train_status.pid})")
-        print(f"Check status: harold status")
-        print(f"Kill it: kill {train_status.pid}")
-        return 1
-
-    existing_processes = find_training_processes()
-    if existing_processes:
-        print("ERROR: Found existing training processes not tracked by PID file.")
-        for proc in existing_processes:
-            elapsed_str = format_elapsed(proc['elapsed'])
-            print(f"  PID {proc['pid']} (running {elapsed_str})")
-        print("Run: harold stop")
-        return 1
-
-    # Parse arguments with defaults
+    # Validate arguments BEFORE stopping any existing training.
+    # This prevents killing an in-flight experiment when the new invocation
+    # would fail validation (e.g., --iterations together with --duration).
     task_key = getattr(args, 'task', DEFAULT_TASK) or DEFAULT_TASK
     if task_key not in TASK_IDS:
         print(f"ERROR: Unknown task '{task_key}'. Valid: {', '.join(TASK_IDS.keys())}")
@@ -766,7 +712,10 @@ def cmd_train(args):
         iterations = DURATION_PRESETS[duration_label]
 
     if getattr(args, 'num_envs', None) is None:
-        num_envs = 1 if task_key == 'pushup' else TRAINING_DEFAULTS['num_envs']
+        if task_key == 'pushup':
+            num_envs = 1
+        else:
+            num_envs = TRAINING_DEFAULTS['num_envs']
     else:
         num_envs = args.num_envs
 
@@ -775,11 +724,34 @@ def cmd_train(args):
 
     mode = args.mode
 
+    # Build command (validates interpreter path, etc.)
+    video = getattr(args, 'video', False)
+    video_interval = getattr(args, 'video_interval', 2000)
+    video_length = getattr(args, 'video_length', None)
+    cmd = build_train_command(num_envs, iterations, task_id, args.checkpoint,
+                              video=video, video_interval=video_interval,
+                              video_length=video_length)
+
+    # Reject concurrent launches instead of killing in-flight work.
+    train_status = is_training_running()
+    if train_status.running:
+        print(
+            "ERROR: Training is already running "
+            f"(PID: {train_status.pid}). Stop it explicitly with `harold stop` before starting a new run."
+        )
+        return 1
+
+    existing_processes = find_training_processes()
+    if existing_processes:
+        orphan_pids = ", ".join(str(proc["pid"]) for proc in existing_processes)
+        print(
+            "ERROR: Found existing Harold training process(es) "
+            f"({orphan_pids}). Run `harold stop` to clean them up before starting a new run."
+        )
+        return 1
+
     # Capture latest run before launch (used to detect new run directory)
     previous_run = get_latest_run()
-
-    # Build command
-    cmd = build_train_command(num_envs, iterations, task_id, args.checkpoint)
 
     # Clear old log and kill marker
     LOG_FILE.write_text('')
@@ -793,33 +765,44 @@ def cmd_train(args):
     else:
         print(f"  Iterations: {iterations}")
     print(f"  Environments: {num_envs}")
-    print(f"  Video recording: enabled")
+    if video:
+        print(f"  Video: inline (every {video_interval} steps, {video_length or TRAINING_DEFAULTS['video_length']} steps/clip)")
+    else:
+        print(f"  Video: post-hoc (harold record)")
     if args.checkpoint:
         print(f"  Checkpoint: {args.checkpoint}")
     print(f"  Mode: {mode}")
     if getattr(args, 'gait_scale', None) is not None:
         print(f"  Gait scale: {args.gait_scale}")
 
+    # Pre-compute experiment alias so the run directory is named EXP-XXX
+    index = load_index()
+    pre_alias = get_next_alias(index)
+
     # Launch training in background
-    # Build environment variable prefix (explicitly overrides inherited env)
     env_vars = {
         "HAROLD_CPG": "1" if mode == "cpg" else "0",
         "HAROLD_SCRIPTED_GAIT": "1" if mode == "scripted" else "0",
+        "HAROLD_EXPERIMENT_NAME": pre_alias,
     }
     if getattr(args, 'gait_scale', None) is not None:
         env_vars["HAROLD_GAIT_AMP_SCALE"] = str(args.gait_scale)
     else:
         env_vars["HAROLD_GAIT_AMP_SCALE"] = ""
-    env_prefix = " ".join(f"{k}={v}" for k, v in env_vars.items())
-    if env_prefix:
-        env_prefix += " "
+    child_env = os.environ.copy()
+    child_env.update(env_vars)
 
-    shell_cmd = f"source {ENV_PATH} && cd {PROJECT_ROOT} && {env_prefix}{' '.join(cmd)} > {LOG_FILE} 2>&1 &"
-    process = subprocess.Popen(
-        ['bash', '-c', shell_cmd + f" echo $! > {PID_FILE}"],
-        cwd=PROJECT_ROOT,
-    )
-    process.wait()
+    with open(LOG_FILE, 'w', encoding='utf-8') as train_log:
+        process = subprocess.Popen(
+            cmd,
+            cwd=PROJECT_ROOT,
+            env=child_env,
+            stdout=train_log,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    PID_FILE.write_text(str(process.pid))
     time.sleep(2)
 
     if not PID_FILE.exists():
@@ -846,11 +829,15 @@ def cmd_train(args):
             training_config['duration'] = duration_label
         if getattr(args, 'gait_scale', None) is not None:
             training_config['gait_scale'] = args.gait_scale
+        action_scale_val = read_action_scale(task_key)
+        if action_scale_val is not None:
+            training_config['action_scale'] = action_scale_val
         alias = register_experiment(
             run_path,
             hypothesis=hypothesis,
             tags=tags,
-            training_config=training_config
+            training_config=training_config,
+            alias=pre_alias,
         )
         print(f"\n{alias}: {run_path.name}")
         if hypothesis:
@@ -903,12 +890,8 @@ def cmd_status(args):
                 result['orphan_pids'] = [p['pid'] for p in find_training_processes()]
         if run_path:
             result['metrics'] = get_metrics(run_path)
-            diag = get_diagnosis(result['metrics'])
-            result['status'] = diag.status
-            result['diagnosis'] = diag.diagnosis
-            result['exit_code'] = diag.exit_code
         print(json.dumps(result, indent=2, default=str))
-        return result.get('exit_code', 4)
+        return 0
 
     # Compact output with alias
     if run_path:
@@ -984,115 +967,66 @@ def cmd_status(args):
     # Get metrics
     if run_path:
         metrics = get_metrics(run_path)
+
+        if not has_metric_data(metrics):
+            print("METRICS: (no data yet)")
+            return 0
+
+        # Show key metrics inline
         reward = metrics.get('reward_total')
-        print(f"REWARD: {reward:.1f}" if reward else "REWARD: (no data)")
-
-        # Sanity check
         ep_len = metrics.get('episode_length')
-        if ep_len is not None:
-            status = 'PASS' if metric_passes('episode_length', ep_len) else 'FAIL'
-            print(f"SANITY: {status} (ep_len={ep_len:.0f})")
-        else:
-            print("SANITY: (no data)")
+        gait = metrics.get('gait')
+        vel = metrics.get('base_linear_velocity')
+        air = metrics.get('air_time')
 
-        # Standing check
-        height = metrics.get('height_reward')
-        contact = metrics.get('body_contact')
-        if height is not None:
-            status = 'PASS' if metric_passes('height_reward', height) else 'FAIL'
-            contact_str = f", contact={contact:.2f}" if contact is not None else ""
-            print(f"STANDING: {status} (height={height:.2f}{contact_str})")
-        else:
-            print("STANDING: (no data)")
+        print(f"REWARD: {reward:.1f}" if reward is not None else "REWARD: (no data)")
+        print(f"EP_LEN: {ep_len:.0f}/1000" if ep_len is not None else "EP_LEN: (no data)")
+        if gait is not None:
+            print(f"GAIT: {gait:.2f}/10")
+        if vel is not None:
+            print(f"VELOCITY: {vel:.2f}/5")
+        if air is not None:
+            print(f"AIR_TIME: {air:.2f}")
 
-        # Walking check
-        vx = metrics.get('vx_w_mean')
-        vx_spec = METRIC_BY_KEY['vx_w_mean']
-        if vx is not None:
-            if metric_passes('vx_w_mean', vx):
-                status = 'PASS'
-            elif vx > 0:
-                status = 'WARN'
-            else:
-                status = 'FAIL'
-            print(f"WALKING: {status} (vx={vx:.3f}, need >{vx_spec.threshold})")
-        else:
-            print("WALKING: (no data)")
-
-        x_disp = metrics.get('x_displacement')
-        x_disp_abs = metrics.get('x_displacement_abs')
-        if x_disp is not None:
-            if x_disp_abs is not None:
-                print(f"DISPLACEMENT: x={x_disp:.3f} (|x|={x_disp_abs:.3f})")
-            else:
-                print(f"DISPLACEMENT: x={x_disp:.3f}")
-
-        # Diagnosis (state-only, no NEXT field)
-        diag = get_diagnosis(metrics)
-        print(f"VERDICT: {diag.status}")
-        print(f"DIAGNOSIS: {diag.diagnosis}")
-        return diag.exit_code
+        return 0
     else:
-        print("REWARD: (no runs)")
-        print("SANITY: (no runs)")
-        print("STANDING: (no runs)")
-        print("WALKING: (no runs)")
-        print("VERDICT: NO_DATA")
-        print("DIAGNOSIS: No training runs found")
-        return 4
+        print("METRICS: (no runs)")
+        return 0
 
 
 def cmd_validate(args):
-    """Validate a completed training run (state-only reporting)."""
-    # Find run to validate - support aliases
+    """Show all metrics for a completed training run."""
     run_path = resolve_experiment(args.run) if args.run else get_latest_run()
 
     if not run_path or not run_path.exists():
         print(f"ERROR: Run not found: {args.run}")
-        return 4
+        return 1
 
-    # Get manifest for alias and hypothesis
     manifest = get_or_create_manifest(run_path)
     alias = manifest.get('alias', '')
 
     if alias:
-        print(f"Validating: {run_path.name} ({alias})")
+        print(f"Run: {run_path.name} ({alias})")
     else:
-        print(f"Validating: {run_path.name}")
+        print(f"Run: {run_path.name}")
 
     if manifest.get('hypothesis'):
         print(f"HYPOTHESIS: {manifest['hypothesis']}")
     print("-" * 50)
 
     metrics = get_metrics(run_path)
-    if not metrics:
-        print("ERROR: Could not read metrics")
-        return 4
+    if not metrics or not has_metric_data(metrics):
+        print("No metric data available")
+        return 1
 
     print(f"Data points: {metrics.get('data_points', 0)}")
     print()
 
-    # Print each metric (uses METRICS as single source of truth)
     for spec in METRICS:
         val = metrics.get(spec.key)
         print(format_metric_line(spec.key, val))
 
-    if AUX_METRICS:
-        print()
-        print("AUX METRICS:")
-        for spec in AUX_METRICS:
-            val = metrics.get(spec.key)
-            if val is None:
-                print(f"  {spec.display_name}: (no data)")
-            else:
-                print(f"  {spec.display_name}: {val:.4f}")
-
-    print()
-    diag = get_diagnosis(metrics)
-    print(f"VERDICT: {diag.status}")
-    print(f"DIAGNOSIS: {diag.diagnosis}")
-
-    return diag.exit_code
+    return 0
 
 
 def cmd_runs(args):
@@ -1101,10 +1035,10 @@ def cmd_runs(args):
         print("No runs directory found")
         return 0
 
-    runs = sorted([
-        d for d in LOG_DIR.iterdir()
-        if d.is_dir() and RUN_DIR_PATTERN.match(d.name)
-    ])
+    runs = sorted(
+        [d for d in LOG_DIR.iterdir() if d.is_dir() and RUN_DIR_PATTERN.match(d.name)],
+        key=lambda d: d.stat().st_mtime,
+    )
 
     if not runs:
         print("No runs found")
@@ -1123,13 +1057,14 @@ def cmd_runs(args):
         manifest = load_manifest(run) if show_hypothesis else None
 
         metrics = get_metrics(run)
-        if metrics.get('episode_length'):
-            diag = get_diagnosis(metrics)
+        if has_metric_data(metrics):
             ep_len = metrics.get('episode_length', 0)
-            vx = metrics.get('vx_w_mean', 0)
+            reward = metrics.get('reward_total', 0)
+            gait = metrics.get('gait')
 
             alias_str = f" ({alias})" if alias else ""
-            print(f"  {run.name}{alias_str}  {diag.status:12s}  ep={ep_len:.0f}  vx={vx:.3f}")
+            gait_str = f"  gait={gait:.1f}" if gait is not None else ""
+            print(f"  {run.name}{alias_str}  reward={reward:.0f}  ep={ep_len:.0f}{gait_str}")
 
             if show_hypothesis and manifest and manifest.get('hypothesis'):
                 print(f"    -> {manifest['hypothesis'][:60]}...")
@@ -1214,12 +1149,12 @@ def cmd_compare(args):
         print(row)
     print()
 
-    # Verdicts
-    print("VERDICT:")
+    # Rewards
+    print("REWARD:")
     for e in experiments:
         label = e['manifest'].get('alias') or e['id']
-        verdict = e['manifest'].get('summary', {}).get('verdict', 'UNKNOWN')
-        print(f"  {label}: {verdict}")
+        reward = e['manifest'].get('summary', {}).get('final', {}).get('reward_total', '?')
+        print(f"  {label}: {reward}")
 
     return 0
 
@@ -1349,6 +1284,240 @@ def cmd_snapshot_config(args):
     return 0
 
 
+def find_best_checkpoint(run_path: Path) -> Path | None:
+    """Find the best checkpoint in a run directory.
+
+    Priority: best_agent.pt > highest-numbered agent_*.pt.
+    """
+    ckpt_dir = run_path / "checkpoints"
+    if not ckpt_dir.exists():
+        return None
+    best = ckpt_dir / "best_agent.pt"
+    if best.exists():
+        return best
+    numbered = sorted(ckpt_dir.glob("agent_*.pt"))
+    return numbered[-1] if numbered else None
+
+
+def build_record_command(
+    run_path: Path,
+    task_id: str,
+    checkpoint: Path,
+    video_length: int,
+) -> list[str]:
+    """Build command to invoke record.py for post-hoc video recording."""
+    output_dir = run_path / "videos" / "record"
+    return [
+        str(ISAACLAB_PYTHON), str(PROJECT_ROOT / 'harold_isaac_lab' / 'scripts' / 'skrl' / 'record.py'),
+        f'--task={task_id}',
+        '--checkpoint', str(checkpoint),
+        '--output_dir', str(output_dir),
+        '--video_length', str(video_length),
+    ]
+
+
+def cmd_record(args):
+    """Record multi-camera video from a trained checkpoint."""
+    run_path = resolve_experiment(args.run) if args.run else get_latest_run()
+    if not run_path or not run_path.exists():
+        print("ERROR: No run found")
+        return 1
+
+    manifest = get_or_create_manifest(run_path)
+    tc = manifest.get('training_config', {})
+    task_key = tc.get('task', manifest.get('task', DEFAULT_TASK))
+    task_id = TASK_IDS.get(task_key, TASK_IDS[DEFAULT_TASK])
+
+    # find checkpoint
+    if args.checkpoint:
+        checkpoint = Path(args.checkpoint)
+        if not checkpoint.exists():
+            print(f"ERROR: Checkpoint not found: {checkpoint}")
+            return 1
+    else:
+        checkpoint = find_best_checkpoint(run_path)
+        if not checkpoint:
+            print(f"ERROR: No checkpoint found in {run_path / 'checkpoints'}")
+            return 1
+
+    video_length = args.video_length or TRAINING_DEFAULTS['video_length']
+    print(f"Recording video from {manifest.get('alias', run_path.name)}")
+    print(f"  Checkpoint: {checkpoint.name}")
+    print(f"  Video length: {video_length} steps")
+
+    cmd = build_record_command(run_path, task_id, checkpoint, video_length)
+    result = subprocess.run(cmd, capture_output=False)
+    if result.returncode != 0:
+        print("ERROR: Video recording failed")
+        return 1
+
+    # verify output
+    video_dir = run_path / "videos" / "record"
+    cam_names = ["side", "front", "top", "iso", "main"]
+    found = [c for c in cam_names if list(video_dir.glob(f"rl-video-step-0-{c}.mp4"))]
+    if found:
+        print(f"  Recorded {len(found)} camera views: {', '.join(found)}")
+        for cam in found:
+            vids = sorted(video_dir.glob(f"rl-video-step-0-{cam}.mp4"))
+            if vids:
+                print(f"    {vids[0].name}")
+    else:
+        print("WARNING: No video files found after recording")
+        return 1
+
+    return 0
+
+
+def _extract_step_number(filename: str) -> int:
+    """Extract the step number from a video filename like 'rl-video-step-3200-side.mp4'."""
+    m = re.search(r'rl-video-step-(\d+)', filename)
+    return int(m.group(1)) if m else -1
+
+
+def _extract_frames_from_video(video: Path, out_dir: Path, fps: int) -> list:
+    """Run ffmpeg to extract frames from a single video. Returns list of frame paths."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", str(video), "-vf", f"fps={fps}", "-q:v", "2",
+         str(out_dir / "frame_%04d.jpg")],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        print(f"WARNING: ffmpeg failed for {video.name}: {result.stderr[-200:]}")
+        return []
+    return sorted(out_dir.glob("frame_*.jpg"))
+
+
+def cmd_frames(args):
+    """Extract frames from the latest training video(s) for analysis.
+
+    Supports both multi-camera videos (rl-video-step-N-{side,front,top,iso}.mp4)
+    and legacy single-camera videos (rl-video-step-N.mp4).
+    """
+    run_path = resolve_experiment(args.run) if args.run else get_latest_run()
+    if not run_path or not run_path.exists():
+        print("ERROR: No run found")
+        return 1
+
+    # Check record/ first (post-hoc recordings), fall back to train/ (legacy training-time videos)
+    video_dir = run_path / "videos" / "record"
+    if not video_dir.exists():
+        video_dir = run_path / "videos" / "train"
+    if not video_dir.exists():
+        print(f"ERROR: No videos directory found in {run_path / 'videos'}")
+        return 1
+
+    fps = args.fps or 2
+    out_dir = Path("/tmp/harold_review_frames")
+
+    # Clean and recreate output directory
+    if out_dir.exists():
+        import shutil
+        shutil.rmtree(out_dir)
+    out_dir.mkdir(parents=True)
+
+    manifest = get_or_create_manifest(run_path)
+    cam_names = ["side", "front", "top", "iso", "main"]
+
+    # Detect multi-camera videos (look for side camera as sentinel)
+    multi_cam_videos = sorted(video_dir.glob("rl-video-step-*-side.mp4"),
+                              key=lambda p: _extract_step_number(p.name))
+    if multi_cam_videos:
+        # Multi-camera mode
+        latest = multi_cam_videos[-1]
+        step = _extract_step_number(latest.name)
+
+        cameras = {}
+        total_frames = 0
+        for cam in cam_names:
+            video = video_dir / f"rl-video-step-{step}-{cam}.mp4"
+            if not video.exists():
+                continue
+            cam_dir = out_dir / cam
+            frames = _extract_frames_from_video(video, cam_dir, fps)
+            cameras[cam] = {
+                "video": str(video),
+                "video_name": video.name,
+                "num_frames": len(frames),
+                "frame_dir": str(cam_dir),
+                "frames": [str(f) for f in frames],
+            }
+            total_frames += len(frames)
+
+        output = {
+            "run_name": run_path.name,
+            "alias": manifest.get("alias", ""),
+            "hypothesis": manifest.get("hypothesis", ""),
+            "step": step,
+            "fps": fps,
+            "multi_camera": True,
+            "cameras": cameras,
+            "frame_dir": str(out_dir),
+        }
+
+        if args.json:
+            print(json.dumps(output, indent=2))
+        else:
+            print(f"Extracted frames at {fps}fps from step {step} ({len(cameras)} cameras)")
+            for cam, info in cameras.items():
+                print(f"  {cam}: {info['num_frames']} frames → {info['frame_dir']}/frame_*.jpg")
+            print(f"  Run: {run_path.name} ({manifest.get('alias', '')})")
+    else:
+        # Legacy single-video mode
+        videos = sorted(video_dir.glob("rl-video-step-*.mp4"),
+                        key=lambda p: _extract_step_number(p.name))
+        if not videos:
+            print("ERROR: No training videos found")
+            return 1
+
+        video = videos[-1]
+        frames = _extract_frames_from_video(video, out_dir, fps)
+        if not frames:
+            return 1
+
+        output = {
+            "run_name": run_path.name,
+            "alias": manifest.get("alias", ""),
+            "hypothesis": manifest.get("hypothesis", ""),
+            "video": str(video),
+            "video_name": video.name,
+            "step": _extract_step_number(video.name),
+            "fps": fps,
+            "multi_camera": False,
+            "num_frames": len(frames),
+            "frame_dir": str(out_dir),
+            "frames": [str(f) for f in frames],
+        }
+
+        if args.json:
+            print(json.dumps(output, indent=2))
+        else:
+            print(f"Extracted {len(frames)} frames at {fps}fps from {video.name}")
+            print(f"  Run: {run_path.name} ({manifest.get('alias', '')})")
+            print(f"  Frames: {out_dir}/frame_*.jpg")
+
+    return 0
+
+
+def cmd_log(args):
+    """Show training log output for debugging."""
+    if not LOG_FILE.exists():
+        print("No training log found")
+        return 1
+
+    lines = LOG_FILE.read_text().splitlines()
+
+    if args.grep:
+        lines = [l for l in lines if re.search(args.grep, l, re.IGNORECASE)]
+
+    tail_n = args.tail or 20
+    lines = lines[-tail_n:]
+
+    for line in lines:
+        print(line)
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Harold Training CLI - Unified observability tool',
@@ -1360,15 +1529,18 @@ def main():
     # train
     train_parser = subparsers.add_parser('train', help='Start training in background')
     train_parser.add_argument('--task', choices=sorted(TASK_IDS.keys()), default=DEFAULT_TASK, help='Task to train (default: flat)')
-    train_parser.add_argument('--duration', choices=sorted(DURATION_PRESETS.keys()), help='Duration preset: short (~30m), standard (~60m), long (~100m) (default: short)')
+    train_parser.add_argument('--duration', choices=sorted(DURATION_PRESETS.keys()), help='Duration preset: fast (~15m), short (~30m), standard (~60m), long (~100m) (default: short)')
     train_parser.add_argument('--iterations', type=int, help='Max iterations (advanced override)')
     train_parser.add_argument('--checkpoint', type=str, help='Resume from checkpoint')
     train_parser.add_argument('--hypothesis', type=str, help='Hypothesis being tested (stored with experiment)')
     train_parser.add_argument('--tags', type=str, help='Comma-separated tags for categorization')
     train_parser.add_argument('--no-watchdog', action='store_true', help='Disable memory watchdog (not recommended)')
-    train_parser.add_argument('--num-envs', type=int, default=None, help='Number of environments (advanced override; default: 8192, pushup: 1)')
+    train_parser.add_argument('--num-envs', type=int, default=None, help='Number of environments (advanced override; default: 4096, harold_mgr: 2048, pushup: 1)')
     train_parser.add_argument('--mode', choices=MODE_CHOICES, default='rl', help='Control mode: rl, cpg (open-loop), scripted (default: rl)')
     train_parser.add_argument('--gait-scale', type=float, help='Scale scripted/CPG gait amplitude (diagnostic)')
+    train_parser.add_argument('--video', action='store_true', help='Record video during training (inline, not post-hoc)')
+    train_parser.add_argument('--video-interval', type=int, default=2000, help='Steps between video recordings (default: 2000)')
+    train_parser.add_argument('--video-length', type=int, default=None, help='Video clip length in steps (default: 250)')
 
     # status
     status_parser = subparsers.add_parser('status', help='Check training status and metrics')
@@ -1398,6 +1570,23 @@ def main():
     # ps
     ps_parser = subparsers.add_parser('ps', help='List all training processes (including orphans)')
 
+    # frames
+    frames_parser = subparsers.add_parser('frames', help='Extract frames from latest training video for review')
+    frames_parser.add_argument('run', nargs='?', help='Run name or alias (default: latest)')
+    frames_parser.add_argument('--fps', type=int, default=2, help='Frame rate for extraction (default: 2)')
+    frames_parser.add_argument('--json', action='store_true', help='Output as JSON')
+
+    # log
+    log_parser = subparsers.add_parser('log', help='Show training log output (for debugging)')
+    log_parser.add_argument('--grep', type=str, help='Filter log lines by pattern')
+    log_parser.add_argument('--tail', type=int, help='Number of lines to show (default: 20)')
+
+    # record
+    record_parser = subparsers.add_parser('record', help='Record multi-camera video from trained checkpoint')
+    record_parser.add_argument('run', nargs='?', help='Run name or alias (default: latest)')
+    record_parser.add_argument('--checkpoint', type=str, help='Path to checkpoint (default: best in run)')
+    record_parser.add_argument('--video-length', type=int, help='Steps to record (default: 250)')
+
     # snapshot-config
     subparsers.add_parser('snapshot-config', help='Dump current training config as JSON (for autoresearch)')
 
@@ -1419,6 +1608,12 @@ def main():
         return cmd_stop(args)
     elif args.command == 'ps':
         return cmd_ps(args)
+    elif args.command == 'record':
+        return cmd_record(args)
+    elif args.command == 'frames':
+        return cmd_frames(args)
+    elif args.command == 'log':
+        return cmd_log(args)
     elif args.command == 'snapshot-config':
         return cmd_snapshot_config(args)
     else:

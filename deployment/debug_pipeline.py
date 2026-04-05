@@ -79,26 +79,25 @@ cpg_targets = cpg.compute(t)
 phase_sin, phase_cos = cpg.get_phase_sin_cos()
 obs = obs_builder.build(t, phase_sin, phase_cos)
 
-print("\n2. OBSERVATION (50D):")
+print("\n2. OBSERVATION (48D):")
 print(f"   [0:3] lin_vel:     {obs[0:3]}")
 print(f"   [3:6] ang_vel:     {obs[3:6]}")
 print(f"   [6:9] gravity:     {obs[6:9]}")
-print(f"   [9:21] joint_pos_rel (RL convention):")
-print(f"      Shoulders: {obs[9:13]}")
-print(f"      Thighs:    {obs[13:17]}")
-print(f"      Calves:    {obs[17:21]}")
-print(f"   [21:33] joint_vel: {obs[21:33]}")
-print(f"   [33:36] commands:  {obs[33:36]}")
-print(f"   [36:48] prev_act:  {obs[36:48]}")
-print(f"   [48:50] phase:     {obs[48:50]}")
+print(f"   [9:12] commands:   {obs[9:12]}")
+print(f"   [12:24] joint_pos_rel (RL convention):")
+print(f"      Shoulders: {obs[12:16]}")
+print(f"      Thighs:    {obs[16:20]}")
+print(f"      Calves:    {obs[20:24]}")
+print(f"   [24:36] joint_vel: {obs[24:36]}")
+print(f"   [36:48] last_act:  {obs[36:48]}")
 
 # Step 3: Normalize observation
 obs_norm = normalize_observation(obs, running_mean, running_var)
 
 print("\n3. NORMALIZED OBSERVATION:")
-print(f"   [9:21] joint_pos_rel normalized:")
+print(f"   [12:24] joint_pos_rel normalized:")
 for i in range(12):
-    idx = 9 + i
+    idx = 12 + i
     clip_warn = " *** CLIPS!" if abs(obs_norm[idx]) > 4.5 else ""
     print(f"      [{i:2d}] raw={obs[idx]:+.3f} mean={running_mean[idx]:+.3f} std={std[idx]:.3f} -> norm={obs_norm[idx]:+6.2f}{clip_warn}")
 

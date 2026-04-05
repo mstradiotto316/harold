@@ -4,22 +4,32 @@ This file is a technical reference for the Isaac Lab simulation setup. Use `AGEN
 
 ## Task variants and Gym IDs
 
+### Manager-based (RECOMMENDED)
+
+- Task lives under `harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/manager_based/harold_flat/`.
+- Gym ID: `Harold-Velocity-Flat-v0`
+- Uses `ManagerBasedRLEnv` architecture — produces walking (EXP-785 baseline, gait=9.76/10).
+- CLI key: `harold_mgr` (default task).
+
+### Direct-env (DEPRECATED)
+
 - Tasks live under `harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/`.
-- Variants:
-  - `harold_flat` (flat terrain RL training)
-  - `harold_rough` (rough/curriculum terrain RL training)
-  - `harold_pushup` (scripted push-up playback, no RL)
-- Gym IDs are registered on import (see `harold_isaac_lab/__init__.py`):
-  - `Template-Harold-Direct-flat-terrain-v0`
-  - `Template-Harold-Direct-rough-terrain-v0`
-  - `Template-Harold-Direct-pushup-v0`
+- Variants: `harold_flat`, `harold_rough`, `harold_pushup`, `sim_flat_v1`, `sim_flat_v2`
+- Gym IDs: `Template-Harold-Direct-flat-terrain-v0`, `Template-Harold-Direct-rough-terrain-v0`, `Template-Harold-Direct-pushup-v0`
+- These tasks have an unresolved standing trap bug and do not produce walking. Kept for historical reference.
 
 ## Key files
 
-- Flat task config: `harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_flat/harold_isaac_lab_env_cfg.py`
-- Rough task config: `harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_rough/harold_isaac_lab_env_cfg.py`
-- Pushup task config: `harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/harold_pushup/harold_isaac_lab_env_cfg.py`
-- Robot asset definitions: `harold_isaac_lab/source/harold_isaac_lab/harold_isaac_lab/tasks/direct/*/harold.py`
+### Manager-based (primary)
+- Flat env config (rewards, commands, events): `.../tasks/manager_based/harold_flat/flat_env_cfg.py`
+- Robot asset definition: `.../tasks/manager_based/harold_flat/harold.py`
+- PPO hyperparameters: `.../tasks/manager_based/harold_flat/agents/skrl_ppo_cfg.yaml`
+
+### Direct-env (legacy)
+- Flat task config: `.../tasks/direct/harold_flat/harold_isaac_lab_env_cfg.py`
+- Reward computation: `.../tasks/direct/harold_flat/train_env.py`
+
+### Shared
 - USD asset: `part_files/V4/harold_8.usd`
 
 ## Robot assets and actuators
@@ -44,10 +54,10 @@ This file is a technical reference for the Isaac Lab simulation setup. Use `AGEN
 
 ## Environment basics
 
-- Environments inherit from `DirectRLEnv`.
-- Control rate, simulation rate, and decimation are defined in each `*_env_cfg.py`.
-- Observation contents include root velocities, projected gravity, joint positions/velocities, command inputs, and previous targets. Observation size varies by mode (RL vs CPG/scripted).
-- Actions are joint position targets around the default pose; scaling and clamps are defined in the env config.
+- Manager-based environments use `ManagerBasedRLEnv` (recommended). Direct-env tasks use `DirectRLEnv` (deprecated).
+- Control rate, simulation rate, and decimation are defined in the env config. Manager-based: 500Hz physics, 50Hz control (dt=0.002, decimation=10).
+- Observation contents include root velocities, projected gravity, joint positions/velocities, command inputs, and previous targets. Observation size: 48D.
+- Actions are joint position targets around the default pose; scaling is defined in the env config (action_scale=0.2 for manager-based).
 - Sensors (contact, height scanning) are configured in the env config.
 
 ## Terrain

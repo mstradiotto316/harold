@@ -72,7 +72,8 @@ HAROLD_V4_CFG = ArticulationCfg(
     ),
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.20),
-        rot=(1.0, 0.0, 0.0, 0.0), 
+        # Identity quaternion — no rotation. Isaac Lab uses (w, x, y, z) format.
+        rot=(1.0, 0.0, 0.0, 0.0),
         joint_pos=load_ready_pose_dict()
     ),
 

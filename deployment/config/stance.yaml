@@ -25,14 +25,15 @@ hw_default_pose:
   thighs: 0.65
   calves: -1.13
 
-# RL convention: simulation default pose (matches ready stance).
+# RL convention: simulation default pose (Spot-matched ready stance).
+# Shoulders splay left/right like Spot HX. Front/hind thighs differ like Spot HY.
 rl_default_pose:
-  shoulder_fl: 0.0
-  shoulder_fr: 0.0
-  shoulder_bl: 0.0
-  shoulder_br: 0.0
-  thighs: 0.65
-  calves: -1.13
+  shoulder_fl: 0.1
+  shoulder_fr: -0.1
+  shoulder_bl: 0.1
+  shoulder_br: -0.1
+  thighs: [0.9, 0.9, 1.1, 1.1]
+  calves: -1.5
 
 notes:
   - Canonical ready stance for hardware and simulation (aka athletic/crouched in older notes).

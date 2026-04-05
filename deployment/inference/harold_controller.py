@@ -203,7 +203,8 @@ class HaroldController:
         self.running_mean = np.array(metadata["running_mean"], dtype=np.float32)
         self.running_var = np.array(metadata["running_variance"], dtype=np.float32)
         obs_dim = len(self.running_mean)
-        print(f"Loaded normalization stats (dim={obs_dim})")
+        is_normalized = metadata.get("normalized", True)
+        print(f"Loaded policy metadata (dim={obs_dim}, normalized={is_normalized})")
         if obs_dim != ObservationBuilder.OBS_DIM:
             print(
                 "ERROR: Policy observation dimension mismatch. "
@@ -212,13 +213,12 @@ class HaroldController:
             )
             return False
 
-        # NOTE: The ONNX model (harold_policy.onnx) already includes normalization!
-        # The export script wraps the policy with NormalizedPolicy which applies
-        # running stats normalization internally. We keep running_mean/var for:
-        # 1. Initializing prev_targets to training mean values
-        # 2. Joint position blending during warmup
-        # We do NOT use them for normalizing observations before ONNX inference.
-        # See: policy/export_policy.py - NormalizedPolicy class
+        # When normalized=True: ONNX includes NormalizedPolicy wrapper that
+        # normalizes internally. We feed raw observations.
+        # When normalized=False: ONNX takes raw observations directly (no
+        # state_preprocessor in training). We also feed raw observations.
+        # Either way, the controller feeds raw observations to ONNX.
+        # running_mean/var are kept for prev_action initialization only.
 
         # Load ONNX policy
         if not self.policy_path.exists():
@@ -256,12 +256,12 @@ class HaroldController:
         print("  IMU connected")
 
         # Initialize observation builder
-        obs_config = ObservationConfig.from_yaml(cpg_config_path)
+        obs_config = ObservationConfig.from_yaml(cpg_config_path, hw_config_path, metadata=metadata)
         self.obs_builder = ObservationBuilder(self.imu, self.esp32, obs_config)
         print("Observation builder initialized")
 
         # Initialize action converter
-        action_config = ActionConfig.from_yaml(cpg_config_path, hw_config_path)
+        action_config = ActionConfig.from_yaml(cpg_config_path, hw_config_path, metadata=metadata)
         self.action_conv = ActionConverter(action_config)
         print("Action converter initialized")
 
@@ -329,8 +329,8 @@ class HaroldController:
 
         # Reset components
         if mode == "policy":
-            prev_targets_init = self.running_mean[36:48].copy()
-            self.obs_builder.reset(prev_targets_init=prev_targets_init)
+            prev_action_init = self.running_mean[36:48].copy()
+            self.obs_builder.reset(prev_action_init=prev_action_init)
         self.action_conv.reset()
 
         try:
@@ -358,15 +358,9 @@ class HaroldController:
                     action = outputs[0][0]  # [12]
                     rl_targets, hw_targets = self.action_conv.compute_policy_targets(action)
 
-                    # Update prev_target_delta for next obs
-                    hw_default_pose = self.action_conv.get_hw_default_pose()
-                    prev_targets_training_mean = self.running_mean[36:48]
-                    self.obs_builder.update_prev_target_delta(
-                        rl_targets, hw_default_pose,
-                        training_mean=prev_targets_training_mean,
-                        blend_factor=0.1,
-                    )
-                    command_vx, command_vy, command_yaw = obs[33], obs[34], obs[35]
+                    # Store raw policy output for next obs [36:48]
+                    self.obs_builder.update_prev_action(action)
+                    command_vx, command_vy, command_yaw = obs[9], obs[10], obs[11]
                     cpg_phase = 0.0
 
                 # Send HW targets to ESP32

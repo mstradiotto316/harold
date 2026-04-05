@@ -31,7 +31,9 @@ joint_range:
 
 # Joint sign for convention conversion (RL <-> Hardware)
 # Multiply relative positions by this to convert: rl_rel = hw_rel * joint_sign
+# Shoulders are NOT mirrored here; right-side servo mounting is already handled
+# by the firmware/hardware direction tables.
 joint_sign:
-  shoulders: [1.0, -1.0, 1.0, -1.0]  # FL, FR, BL, BR (mirror right side)
+  shoulders: 1.0
   thighs: -1.0           # Inverted
   calves: -1.0           # Inverted

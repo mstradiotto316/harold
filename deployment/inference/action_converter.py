@@ -6,6 +6,7 @@ Converts policy output to servo commands:
     3. Apply safety limits (if enabled)
 """
 import math
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -13,31 +14,17 @@ from typing import Optional
 import numpy as np
 import yaml
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from common.policy_config import (
+    DEFAULT_ACTION_SCALE,
+    JOINT_RANGE_BY_CATEGORY,
+    JOINT_SIGN,
+    resolve_deployment_joint_sign,
+)
 from inference.stance import load_hw_default_pose, load_rl_default_pose
-
-def _expand_joint_sign(js: dict) -> np.ndarray:
-    """Expand joint_sign config into a 12D array (shoulders, thighs, calves)."""
-    if not isinstance(js, dict):
-        js = {}
-
-    shoulders = js.get("shoulders", 1.0)
-    if isinstance(shoulders, (list, tuple)) and len(shoulders) == 4:
-        shoulder_vals = list(shoulders)
-    else:
-        shoulder_vals = [
-            js.get("shoulder_fl", shoulders),
-            js.get("shoulder_fr", shoulders),
-            js.get("shoulder_bl", shoulders),
-            js.get("shoulder_br", shoulders),
-        ]
-
-    thigh_val = js.get("thighs", -1.0)
-    calf_val = js.get("calves", -1.0)
-
-    return np.array(
-        shoulder_vals + [thigh_val] * 4 + [calf_val] * 4,
-        dtype=np.float32,
-    )
 
 
 @dataclass
@@ -55,16 +42,20 @@ class ActionConfig:
     # Joint sign correction (RL <-> hardware)
     joint_sign: np.ndarray = None
 
+    # Training-time action scale.
+    action_scale: float = DEFAULT_ACTION_SCALE
+
+    # Effective per-joint action scale (12D array).
+    # When set (from schema_version >= 3 metadata), this is used instead of
+    # action_scale * joint_range, matching training exactly.
+    effective_action_scale: np.ndarray = None
+
     # Safe joint limits (degrees, in hardware convention)
     safe_limits_deg: dict = None
 
     def __post_init__(self):
         if self.joint_range is None:
-            self.joint_range = {
-                "shoulder": 0.30,
-                "thigh": 0.90,
-                "calf": 0.90,
-            }
+            self.joint_range = dict(JOINT_RANGE_BY_CATEGORY)
 
         if self.hw_default_pose is None:
             # Hardware convention - ready stance (from config/stance.yaml)
@@ -76,11 +67,7 @@ class ActionConfig:
 
         if self.joint_sign is None:
             # Sign conversion: hw = hw_default + (rl - rl_default) * joint_sign
-            self.joint_sign = np.array([
-                1.0, 1.0, 1.0, 1.0,       # Shoulders (same)
-                -1.0, -1.0, -1.0, -1.0,   # Thighs (inverted)
-                -1.0, -1.0, -1.0, -1.0,   # Calves (inverted)
-            ], dtype=np.float32)
+            self.joint_sign = np.array(JOINT_SIGN, dtype=np.float32)
 
         if self.safe_limits_deg is None:
             self.safe_limits_deg = {
@@ -90,19 +77,20 @@ class ActionConfig:
             }
 
     @classmethod
-    def from_yaml(cls, cpg_path: Path, hw_path: Path) -> "ActionConfig":
+    def from_yaml(cls, cpg_path: Path, hw_path: Path, metadata: dict | None = None) -> "ActionConfig":
         """Load config from YAML files."""
         with open(cpg_path) as f:
             cpg_data = yaml.safe_load(f)
         with open(hw_path) as f:
             hw_data = yaml.safe_load(f)
+        metadata = metadata or {}
 
         # Get joint ranges from CPG config
-        jr = cpg_data.get("joint_range", {})
+        jr = metadata.get("joint_range", cpg_data.get("joint_range", {}))
         joint_range = {
-            "shoulder": jr.get("shoulder", 0.30),
-            "thigh": jr.get("thigh", 0.90),
-            "calf": jr.get("calf", 0.90),
+            "shoulder": jr.get("shoulder", JOINT_RANGE_BY_CATEGORY["shoulder"]),
+            "thigh": jr.get("thigh", JOINT_RANGE_BY_CATEGORY["thigh"]),
+            "calf": jr.get("calf", JOINT_RANGE_BY_CATEGORY["calf"]),
         }
 
         # Get safe limits from hardware config
@@ -120,8 +108,17 @@ class ActionConfig:
         # Get RL default pose (ready stance, from config/stance.yaml)
         rl_default_pose = load_rl_default_pose(cpg_path)
 
-        # Get joint sign from CPG config (supports per-shoulder overrides)
-        joint_sign = _expand_joint_sign(cpg_data.get("joint_sign", {}))
+        # Joint sign comes from the hardware-facing deployment convention.
+        joint_sign = np.array(
+            resolve_deployment_joint_sign(metadata=metadata, hardware_path=hw_path),
+            dtype=np.float32,
+        )
+
+        # Load effective per-joint action scale if present (schema_version >= 3)
+        effective_action_scale = None
+        eas = metadata.get("effective_action_scale")
+        if isinstance(eas, (list, tuple)) and len(eas) == 12:
+            effective_action_scale = np.array(eas, dtype=np.float32)
 
         return cls(
             joint_range=joint_range,
@@ -129,6 +126,8 @@ class ActionConfig:
             rl_default_pose=rl_default_pose,
             joint_sign=joint_sign,
             safe_limits_deg=safe_limits_deg,
+            action_scale=float(metadata.get("action_scale", DEFAULT_ACTION_SCALE)),
+            effective_action_scale=effective_action_scale,
         )
 
 
@@ -156,14 +155,21 @@ class ActionConverter:
         for cat, (lo, hi) in self.cfg.safe_limits_deg.items():
             self._limits_rad[cat] = (math.radians(lo), math.radians(hi))
 
-        # Pre-compute joint ranges array
+        # Pre-compute joint ranges array (legacy fallback)
         self._joint_ranges = np.array([
             self.cfg.joint_range[JOINT_CATEGORIES[i]] for i in range(12)
         ], dtype=np.float32)
 
-        # Action smoothing (EMA filter)
+        # Effective per-joint action scale.
+        # When set from metadata (schema_version >= 3), this is the exact per-joint
+        # scale used during training: target = default + action * effective_scale.
+        # This eliminates the action_scale * joint_range mismatch between training
+        # architectures (manager-based uses uniform scale, direct-env uses per-joint).
+        self._effective_action_scale: Optional[np.ndarray] = self.cfg.effective_action_scale
+
+        # Action smoothing (EMA filter) — must match training (flat_env_cfg.py EMAJointPositionActionCfg)
         self._smooth_action: Optional[np.ndarray] = None
-        self._action_beta = 0.18  # Filter coefficient
+        self._action_beta = 0.2  # Filter coefficient (aligned with training ema_beta=0.2)
 
     def compute_policy_targets(
         self,
@@ -192,9 +198,14 @@ class ActionConverter:
                 self._action_beta * action
             )
 
-        # targets = rl_default + action * action_scale * joint_range
-        action_scale = 0.5  # Standard action scale
-        scaled = self._smooth_action * action_scale * self._joint_ranges
+        # Compute targets using the effective per-joint scale.
+        # When effective_action_scale is set (schema >= 3), it exactly matches
+        # training: target = default + action * effective_scale.
+        # Otherwise, fall back to legacy: action_scale * joint_range per category.
+        if self._effective_action_scale is not None:
+            scaled = self._smooth_action * self._effective_action_scale
+        else:
+            scaled = self._smooth_action * self.cfg.action_scale * self._joint_ranges
         rl_targets = self.cfg.rl_default_pose + scaled
 
         # Convert from RL convention to hardware convention

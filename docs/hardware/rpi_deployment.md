@@ -81,6 +81,13 @@ Paths below are relative to the deployment root (typically `<repo-root>/deployme
 
 Note: `policy/policy_metadata.json` captures training-time defaults; do not edit it for stance changes.
 
+### Joint Sign Convention
+
+- High-level shoulder semantics are the same on all four legs. Do not mirror FR/BR shoulders in policy space.
+- Thigh and calf joints are sign-inverted between RL convention and hardware convention.
+- Right-side servo mounting is handled separately by `config/hardware.yaml` `direction` values and the ESP32 firmware `DIR_TABLE`.
+- Controller startup treats `config/hardware.yaml` as the source of truth and rejects exported metadata whose `joint_sign` disagrees with it.
+
 ## Testing
 
 ```bash

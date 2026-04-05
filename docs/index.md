@@ -2,6 +2,12 @@
 
 This repository uses AGENTS.md as the primary agent quickstart. Use the role-based sections below to find detailed references under `docs/`.
 
+## Environment Rules
+
+- Desktop simulation and training use `/home/matteo/Desktop/env_isaaclab`.
+- Raspberry Pi deployment uses system `python3` without a virtualenv.
+- A plain activated desktop shell is not enough for simulator-backed imports such as `omni.*`; use `python scripts/harold.py ...` or Isaac Lab app entrypoints when those modules are involved.
+
 ## Desktop Isaac Lab experiments (training/analysis)
 
 - `AGENTS.md` - Primary agent workflow and CLI usage.
@@ -37,8 +43,7 @@ This repository uses AGENTS.md as the primary agent quickstart. Use the role-bas
 
 ## Autoresearch (Autonomous Experimentation)
 
-- `docs/autoresearch/AGENT_PROTOCOL.md` - Step-by-step agent loop for autonomous experiment sessions.
-- `docs/autoresearch/strategy.md` - Human-edited research goals and constraints.
+- `docs/autoresearch/program.md` - Lab policy: experiment loop, decision rules, video review protocol.
 - `docs/autoresearch/PARAMETER_REGISTRY.md` - Tunable vs frozen parameters with safe ranges.
 - `scripts/autoresearch.py` - Helper functions (apply/revert/score/log).
 

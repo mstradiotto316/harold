@@ -71,8 +71,10 @@ HAROLD_V4_CFG = ArticulationCfg(
         )
     ),
     init_state=ArticulationCfg.InitialStateCfg(
-        # Spawn height slightly above target standing height
-        pos=(0.0, 0.0, 0.30),
+        # Spawn height slightly above settled standing height for Spot-matched pose.
+        # Deeper crouch (thighs 0.9/1.1, calves -1.5) stands ~0.15m; spawn above to avoid ground clipping.
+        pos=(0.0, 0.0, 0.20),
+        # Identity quaternion — no rotation. Isaac Lab uses (w, x, y, z) format.
         rot=(1.0, 0.0, 0.0, 0.0),
         joint_pos=load_ready_pose_dict()
     ),

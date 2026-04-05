@@ -3,6 +3,7 @@ import sys
 import os
 import json
 from pathlib import Path
+import numpy as np
 import torch
 from isaaclab.assets import Articulation
 from isaaclab.envs import DirectRLEnv
@@ -14,8 +15,9 @@ from .harold_isaac_lab_env_cfg import HaroldIsaacLabEnvCfg
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.math import quat_from_angle_axis, sample_uniform
-from isaaclab.utils.noise import gaussian_noise, uniform_noise
+from isaaclab.utils.noise import gaussian_noise
 from harold_isaac_lab.common.stance import load_rl_default_pose
+from . import train_env
 
 _REPO_ROOT = None
 for _parent in Path(__file__).resolve().parents:
@@ -30,6 +32,7 @@ if _REPO_ROOT and str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from common import cpg_math
+from common.env_state import reset_policy_state_buffers
 
 _CPG_OPS = cpg_math.torch_ops(torch)
 
@@ -49,7 +52,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         - Contact-based termination and gait analysis
         - Real-time visualization with velocity command/actual arrows
         - 48-dimensional observation space including robot state, commands, and terrain info
-        - Physics simulation at 360Hz with 20Hz policy updates (18:1 decimation)
+        - Physics simulation at 180Hz with 20Hz policy updates (9:1 decimation)
     
     State Spaces:
         - Observation: 48D vector [root_vel(6) + gravity(3) + joint_pos(12) + joint_vel(12) + commands(3) + actions(12)]
@@ -236,6 +239,23 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             self._feet_ids = torch.tensor(self._feet_ids, device=self.device, dtype=torch.long)
         self._front_foot_slots = torch.tensor((0, 1), device=self.device, dtype=torch.long)
         self._rear_foot_slots = torch.tensor((2, 3), device=self.device, dtype=torch.long)
+
+        # Separate articulation body IDs for body_lin_vel_w indexing (BUG-1 fix).
+        # _feet_ids is for contact sensor data; _feet_body_ids is for articulation data.
+        artic_feet_ids, artic_foot_names = self._robot.find_bodies(".*calf")
+        artic_names_lower = [str(name).lower() for name in artic_foot_names]
+        artic_reorder: list[int] = []
+        for expected in desired_order:
+            matches = [i for i, name in enumerate(artic_names_lower) if expected in name]
+            if len(matches) != 1:
+                raise RuntimeError(
+                    f"Expected exactly one '{expected}' calf in articulation body results, found {matches} from {artic_foot_names}."
+                )
+            artic_reorder.append(matches[0])
+        if isinstance(artic_feet_ids, torch.Tensor):
+            self._feet_body_ids = artic_feet_ids.index_select(0, torch.tensor(artic_reorder, device=artic_feet_ids.device, dtype=torch.long))
+        else:
+            self._feet_body_ids = torch.tensor([artic_feet_ids[i] for i in artic_reorder], device=self.device, dtype=torch.long)
         
         # Get undesired contact bodies (body, thighs, shoulders should not touch ground)
         self._undesired_contact_body_ids, _ = self._contact_sensor.find_bodies(".*(body|thigh|shoulder)")
@@ -322,15 +342,21 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._reward_keys = [
             "track_lin_vel_xy",
             "track_ang_vel_z",
-            "lin_vel_z",
-            "ang_vel_xy",
+            "base_orientation_penalty",
+            "base_motion_penalty",
+            "action_smoothness",
             "dof_torques",
             "dof_acc",
-            "action_rate",
+            "shoulder_joint_vel",
             "feet_air_time",
             "undesired_contacts",
-            "upright",
-            "forward_motion",  # Session 36e: bootstrap walking
+            "forward_motion",
+            "foot_slip_penalty",
+            "continuous_gait_reward",
+            "joint_pos_penalty",
+            "air_time_variance_penalty",
+            "foot_clearance_reward",
+            "linear_vel_reward",
         ]
 
         self._metric_keys = [
@@ -339,13 +365,19 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             "upright_mean",
             "height_reward",
             "body_contact_penalty",
-            "cmd_vx_error",
-            "cmd_vy_error",
+            "cmd_vx_error",  # Body-frame X command error.
+            "cmd_vy_error",  # Body-frame Y command error.
             "cmd_yaw_error",
         ]
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
             for key in [*self._reward_keys, *self._metric_keys]
+        }
+        self._termination_masks = {
+            "orientation": torch.zeros(self.num_envs, dtype=torch.bool, device=self.device),
+            "height": torch.zeros(self.num_envs, dtype=torch.bool, device=self.device),
+            "body_contact": torch.zeros(self.num_envs, dtype=torch.bool, device=self.device),
+            "elbow_pose": torch.zeros(self.num_envs, dtype=torch.bool, device=self.device),
         }
 
         # --- Gait Observability Buffers ---
@@ -359,29 +391,17 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         self._foot_slip_speed_sum = torch.zeros((self.num_envs, 4), device=self.device)
         self._foot_slip_speed_count = torch.zeros((self.num_envs, 4), device=self.device)
         self._episode_start_pos = self._robot.data.root_pos_w.clone()
-        # --- Domain Randomization Buffers ---
-        # Store randomized parameters per environment for consistency within episodes
-        # Initialize with default values from configuration
-        default_friction = self.cfg.sim.physics_material.static_friction
-        default_stiffness = self.cfg.robot.actuators["all_joints"].stiffness
-        default_damping = self.cfg.robot.actuators["all_joints"].damping
-        
-        self._randomized_friction = torch.ones(self.num_envs, device=self.device) * default_friction
-        self._randomized_mass_scale = torch.ones(self.num_envs, device=self.device)
-        self._randomized_stiffness = torch.ones(self.num_envs, 12, device=self.device) * default_stiffness
-        self._randomized_damping = torch.ones(self.num_envs, 12, device=self.device) * default_damping
-
         # Linear velocity bias buffer (per-episode calibration error)
         # Session 29: Hardware IMU has per-session calibration drift
         self._lin_vel_bias = torch.zeros(self.num_envs, 3, device=self.device)
 
-        # Action delay buffer for simulating control latency
-        if cfg.domain_randomization.add_action_delay:
-            max_delay = cfg.domain_randomization.action_delay_steps[1]
-            self._action_delay_buffer = torch.zeros(
-                self.num_envs, max_delay + 1, self.cfg.action_space, device=self.device
+        # --- Velocity Push Buffers (Spot-style mid-episode disturbances) ---
+        dr = cfg.domain_randomization
+        if dr.enable_velocity_pushes:
+            self._push_timer = torch.zeros(self.num_envs, device=self.device)
+            self._push_interval = torch.empty(self.num_envs, device=self.device).uniform_(
+                *dr.push_interval_range
             )
-            self._action_delays = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
 
         # --- Backlash Hysteresis State (Session 37) ---
         # Track "engaged position" where gears are meshed. Commands within the
@@ -452,6 +472,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # Duplicate envs, optionally without copying prim data, and disable collisions with the ground
         self.scene.clone_environments(copy_from_source=False)
         self.scene.filter_collisions(global_prim_paths=[self.cfg.terrain.prim_path])
+
+        # --- Robot Color for Video Contrast ---
+        # Apply orange material to env_0 robot so it stands out against the dark ground
+        # in multi-camera training videos. Only env 0 is recorded.
+        self._apply_robot_color("/World/envs/env_0/Robot", (0.9, 0.45, 0.05))
 
         # --- Lighting Setup ---
         # Add a dome light to illuminate the scene
@@ -532,35 +557,8 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             self._apply_cpg_action(actions)
             return
 
-        # --- Action copy ---
-        self._actions.copy_(actions)
-
-        # --- Low-pass filter (EMA) on actions for stability and sim2real ---
-        # a_t_smooth = (1 - beta) * a_{t-1}_smooth + beta * a_t_raw
-        # beta in (0,1]; lower beta = stronger smoothing
-        if not hasattr(self, "_actions_smooth"):
-            self._actions_smooth = torch.zeros_like(self._actions)
-        beta = getattr(self.cfg, "action_filter_beta", 0.2)
-        self._actions_smooth = (1.0 - beta) * self._actions_smooth + beta * self._actions
-
-        # --- Apply action noise and delays if domain randomization is enabled ---
-        if self.cfg.domain_randomization.enable_randomization:
-            actions_to_use = self._add_action_noise(self._actions_smooth)
-        else:
-            actions_to_use = self._actions_smooth
-
-        # --- Action scaling around default pose with per-joint ranges ---
-        # Scale each joint by a safe fraction of its mechanical range
-        # This allows the policy to work around the default pose instead of fighting gravity
-        target = self._robot.data.default_joint_pos + self.cfg.action_scale * self._joint_range * actions_to_use
-        self._processed_actions = torch.clamp(
-            target,
-            self._JOINT_ANGLE_MIN,
-            self._JOINT_ANGLE_MAX,
-        )
-
-        # --- Store target delta for next observation ---
-        self._prev_target_delta = self._processed_actions - self._robot.data.default_joint_pos
+        # Delegate to mutable research surface (train_env.py)
+        train_env.process_actions(self, actions)
 
     def _apply_cpg_action(self, actions: torch.Tensor) -> None:
         """Apply CPG-based action processing (Phase 2).
@@ -732,9 +730,9 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         # --- Send joint targets to robot ---
         self._robot.set_joint_position_target(effective_target)
         
-        # --- Apply external forces if domain randomization is enabled ---
-        if self.cfg.domain_randomization.enable_randomization:
-            self._apply_external_forces()
+        # --- Apply velocity pushes (Spot-style mid-episode disturbances) ---
+        if self.cfg.domain_randomization.enable_velocity_pushes:
+            self._apply_velocity_push()
 
         # --- Decimation counter for logging/diagnostics ---
         self._decimation_counter += 1  # Increment counter
@@ -803,206 +801,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
     def _get_observations(self) -> dict:
         """Construct the observation vector for policy input.
 
-        Observation is always 48D; CPG mode is open-loop and does not use policy input.
-
-        Returns:
-            Dict with 'policy' key containing observation tensor:
-                - root_lin_vel_b (3): Linear velocity in body frame [m/s]
-                - root_ang_vel_b (3): Angular velocity in body frame [rad/s]
-                - projected_gravity_b (3): Gravity vector in body frame (for orientation)
-                - joint_pos - default (12): Joint angles relative to neutral pose [rad]
-                - joint_vel (12): Joint angular velocities [rad/s]
-                - commands (3): Velocity commands [vx, vy, yaw_rate]
-                - prev_target_delta (12): Previous joint targets relative to neutral pose [rad]
+        Delegates to train_env.compute_observations() — the mutable research surface.
         """
-
-        # Update temporal state for time-based observations
-        self._time += self.step_dt
-
-        # Base observation components (48D)
-        base_obs = [
-            self._robot.data.root_lin_vel_b,                                      # (3D) Body linear velocity
-            self._robot.data.root_ang_vel_b,                                      # (3D) Body angular velocity
-            self._robot.data.projected_gravity_b,                                 # (3D) Gravity in body frame
-            self._robot.data.joint_pos - self._robot.data.default_joint_pos,     # (12D) Joint angles (relative)
-            self._robot.data.joint_vel,                                          # (12D) Joint velocities
-            self._commands,                                                      # (3D) Velocity commands
-            self._prev_target_delta,                                             # (12D) Previous target deltas
-        ]
-
-        obs = torch.cat(base_obs, dim=-1)  # [batch_size, 48]
-
-        # Apply observation noise if domain randomization is enabled
-        if self.cfg.domain_randomization.enable_randomization:
-            obs = self._add_observation_noise(obs)
-
-        # Apply observation clipping if enabled (matches deployment)
-        # Session 29: Hardware deployment clips normalized obs to ±5.0
-        # We clip raw obs at ±50 to approximate effect (before normalization)
-        if getattr(self.cfg, 'clip_observations', False):
-            clip_val = getattr(self.cfg, 'clip_observations_value', 5.0)
-            # Use 10x clip_val for raw obs (pre-normalization approximation)
-            obs = torch.clamp(obs, -clip_val * 10, clip_val * 10)
-
-        observations = {"policy": obs}
-
-        # Update previous actions
-        self._previous_actions.copy_(self._actions)
-
-        # ============================ LOGGING FOR SIMULATION PLAYBACK =============================
-        if self._policy_log_dir is not None and self.num_envs > 0:
-            entry = {
-                "step": int(self._policy_log_step),
-                "sim_time": float(self._time),
-                "observation": obs[0].detach().cpu().tolist(),
-                "command": self._commands[0].detach().cpu().tolist(),
-                "raw_action": self._actions[0].detach().cpu().tolist(),
-                "processed_action": self._processed_actions[0].detach().cpu().tolist(),
-            }
-            smoothed_actions = getattr(self, "_actions_smooth", None)
-            if smoothed_actions is not None:
-                entry["smoothed_action"] = smoothed_actions[0].detach().cpu().tolist()
-
-            with open(self._policy_log_file, "a", encoding="utf-8") as f:
-                json.dump(entry, f)
-                f.write("\n")
-            self._policy_log_step += 1
-
-        return observations
+        return train_env.compute_observations(self)
 
     def _get_rewards(self) -> torch.Tensor:
-        """Simplified reward structure following Isaac Lab reference pattern.
-
-        Session 36: Pure RL with ~10 core terms for clean gradient signals.
-        Reference: isaaclab_tasks/manager_based/locomotion/velocity/velocity_env_cfg.py
-        """
-        cfg = self.cfg.rewards
-
-        # === Extract quantities ===
-        root_lin_vel_w = self._robot.data.root_lin_vel_w
-        root_lin_vel_b = self._robot.data.root_lin_vel_b
-        root_ang_vel_b = self._robot.data.root_ang_vel_b
-        projected_gravity = self._robot.data.projected_gravity_b
-        joint_acc = self._robot.data.joint_acc
-        applied_torque = self._robot.data.applied_torque
-
-        vx = root_lin_vel_w[:, 0]
-        vy = root_lin_vel_w[:, 1]
-        vz_b = root_lin_vel_b[:, 2]
-        wz = root_ang_vel_b[:, 2]
-
-        cmd_vx = self._commands[:, 0]
-        cmd_vy = self._commands[:, 1]
-        cmd_yaw = self._commands[:, 2]
-
-        # === TASK REWARDS (exponential kernel) ===
-        lin_vel_error = torch.sum(
-            torch.square(torch.stack([vx - cmd_vx, vy - cmd_vy], dim=1)), dim=1
-        )
-        track_lin_vel_xy = torch.exp(-lin_vel_error / (cfg.track_lin_vel_xy_std ** 2))
-
-        ang_vel_error = torch.square(wz - cmd_yaw)
-        track_ang_vel_z = torch.exp(-ang_vel_error / (cfg.track_ang_vel_z_std ** 2))
-
-        # === MOTION QUALITY PENALTIES ===
-        lin_vel_z = torch.square(vz_b)
-        ang_vel_xy = torch.sum(torch.square(root_ang_vel_b[:, :2]), dim=1)
-
-        # === SMOOTHNESS PENALTIES ===
-        dof_torques = torch.sum(torch.square(applied_torque), dim=1)
-        dof_acc = torch.sum(torch.square(joint_acc), dim=1)
-        action_rate = torch.sum(
-            torch.square(self._actions - self._previous_actions), dim=1
-        )
-
-        # === GAIT: FEET AIR TIME ===
-        first_contact = self._contact_sensor.compute_first_contact(self.step_dt)[:, self._feet_ids]
-        last_air_time = self._contact_sensor.data.last_air_time[:, self._feet_ids]
-        air_time_reward = torch.sum(
-            (last_air_time - cfg.feet_air_time_threshold) * first_contact.float(), dim=1
-        )
-        # Only reward air time when commanded to move
-        cmd_magnitude = torch.norm(self._commands[:, :2], dim=1)
-        air_time_reward = air_time_reward * (cmd_magnitude > 0.05).float()
-
-        # === UNDESIRED CONTACTS ===
-        net_contact_forces = self._contact_sensor.data.net_forces_w_history[:, 0]
-        undesired_forces = torch.norm(
-            net_contact_forces[:, self._undesired_contact_body_ids], dim=-1
-        )
-        undesired_contacts = torch.sum(
-            (undesired_forces > cfg.undesired_contacts_threshold).float(), dim=1
-        )
-
-        # === PER-FOOT CONTACT + SLIP METRICS ===
-        foot_forces = torch.norm(net_contact_forces[:, self._feet_ids], dim=-1)
-        foot_contact = foot_forces > self._foot_contact_force_threshold
-        self._foot_contact_count += foot_contact.float()
-        self._foot_contact_force_peak = torch.maximum(self._foot_contact_force_peak, foot_forces)
-
-        air_time_sample = torch.where(first_contact, last_air_time, torch.zeros_like(last_air_time))
-        self._foot_air_time_sum += air_time_sample
-        self._foot_air_time_sumsq += air_time_sample * air_time_sample
-        self._foot_air_time_count += first_contact.float()
-
-        foot_lin_vel_xy = self._robot.data.body_lin_vel_w[:, self._feet_ids, :2]
-        foot_slip_speed = torch.linalg.vector_norm(foot_lin_vel_xy, dim=-1)
-        slip_sample = foot_slip_speed * foot_contact.float()
-        self._foot_slip_speed_sum += slip_sample
-        self._foot_slip_speed_count += foot_contact.float()
-
-        # === STABILITY: UPRIGHT ===
-        upright = -projected_gravity[:, 2]
-
-        # === HEIGHT METRIC (terrain-relative) ===
-        pos_z = self._height_scanner.data.pos_w[:, 2].unsqueeze(1)
-        ray_z = self._height_scanner.data.ray_hits_w[..., 2]
-        ray_z = torch.where(torch.isfinite(ray_z), ray_z, pos_z)
-        height_data = pos_z - ray_z
-        current_height = torch.mean(height_data, dim=1)
-        target_height = self.cfg.gait.target_height
-        height_error = torch.abs(current_height - target_height)
-        height_reward = torch.tanh(3.0 * torch.exp(-5.0 * height_error))
-
-        # === BODY CONTACT METRIC ===
-        body_contact_penalty = -undesired_contacts
-
-        # === FORWARD MOTION BONUS ===
-        # Direct reward for positive vx to bootstrap walking
-        # Gate by upright to avoid rewarding forward falling
-        forward_motion = cfg.forward_motion_weight * vx * upright.clamp(0.5, 1.0)
-
-        # === COMPUTE TOTAL ===
-        rewards = {
-            "track_lin_vel_xy": cfg.track_lin_vel_xy_weight * track_lin_vel_xy,
-            "track_ang_vel_z": cfg.track_ang_vel_z_weight * track_ang_vel_z,
-            "lin_vel_z": cfg.lin_vel_z_weight * lin_vel_z,
-            "ang_vel_xy": cfg.ang_vel_xy_weight * ang_vel_xy,
-            "dof_torques": cfg.dof_torques_weight * dof_torques,
-            "dof_acc": cfg.dof_acc_weight * dof_acc,
-            "action_rate": cfg.action_rate_weight * action_rate,
-            "feet_air_time": cfg.feet_air_time_weight * air_time_reward,
-            "undesired_contacts": cfg.undesired_contacts_weight * undesired_contacts,
-            "upright": cfg.upright_weight * upright,
-            "forward_motion": forward_motion,
-        }
-
-        total_reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
-
-        for key, value in rewards.items():
-            self._episode_sums[key] += value
-
-        # Telemetry
-        self._episode_sums["vx_w_mean"] += vx
-        self._episode_sums["vy_w_mean"] += torch.abs(vy)
-        self._episode_sums["upright_mean"] += upright.clamp(0.0, 1.0)
-        self._episode_sums["height_reward"] += height_reward
-        self._episode_sums["body_contact_penalty"] += body_contact_penalty
-        self._episode_sums["cmd_vx_error"] += torch.abs(vx - cmd_vx)
-        self._episode_sums["cmd_vy_error"] += torch.abs(vy - cmd_vy)
-        self._episode_sums["cmd_yaw_error"] += torch.abs(wz - cmd_yaw)
-
-        return total_reward
+        """Compute rewards. Delegates to train_env.compute_rewards() — the mutable research surface."""
+        return train_env.compute_rewards(self)
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Terminate on orientation failure, height, or body contact."""
@@ -1042,9 +847,10 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             net_contact_forces = getattr(self._contact_sensor.data, "net_forces_w", None)
             if net_contact_forces is None:
                 net_contact_forces = self._contact_sensor.data.net_forces_w_history[:, 0]
-            # Sum of absolute Z-force on undesired contact bodies
-            undesired_contact_forces = torch.abs(
-                net_contact_forces[:, self._undesired_contact_body_ids, 2]
+            # Full 3D norm of forces on undesired contact bodies (matches reward penalty).
+            # Previously only checked Z-axis, missing lateral dragging/grinding.
+            undesired_contact_forces = torch.norm(
+                net_contact_forces[:, self._undesired_contact_body_ids], dim=-1
             )
             body_contact_force = undesired_contact_forces.sum(dim=1)
             body_contact_terminated = body_contact_force > body_contact_threshold
@@ -1070,6 +876,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 in_warmup = self.episode_length_buf < warmup_steps
                 elbow_pose_terminated = elbow_pose_terminated & ~in_warmup
 
+        self._termination_masks["orientation"] = orientation_terminated
+        self._termination_masks["height"] = height_terminated
+        self._termination_masks["body_contact"] = body_contact_terminated
+        self._termination_masks["elbow_pose"] = elbow_pose_terminated
+
         terminated = orientation_terminated | height_terminated | body_contact_terminated | elbow_pose_terminated
 
         return terminated, time_out
@@ -1082,6 +893,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         env_ids = torch.as_tensor(env_ids, device=self.device, dtype=torch.long)
         prev_episode_steps = self.episode_length_buf[env_ids].clone()
+        prev_cmd_vx = self._commands[env_ids, 0].clone()
         current_root_pos = self._robot.data.root_pos_w[env_ids].clone()
 
         self._robot.reset(env_ids)
@@ -1092,8 +904,14 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 self.episode_length_buf, high=int(self.max_episode_length)
             )
 
-        self._actions[env_ids].zero_()
-        self._previous_actions[env_ids].zero_()
+        reset_policy_state_buffers(
+            env_ids=env_ids,
+            actions=self._actions,
+            previous_actions=self._previous_actions,
+            prev_target_delta=self._prev_target_delta,
+            actions_smooth=getattr(self, "_actions_smooth", None),
+            action_delay_buffer=getattr(self, "_action_delay_buffer", None),
+        )
 
         # Reset backlash hysteresis state (Session 37)
         # Set engaged position to ready pose so policy starts fresh
@@ -1147,6 +965,7 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             ready_pose = self._ready_pose.to(dtype=joint_pos.dtype).unsqueeze(0).repeat(num_reset_envs, 1)
             joint_pos = ready_pose
             self._robot.data.default_joint_pos[env_ids] = ready_pose
+            self._processed_actions[env_ids] = ready_pose
 
         if hasattr(self._terrain, 'env_origins'):
             if self.cfg.terrain.terrain_type == 'generator' and hasattr(self._terrain, 'terrain_origins'):
@@ -1176,19 +995,14 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         default_root_state[:, :3] += origins[env_ids]
 
+        # Apply reset state randomization (Spot-style, Session 55)
+        dr = self.cfg.domain_randomization
+        if dr.enable_randomization and dr.enable_reset_randomization:
+            self._randomize_reset_state(env_ids, default_root_state, joint_pos, joint_vel)
+
         self._robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)
         self._robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
-
-        dr = self.cfg.domain_randomization
-        if dr.enable_randomization and dr.randomize_on_reset:
-            self._randomize_robot_properties(env_ids)
-            self._randomize_physics_materials(env_ids)
-            if dr.add_action_delay:
-                delay_min, delay_max = dr.action_delay_steps
-                self._action_delays[env_ids] = torch.randint(
-                    delay_min, delay_max + 1, (len(env_ids),), device=self.device
-                )
 
         # Randomize lin_vel bias per-episode (always when DR enabled)
         # Session 29: Hardware IMU has calibration drift that persists per-episode
@@ -1199,6 +1013,13 @@ class HaroldIsaacLabEnv(DirectRLEnv):
             ) * bias_std
 
         self._time[env_ids] = 0
+
+        # Reset velocity push timers
+        if dr.enable_velocity_pushes and hasattr(self, '_push_timer'):
+            self._push_timer[env_ids] = 0.0
+            self._push_interval[env_ids] = torch.empty(
+                len(env_ids), device=self.device
+            ).uniform_(*dr.push_interval_range)
 
         log = {}
         if len(env_ids) > 0:
@@ -1216,6 +1037,15 @@ class HaroldIsaacLabEnv(DirectRLEnv):
                 x_displacement = current_root_pos[valid, 0] - self._episode_start_pos[valid_env_ids, 0]
                 log['Episode_Metric/x_displacement'] = torch.mean(x_displacement)
                 log['Episode_Metric/x_displacement_abs'] = torch.mean(torch.abs(x_displacement))
+
+                # cmd_tracking_ratio: actual displacement / commanded displacement
+                cmd_vx = prev_cmd_vx[valid]
+                episode_seconds = prev_episode_steps[valid].float() * self.step_dt
+                expected_displacement = cmd_vx * episode_seconds
+                has_forward_cmd = expected_displacement > 0.1
+                if torch.any(has_forward_cmd):
+                    ratio = x_displacement[has_forward_cmd] / expected_displacement[has_forward_cmd]
+                    log['Episode_Metric/cmd_tracking_ratio'] = torch.mean(ratio)
 
                 foot_labels = ("fl", "fr", "bl", "br")
                 contact_ratio = self._foot_contact_count[valid_env_ids] / step_counts.unsqueeze(1)
@@ -1247,80 +1077,99 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         self._episode_start_pos[env_ids] = default_root_state[:, :3]
 
-        log['Episode_Termination/orientation'] = int(torch.sum(self.reset_terminated[env_ids]).item())
-        log['Episode_Termination/time_out'] = int(torch.count_nonzero(self.reset_time_outs[env_ids]).item())
+        orientation_termination = torch.count_nonzero(self._termination_masks["orientation"][env_ids]).float()
+        height_termination = torch.count_nonzero(self._termination_masks["height"][env_ids]).float()
+        body_contact_termination = torch.count_nonzero(self._termination_masks["body_contact"][env_ids]).float()
+        elbow_pose_termination = torch.count_nonzero(self._termination_masks["elbow_pose"][env_ids]).float()
+        timeout_termination = torch.count_nonzero(self.reset_time_outs[env_ids]).float()
+
+        log['Episode_Termination/orientation'] = orientation_termination
+        log['Episode_Termination/height'] = height_termination
+        log['Episode_Termination/body_contact'] = body_contact_termination
+        log['Episode_Termination/elbow_pose'] = elbow_pose_termination
+        log['Episode_Termination/time_out'] = timeout_termination
+        log['Episode_Metric/termination_orientation'] = orientation_termination
+        log['Episode_Metric/termination_height'] = height_termination
+        log['Episode_Metric/termination_body_contact'] = body_contact_termination
+        log['Episode_Metric/termination_elbow_pose'] = elbow_pose_termination
+        log['Episode_Metric/termination_time_out'] = timeout_termination
 
         self.extras['log'] = log
 
     # ==========================================
     # Domain Randomization Methods
     # ==========================================
-    
-    def _randomize_robot_properties(self, env_ids: torch.Tensor) -> None:
-        """Randomize robot physical properties for specified environments.
-        
-        Applies randomization to mass, inertia, joint properties, and actuator
-        characteristics. Called during environment reset for sim-to-real transfer.
-        
-        Args:
-            env_ids: Indices of environments to randomize
+
+    def _randomize_reset_state(self, env_ids: torch.Tensor, default_root_state: torch.Tensor,
+                               joint_pos: torch.Tensor, joint_vel: torch.Tensor) -> None:
+        """Randomize initial state at episode reset (Spot-style, Session 55).
+
+        Modifies root state, joint positions, and joint velocities in-place
+        so the existing write_*_to_sim calls pick up the changes.
         """
-        if not self.cfg.domain_randomization.enable_randomization:
-            return
-            
-        num_envs_to_randomize = len(env_ids)
-        
-        # Randomize joint stiffness
-        if self.cfg.domain_randomization.randomize_joint_stiffness:
-            stiffness_min, stiffness_max = self.cfg.domain_randomization.stiffness_range
-            self._randomized_stiffness[env_ids] = sample_uniform(
-                stiffness_min, stiffness_max, (num_envs_to_randomize, 12), self.device
-            )
-            # Note: In Direct workflow, actuator properties are typically set at initialization
-            # Dynamic modification would require accessing the underlying PhysX articulation
-            # For now, store the values for potential use in custom PD control
-        
-        # Randomize joint damping
-        if self.cfg.domain_randomization.randomize_joint_damping:
-            damping_min, damping_max = self.cfg.domain_randomization.damping_range
-            self._randomized_damping[env_ids] = sample_uniform(
-                damping_min, damping_max, (num_envs_to_randomize, 12), self.device
-            )
-            # Note: In Direct workflow, actuator properties are typically set at initialization
-            # Dynamic modification would require accessing the underlying PhysX articulation
-            # For now, store the values for potential use in custom PD control
-        
-        # Randomize mass (scale all link masses proportionally)
-        if self.cfg.domain_randomization.randomize_mass:
-            mass_min, mass_max = self.cfg.domain_randomization.mass_range
-            self._randomized_mass_scale[env_ids] = sample_uniform(
-                mass_min, mass_max, (num_envs_to_randomize,), self.device
-            )
-            # Note: Mass randomization requires modifying body properties
-            # This is more complex in Direct workflow and may require USD modifications
-    
-    def _randomize_physics_materials(self, env_ids: torch.Tensor) -> None:
-        """Randomize physics material properties for specified environments.
-        
-        Modifies friction and restitution coefficients for ground contact.
-        
-        Args:
-            env_ids: Indices of environments to randomize
+        dr = self.cfg.domain_randomization
+        n = len(env_ids)
+
+        # Root velocity randomization
+        default_root_state[:, 7] += torch.empty(n, device=self.device).uniform_(*dr.reset_lin_vel_x_range)
+        default_root_state[:, 8] += torch.empty(n, device=self.device).uniform_(*dr.reset_lin_vel_y_range)
+        default_root_state[:, 9] += torch.empty(n, device=self.device).uniform_(*dr.reset_lin_vel_z_range)
+        default_root_state[:, 10] += torch.empty(n, device=self.device).uniform_(*dr.reset_ang_vel_roll_range)
+        default_root_state[:, 11] += torch.empty(n, device=self.device).uniform_(*dr.reset_ang_vel_pitch_range)
+        default_root_state[:, 12] += torch.empty(n, device=self.device).uniform_(*dr.reset_ang_vel_yaw_range)
+
+        # Joint position randomization (around ready_pose, clipped to limits)
+        joint_pos += sample_uniform(
+            -dr.reset_joint_pos_noise, dr.reset_joint_pos_noise, (n, 12), self.device
+        )
+        joint_pos.clamp_(self._JOINT_ANGLE_MIN, self._JOINT_ANGLE_MAX)
+
+        # Joint velocity randomization
+        joint_vel[:] = sample_uniform(
+            -dr.reset_joint_vel_noise, dr.reset_joint_vel_noise, (n, 12), self.device
+        )
+
+    def _apply_velocity_push(self) -> None:
+        """Apply timer-based velocity pushes (Spot-style mid-episode disturbances).
+
+        Fires every 8-12 seconds, adding a random XY velocity delta.
+        Uses write_root_velocity_to_sim which is predictable across mass scales.
         """
-        if not self.cfg.domain_randomization.enable_randomization:
+        if not hasattr(self, '_push_timer'):
             return
-            
-        num_envs_to_randomize = len(env_ids)
-        
-        # Randomize friction
-        if self.cfg.domain_randomization.randomize_friction:
-            friction_min, friction_max = self.cfg.domain_randomization.friction_range
-            self._randomized_friction[env_ids] = sample_uniform(
-                friction_min, friction_max, (num_envs_to_randomize,), self.device
-            )
-            # Note: In Direct workflow, material properties are typically set at scene creation
-            # Dynamic modification requires accessing PhysX APIs directly
-    
+
+        dt = self.step_dt
+        self._push_timer += dt
+
+        expired = self._push_timer >= self._push_interval
+        if not expired.any():
+            return
+
+        push_ids = expired.nonzero(as_tuple=False).squeeze(-1)
+        n = len(push_ids)
+        if n == 0:
+            return
+
+        dr = self.cfg.domain_randomization
+
+        # Read current root velocity and apply XY delta
+        current_vel = self._robot.data.root_lin_vel_w[push_ids].clone()
+        current_ang_vel = self._robot.data.root_ang_vel_w[push_ids].clone()
+        current_vel[:, 0] += torch.empty(n, device=self.device).uniform_(
+            -dr.push_vel_xy_range, dr.push_vel_xy_range
+        )
+        current_vel[:, 1] += torch.empty(n, device=self.device).uniform_(
+            -dr.push_vel_xy_range, dr.push_vel_xy_range
+        )
+        root_vel = torch.cat([current_vel, current_ang_vel], dim=1)
+        self._robot.write_root_velocity_to_sim(root_vel, push_ids)
+
+        # Reset timers with new random intervals
+        self._push_timer[push_ids] = 0.0
+        self._push_interval[push_ids] = torch.empty(n, device=self.device).uniform_(
+            *dr.push_interval_range
+        )
+
     def _add_observation_noise(self, observations: torch.Tensor) -> torch.Tensor:
         """Add noise to observations to simulate sensor imperfections.
         
@@ -1381,43 +1230,11 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         return noisy_obs
     
     def _add_action_noise(self, actions: torch.Tensor) -> torch.Tensor:
-        """Add noise and delays to actions to simulate control imperfections.
-        
-        Applies Gaussian noise and optional time delays to action commands.
-        
-        Args:
-            actions: Clean action tensor [num_envs, action_dim]
-            
-        Returns:
-            Noisy/delayed action tensor with same shape
+        """Pass-through (action noise/delays removed in Session 55 cleanup).
+
+        Kept for interface compatibility with train_env.py.
         """
-        if not self.cfg.domain_randomization.enable_randomization:
-            return actions
-            
-        noisy_actions = actions.clone()
-        
-        # Add action noise
-        if self.cfg.domain_randomization.add_action_noise:
-            noisy_actions = gaussian_noise(
-                noisy_actions,
-                self.cfg.domain_randomization.action_noise
-            )
-        
-        # Apply action delays (if enabled)
-        if self.cfg.domain_randomization.add_action_delay and hasattr(self, '_action_delay_buffer'):
-            # Shift buffer and insert new actions
-            self._action_delay_buffer[:, 1:] = self._action_delay_buffer[:, :-1].clone()
-            self._action_delay_buffer[:, 0] = noisy_actions
-            
-            # Select delayed actions based on per-env delays
-            delayed_actions = torch.zeros_like(noisy_actions)
-            for i in range(self.num_envs):
-                delay = self._action_delays[i]
-                delayed_actions[i] = self._action_delay_buffer[i, delay]
-            
-            return delayed_actions
-        
-        return noisy_actions
+        return actions
 
     def _update_dynamic_commands(self) -> None:
         """Update velocity commands periodically during episode (Phase 3).
@@ -1452,15 +1269,17 @@ class HaroldIsaacLabEnv(DirectRLEnv):
         if num == 0:
             return
 
-        # Apply command change probability
+        # Apply command change probability.
+        # Reset ALL expired timers first, then filter by probability.
+        # Previously, envs that failed the prob check kept expired timers
+        # and retried every step instead of waiting a full interval.
         change_prob = getattr(cmd_cfg, 'command_change_prob', 1.0)
         if change_prob < 1.0:
+            self._command_timer[update_mask] = 0.0  # reset all expired timers
             prob_mask = torch.rand(num, device=self.device) < change_prob
             update_ids = update_ids[prob_mask]
             num = len(update_ids)
             if num == 0:
-                # Reset timers but don't change commands
-                self._command_timer[update_mask] = 0.0
                 return
 
         # Sample new commands (same logic as _reset_idx)
@@ -1535,47 +1354,132 @@ class HaroldIsaacLabEnv(DirectRLEnv):
 
         return self._engaged_position
 
-    def _apply_external_forces(self) -> None:
-        """Apply random external forces/torques to robot bodies.
+    # ── Robot visual material ────────────────────────────────────────────
 
-        Simulates environmental disturbances like wind or collisions.
-        Called during physics step with configured probability.
+    def _apply_robot_color(self, robot_prim_path: str, color: tuple[float, float, float]):
+        """Apply a solid color material to all mesh prims under the given robot.
+
+        Used to make the recorded robot visually distinct in training videos.
         """
-        if not self.cfg.domain_randomization.enable_randomization:
+        from pxr import UsdShade, UsdGeom, Sdf, Gf
+
+        stage = self.sim.stage
+        robot_prim = stage.GetPrimAtPath(robot_prim_path)
+        if not robot_prim.IsValid():
+            print(f"WARNING: Cannot color robot — prim not found: {robot_prim_path}")
             return
-        if not self.cfg.domain_randomization.apply_external_forces:
-            return
-            
-        # Sample which environments get forces this step
-        force_probs = torch.rand(self.num_envs, device=self.device)
-        apply_force = force_probs < self.cfg.domain_randomization.external_force_probability
-        
-        if apply_force.any():
-            # Sample random forces and torques
-            force_min, force_max = self.cfg.domain_randomization.external_force_range
-            torque_min, torque_max = self.cfg.domain_randomization.external_torque_range
-            
-            # Shape: [num_envs, num_bodies, 3] - required by Isaac Lab API
-            forces = torch.zeros(self.num_envs, 1, 3, device=self.device)
-            torques = torch.zeros(self.num_envs, 1, 3, device=self.device)
 
-            # Generate random forces for selected environments
-            num_forced = apply_force.sum()
-            forces[apply_force, 0, :2] = sample_uniform(
-                -force_max, force_max, (num_forced, 2), self.device
-            )
-            forces[apply_force, 0, 2] = sample_uniform(
-                force_min, force_max, (num_forced,), self.device
+        # Create a single shared material
+        mat_path = f"{robot_prim_path}/VideoContrastMaterial"
+        material = UsdShade.Material.Define(stage, mat_path)
+        shader = UsdShade.Shader.Define(stage, f"{mat_path}/Shader")
+        shader.CreateIdAttr("UsdPreviewSurface")
+        shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*color))
+        shader.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.5)
+        shader.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.0)
+        material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
+
+        # Bind to all mesh prims under this robot
+        for prim in stage.Traverse():
+            if prim.GetPath().HasPrefix(robot_prim.GetPath()) and prim.IsA(UsdGeom.Mesh):
+                UsdShade.MaterialBindingAPI.Apply(prim).Bind(material)
+
+    # ── Multi-camera capture ─────────────────────────────────────────────
+
+    # Camera offsets relative to robot root position.
+    # Each entry: (eye_offset, lookat_offset)
+    CAMERA_VIEWS = {
+        "side":  (np.array([0.0, -1.2, 0.24]),  np.array([0.0, 0.0, 0.0])),
+        "front": (np.array([1.2,  0.0, 0.24]),  np.array([0.0, 0.0, 0.0])),
+        "top":   (np.array([0.0,  0.0, 1.6]),   np.array([0.0, 0.0, 0.0])),
+        "iso":   (np.array([0.96, -0.8, 0.4]),  np.array([0.0, 0.0, 0.0])),
+    }
+    MULTI_CAM_RESOLUTION = (960, 540)
+
+    def _setup_multi_cameras(self):
+        """Create USD camera prims, render products, and annotators for each view."""
+        import omni.replicator.core as rep
+        from pxr import UsdGeom, Gf
+
+        stage = self.sim.stage
+        self._multi_cam_info = {}
+        for name in self.CAMERA_VIEWS:
+            prim_path = f"/World/MultiCam_{name}"
+            if not stage.GetPrimAtPath(prim_path).IsValid():
+                cam_prim = UsdGeom.Camera.Define(stage, prim_path)
+                cam_prim.GetClippingRangeAttr().Set(Gf.Vec2f(0.01, 3.0))
+                cam_prim.GetFocalLengthAttr().Set(18.0)
+            rp = rep.create.render_product(prim_path, self.MULTI_CAM_RESOLUTION)
+            annotator = rep.AnnotatorRegistry.get_annotator("rgb", device="cpu")
+            annotator.attach([rp])
+            self._multi_cam_info[name] = {
+                "prim_path": prim_path,
+                "render_product": rp,
+                "annotator": annotator,
+            }
+
+        # Hide all non-env-0 robots so only the primary robot appears in videos.
+        # MakeInvisible only affects rendering, not physics.
+        for env_idx in range(1, self.num_envs):
+            robot_prim = stage.GetPrimAtPath(f"/World/envs/env_{env_idx}/Robot")
+            if robot_prim.IsValid():
+                UsdGeom.Imageable(robot_prim).MakeInvisible()
+
+    def _set_camera_transform(self, prim_path: str, eye: np.ndarray, target: np.ndarray):
+        """Set a USD camera prim's transform so it looks from *eye* toward *target*."""
+        from pxr import UsdGeom, Gf
+
+        forward = target - eye
+        forward = forward / (np.linalg.norm(forward) + 1e-8)
+        world_up = np.array([0.0, 0.0, 1.0])
+        right = np.cross(forward, world_up)
+        norm = np.linalg.norm(right)
+        if norm < 1e-6:
+            # Camera looking straight down — pick arbitrary right
+            right = np.array([1.0, 0.0, 0.0])
+        else:
+            right = right / norm
+        up = np.cross(right, forward)
+
+        # USD cameras look along -Z in local frame:
+        # local X = right, local Y = up, local Z = -forward
+        mat = Gf.Matrix4d(
+            float(right[0]), float(right[1]), float(right[2]), 0.0,
+            float(up[0]), float(up[1]), float(up[2]), 0.0,
+            float(-forward[0]), float(-forward[1]), float(-forward[2]), 0.0,
+            float(eye[0]), float(eye[1]), float(eye[2]), 1.0,
+        )
+        prim = self.sim.stage.GetPrimAtPath(prim_path)
+        UsdGeom.Xformable(prim).ClearXformOpOrder()
+        UsdGeom.Xformable(prim).AddTransformOp().Set(mat)
+
+    def capture_multi_cameras(self) -> dict[str, np.ndarray]:
+        """Capture a frame from each camera view. Returns {name: (H, W, 3) uint8 array}."""
+        if not hasattr(self, "_multi_cam_info"):
+            self._setup_multi_cameras()
+
+        # Update camera positions to track the robot
+        root_pos = self.scene["robot"].data.root_pos_w[0].detach().cpu().numpy()
+        for name, (eye_off, look_off) in self.CAMERA_VIEWS.items():
+            self._set_camera_transform(
+                self._multi_cam_info[name]["prim_path"],
+                root_pos + eye_off,
+                root_pos + look_off,
             )
 
-            torques[apply_force, 0] = sample_uniform(
-                -torque_max, torque_max, (num_forced, 3), self.device
-            )
+        # Render to update all render products
+        self.sim.render()
 
-            # Apply forces to robot base
-            self._robot.set_external_force_and_torque(
-                forces, torques, body_ids=[self._base_id[0]]
-            )
+        # Read frames
+        w, h = self.MULTI_CAM_RESOLUTION
+        frames = {}
+        for name in self.CAMERA_VIEWS:
+            rgb_data = self._multi_cam_info[name]["annotator"].get_data()
+            if rgb_data.size == 0:
+                frames[name] = np.zeros((h, w, 3), dtype=np.uint8)
+            else:
+                frames[name] = np.frombuffer(rgb_data, dtype=np.uint8).reshape(*rgb_data.shape)[:, :, :3]
+        return frames
 
     def __del__(self):
         pass

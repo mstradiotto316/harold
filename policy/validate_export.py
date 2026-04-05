@@ -2,46 +2,33 @@
 """Compare original PyTorch policy outputs with TorchScript and ONNX exports."""
 import argparse
 import json
+from pathlib import Path
+
 import numpy as np
 import onnxruntime as ort
 import torch
-from pathlib import Path
 
-from export_policy import SharedPolicyValue, NormalizedPolicy
-
-# Session 24: Updated to 50D (includes gait phase sin/cos)
-OBS_DIM = 50
+from export_policy import load_reference_policy
 
 
-def load_reference_policy(checkpoint: Path) -> NormalizedPolicy:
-    ckpt = torch.load(checkpoint, map_location="cpu")
-    base = SharedPolicyValue()
-    base.load_state_dict(ckpt["policy"])
-    base.eval()
-    running_mean = ckpt["state_preprocessor"]["running_mean"].float()
-    running_var = ckpt["state_preprocessor"]["running_variance"].float()
-    wrapper = NormalizedPolicy(base, running_mean, running_var).eval()
-    return wrapper
-
-
-def generate_inputs(obs_path: Path, num_samples: int | None) -> torch.Tensor:
+def generate_inputs(obs_path: Path, obs_dim: int, num_samples: int | None) -> torch.Tensor:
     lines = obs_path.read_text().strip().splitlines()
     if num_samples is not None:
         lines = lines[:num_samples]
     obs_list = []
     for line in lines:
         values = [float(x) for x in line.strip().strip('[]').split(',')]
-        if len(values) < OBS_DIM:
-            raise ValueError(f"Observation entry has {len(values)} values (< {OBS_DIM})")
-        obs_list.append(values[:OBS_DIM])
+        if len(values) < obs_dim:
+            raise ValueError(f"Observation entry has {len(values)} values (< {obs_dim})")
+        obs_list.append(values[:obs_dim])
     arr = torch.tensor(np.array(obs_list, dtype=np.float32))
     return arr
 
 
 def compare_models(checkpoint: Path, ts_path: Path, onnx_path: Path, obs_path: Path, num_samples: int | None) -> dict:
-    obs = generate_inputs(obs_path, num_samples)
     with torch.no_grad():
-        ref_policy = load_reference_policy(checkpoint)
+        ref_policy, running_mean, _, _ = load_reference_policy(checkpoint)
+        obs = generate_inputs(obs_path, int(running_mean.numel()), num_samples)
         ref_mean, ref_value, ref_log_std = ref_policy(obs)
 
         ts_module = torch.jit.load(ts_path)

@@ -105,13 +105,7 @@ def main():
                 action = np.zeros(12, dtype=np.float32)
 
             rl_targets, hw_targets = action_conv.compute(cpg_targets, action, use_cpg=True)
-            prev_targets_training_mean = running_mean[36:48]
-            obs_builder.update_prev_target_delta(
-                rl_targets,
-                action_conv.get_hw_default_pose(),
-                training_mean=prev_targets_training_mean,
-                blend_factor=0.1,
-            )
+            obs_builder.update_prev_action(action)
             esp32.send_targets(hw_targets)
 
             loop_count += 1
@@ -123,7 +117,7 @@ def main():
                 print(f"  Raw obs[3:6] ang_vel:     {obs[3:6]}")
                 print(f"  Raw obs[6:9] gravity:     {obs[6:9]}")
                 print(f"  Norm obs[0:3]:            {obs_norm[0:3]}")
-                print(f"  Norm obs[33:36] commands: {obs_norm[33:36]}")
+                print(f"  Norm obs[9:12] commands:  {obs_norm[9:12]}")
                 print(f"  Policy action[0:4]:       {action[0:4]}")
                 print(f"  Policy action range:      [{action.min():.3f}, {action.max():.3f}]")
 

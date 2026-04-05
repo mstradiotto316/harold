@@ -27,6 +27,11 @@ cd /home/matteo/Desktop/code_projects/harold
 python scripts/harold.py train
 ```
 
+Desktop simulation work in this repository assumes `/home/matteo/Desktop/env_isaaclab`.
+Use system `python3` only on the Raspberry Pi runtime.
+
+If `isaaclab` imports succeed but `omni` imports fail in a plain shell, the issue is usually that you are outside the Isaac Sim app/runtime context, not that a `pip` package is missing. For simulator-backed checks, prefer `python scripts/harold.py ...` or the Isaac Lab launcher scripts.
+
 For full workflow guidance, see `AGENTS.md`.
 
 ## Hardware usage

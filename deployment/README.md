@@ -59,6 +59,13 @@ python inference/harold_controller.py
 
 Note: `policy/policy_metadata.json` captures training-time defaults; do not edit it for stance changes.
 
+### Joint Sign Convention
+
+- Shoulders are not mirrored at the high-level command/observation layer. Positive shoulder motion should mean the same thing on every leg.
+- Thighs and calves are inverted between RL convention and hardware convention.
+- Right-side servo mirroring is handled by `config/hardware.yaml` `direction` and the ESP32 firmware `DIR_TABLE`, not by flipping shoulder `joint_sign`.
+- `inference.harold_controller` rejects startup if exported metadata `joint_sign` does not match `config/hardware.yaml`.
+
 ## Testing
 
 ```bash

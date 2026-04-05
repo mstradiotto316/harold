@@ -14,6 +14,100 @@ Each experiment entry contains:
 
 ## Experiments
 
+### MAINT-2026-03-16: Export Metadata Fallback + Status Termination Tags
+- **Date**: 2026-03-16
+- **ID**: manifestless/non-flat export metadata fix, termination tag lookup fix
+- **Config**:
+  - Exporter now resolves action scale and joint limits from `manifest.json`, then `params/env.yaml`, before using task defaults
+  - `harold status` aux termination metrics now read the real `Info / Episode_Termination/*` tags and tolerate `Episode_Metric/termination_*` fallbacks
+  - Added regression tests for manifestless export metadata and termination metric lookup
+- **Duration**: single maintenance pass
+- **Result**: **PASS** - manifestless rough/non-flat checkpoints now export correct metadata and status diagnostics surface termination counters again
+- **Metrics**:
+  - `~/Desktop/env_isaaclab/bin/python -m pytest deployment/tests/test_export_policy.py deployment/tests/test_harold_cli.py deployment/tests/test_inference.py -q`: 14 passed
+  - `~/Desktop/env_isaaclab/bin/python -m py_compile common/policy_config.py policy/export_policy.py scripts/harold.py deployment/tests/test_export_policy.py deployment/tests/test_harold_cli.py`
+- **Notes**:
+  - Isaac Lab `params/env.yaml` snapshots use `!!python/tuple`, so `yaml.safe_load` is insufficient; `yaml.full_load` works for these local generated files.
+  - Verified against real runs that `resolve_export_training_config()` returns `action_scale=1.0` plus mechanical joint bounds for `terrain_58` and `2026-03-15_02-03-30_ppo_torch`.
+  - Verified against `2026-03-15_02-10-19_ppo_torch` that termination counters now resolve through `harold.get_metrics()`.
+
+### MAINT-2026-03-15: Deployment Sign Convention Alignment + Train Guard
+- **Date**: 2026-03-15
+- **ID**: deployment sign-source unification, metadata/hardware mismatch guard, `harold train` relaunch guard
+- **Config**:
+  - Moved deployment sign resolution onto the hardware-backed convention in `deployment/config/hardware.yaml`
+  - Updated observation/action conversion to share the same sign resolver and reject mismatched export metadata
+  - Restored non-destructive `harold train` behavior when a tracked run or orphan processes already exist
+- **Duration**: single maintenance pass
+- **Result**: **PASS** - deployment no longer splits observation vs command shoulder semantics, and CLI relaunch no longer tears down active work
+- **Metrics**:
+  - `python3 -m py_compile common/policy_config.py deployment/inference/action_converter.py deployment/inference/observation_builder.py deployment/inference/harold_controller.py scripts/harold.py deployment/tests/test_inference.py deployment/tests/test_harold_cli.py`
+  - `pytest deployment/tests/test_inference.py deployment/tests/test_harold_cli.py -q`: 11 passed
+- **Notes**:
+  - The stale mirrored-shoulder config was in `deployment/config/cpg.yaml`; the Pi runtime, calibration sketch, standalone gait firmware, and streaming firmware all already treated shoulders as non-mirrored semantic joints.
+  - Export metadata with shoulder signs `[1, 1, 1, 1]` matched the real hardware path; the fix was to unify deployment around that convention rather than reintroduce mirrored shoulders in metadata.
+
+### SECURITY-2026-03-15: Public Repo Wi-Fi Secret Remediation
+- **Date**: 2026-03-15
+- **ID**: tracked root-level `.nmconnection` history scrub on `main` and `autoresearch/session-2026-03-14`
+- **Config**:
+  - Removed the tracked NetworkManager profile from git history with `git filter-repo --path <profile>.nmconnection --invert-paths`
+  - Rewrote historical SSID mentions with `git filter-repo --replace-text`
+  - Force-pushed rewritten `main` and `autoresearch/session-2026-03-14` with explicit lease checks
+- **Duration**: single maintenance pass
+- **Result**: **PASS** - public branch history no longer contains the tracked `.nmconnection` file or its Wi-Fi identifiers
+- **Notes**:
+  - The local `.nmconnection` file was left on disk as an ignored, untracked file so machine networking is not disrupted.
+  - A pre-rewrite bundle and working-tree patch were saved under `/tmp/harold-secret-cleanup.1ooni1/` during the remediation.
+
+### AUDIT-EXPORT-2026-03-15: 48D Export And Validation
+- **Date**: 2026-03-15
+- **ID**: `deployment/policy/harold_policy.onnx`, `deployment/policy/harold_policy.ts`, `deployment/policy/policy_metadata.json`
+- **Config**:
+  - Exported from `logs/skrl/harold_direct/terrain_64_2/checkpoints/best_agent.pt`
+  - Metadata derived from checkpoint normalization stats and canonical stance/config
+  - Desktop venv updated with `deployment/requirements.txt` so ONNX-side validation could run locally
+- **Duration**: single export plus validation pass
+- **Result**: **PASS** - export/deployment path now agrees on 48D
+- **Metrics**:
+  - `policy/validate_export.py`: ONNX vs reference `mean.max_abs=2.15e-06`
+  - `deployment/validation/validate_onnx_quick.py`: PASS
+  - `deployment/validation/validate_onnx_vs_sim.py --data deployment/validation/sim_episode.json`: PASS (20/20 timesteps)
+- **Notes**:
+  - Controller initialization now accepts regenerated 48D metadata and reaches the hardware-connect boundary without legacy-dimension failure.
+
+### EXP-257: Audit Phase 1 Flat Smoke
+- **Date**: 2026-03-15
+- **ID**: `2026-03-15_02-00-25_ppo_torch`
+- **Config**:
+  - Flat task, RL mode
+  - `python scripts/harold.py train --duration fast --num-envs 64`
+  - `HAROLD_POLICY_LOG_DIR=tmp/audit_phase1_policy_log_64d`
+- **Duration**: ~90s before manual stop
+- **Result**: **SMOKE PASS** - launcher, mandatory video, status reporting, and multi-env policy logging all worked
+- **Metrics**:
+  - `harold status`: running at ~12.9 avg it/s with 64 envs
+  - `harold validate EXP-257`: STANDING (`episode_length=599`, `upright_mean=0.9885`, `height_reward=0.9237`, `vx_w_mean=-0.0082`)
+- **Notes**:
+  - Video files written under `logs/skrl/harold_direct/2026-03-15_02-00-25_ppo_torch/videos/train/`
+  - Policy log smoke produced `tmp/audit_phase1_policy_log_64d/policy_steps.jsonl` with 504 entries
+  - Flat termination telemetry buckets were verified separately in `2026-03-15_02-10-19_ppo_torch` after the tensor-scalar logging fix.
+
+### EXP-259: Audit Phase 2 Rough Smoke
+- **Date**: 2026-03-15
+- **ID**: `2026-03-15_02-03-30_ppo_torch`
+- **Config**:
+  - Rough task, RL mode
+  - `python scripts/harold.py train --task rough --duration fast --num-envs 64`
+- **Duration**: ~78s before manual stop
+- **Result**: **SMOKE PASS** for launcher/video/randomization telemetry, **TASK FAIL** on current policy state
+- **Metrics**:
+  - `harold status`: SANITY_FAIL (`episode_length≈5`, `height_reward≈0.13`)
+  - TensorBoard emitted `terrain_level_{min,mean,max}` and `randomized_{friction,stiffness,damping,mass_scale}_mean`
+- **Notes**:
+  - Video fallback for non-flat tasks produced `rl-video-step-0-main.mp4`
+  - Rough reset path now starts cleanly with actual property mutation and terrain-span logging enabled.
+
 ### HW-CPG-2026-01-04: Baseline Comparison (Test 1-3)
 - **Date**: 2026-01-04
 - **ID**: `session_2026-01-04_18-40-39.csv`, `session_2026-01-04_18-41-11.csv`, `session_2026-01-04_18-43-41.csv`

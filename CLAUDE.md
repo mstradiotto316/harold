@@ -10,22 +10,24 @@ Project-level instructions for Claude Code sessions in this repository.
 
 ## Key Rules
 
-- **Video is mandatory** for all training runs (`--video` flag).
-- **Don't commit without asking first.**
+- **Video is mandatory** for every experiment — captured post-hoc via `harold record` (not during training). Training runs without video at high envs for throughput.
+- **Don't commit without asking first** — EXCEPT during `/autoresearch` sessions, where commits are part of the autonomous loop.
 - Use `python scripts/harold.py` for all training/monitoring -- no ad-hoc scripts.
 - Read `docs/memory/HARDWARE_CONSTRAINTS.md` before changing sim parameters.
+
+## Known Issues
+
+- **Coordinate frame** (RESOLVED): Investigated 2026-03-18/19 — no bug found. Identity quaternion `(1,0,0,0)` is correct; body +X = world +X = visual forward. A temporary 180° Z rotation (EXP-429) was reverted. See `COORDINATE_FRAME_BUG.md` for investigation details. Isaac Lab uses **(w, x, y, z)** quaternion format.
 
 ## Autoresearch (Autonomous Experimentation)
 
 Harold has an autoresearch system for running RL experiments autonomously, inspired by Karpathy's autoresearch.
 
-- **Strategy doc** (human edits): `docs/autoresearch/strategy.md`
-- **Agent protocol** (agent follows): `docs/autoresearch/AGENT_PROTOCOL.md`
-- **Parameter registry**: `docs/autoresearch/PARAMETER_REGISTRY.md`
-- **Helper script**: `scripts/autoresearch.py` (apply/revert/score/log)
+- **Program doc** (single source of truth): `docs/autoresearch/program.md`
+- **Helper script**: `scripts/autoresearch.py` (apply/revert/score/log/backfill)
 - **Results log**: `docs/autoresearch/results.tsv` (gitignored, append-only)
 
-To start an autoresearch session, read the agent protocol and follow the loop.
+To start an autoresearch session, run `/autoresearch` or read `program.md` and follow the loop.
 
 ## Skills
 

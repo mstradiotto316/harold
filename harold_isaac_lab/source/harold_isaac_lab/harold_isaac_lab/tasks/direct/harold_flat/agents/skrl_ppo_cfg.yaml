@@ -1,19 +1,18 @@
-seed: 38 #42
+seed: 42
 
+# Models: matched to Spot reference (IsaacLab)
 models:
   separate: False
   policy:
     class: GaussianMixin
     clip_actions: False
     clip_log_std: True
-    min_log_std: -0.36   # floor std ≈ 0.70 to preserve exploration during Phase-0
+    min_log_std: -20.0  # Session 54: matched Spot. Was -0.36 (floor std≈0.70) which prevented policy refinement.
     max_log_std: 2.0
     initial_log_std: 0.0
     network:
       - name: net
-        input: STATES
-        # EXP-092: Smaller [128,128,128] gave vx=0.039 with height=1.11 (WORSE)
-        # Reverted to original
+        input: OBSERVATIONS
         layers: [512, 256, 128]
         activations: elu
     output: ACTIONS
@@ -22,40 +21,43 @@ models:
     clip_actions: False
     network:
       - name: net
-        input: STATES
+        input: OBSERVATIONS
         layers: [512, 256, 128]
         activations: elu
     output: ONE
 
 memory:
   class: RandomMemory
-  memory_size: -1  # auto‑size same as agent:rollouts
+  memory_size: -1  # automatically determined (same as agent:rollouts)
 
+# PPO agent: matched to Spot reference (IsaacLab)
+# Session 54: aligned all parameters to Spot flat config.
+# Previous Harold config had 10 deviations from reference that may explain 700+ failed experiments.
 agent:
   class: PPO
-  rollouts: 24               # 24×8192≈196k samples/update
-  learning_epochs: 5         # passes per rollout
-  mini_batches: 8            # 196k/8 ≈ 24k samples/mini-batch (adjusted for 8192 envs)
-  discount_factor: 0.99      # gamma
-  lambda: 0.95               # tau
-  learning_rate: 5.0e-4      # Session 23: 3e-4 was SANITY_FAIL, 5e-4 optimal
-  learning_rate_scheduler: KLAdaptiveLR  # adaptive LR schedule
+  rollouts: 24
+  learning_epochs: 5
+  mini_batches: 4              # Spot reference. Was 32. 4096×24/4 = 24.6k samples/mini-batch.
+  discount_factor: 0.99
+  lambda: 0.95
+  learning_rate: 1.0e-03       # Spot reference. Was 7e-4. All references use 1e-3.
+  learning_rate_scheduler: KLAdaptiveLR
   learning_rate_scheduler_kwargs:
-    kl_threshold: 0.01      # match Anymal example
-  state_preprocessor: RunningStandardScaler   # enable input normalization for stability
+    kl_threshold: 0.01
+  state_preprocessor: null     # Spot reference. Was RunningStandardScaler. Only Harold normalized obs.
   state_preprocessor_kwargs: null
-  value_preprocessor: RunningStandardScaler  # normalize value
+  value_preprocessor: null     # Spot reference. Was RunningStandardScaler. Spot uses no preprocessors.
   value_preprocessor_kwargs: null
   random_timesteps: 0
   learning_starts: 0
-  grad_norm_clip: 1.0        # grad_norm
-  ratio_clip: 0.2            # e_clip - EXP-065: reverted to standard, longer training
-  value_clip: 0.2            # clip_value
+  grad_norm_clip: 1.0          # Spot reference. Was 0.5. Harold clipped gradients 2x too aggressively.
+  ratio_clip: 0.2
+  value_clip: 0.2
   clip_predicted_values: True
-  entropy_loss_scale: 0.01  # standard exploration
-  value_loss_scale: 1.0      # stronger critic weight for stable learning
-  kl_threshold: 0.0         # disable early-stop for policy updates
-  rewards_shaper_scale: 0.6  # increase reward shaping scale
+  entropy_loss_scale: 0.0025   # Spot reference. Was 0.01. Harold had 4x too much entropy bonus.
+  value_loss_scale: 0.5        # Spot reference. Was 1.0. Weaker critic lets policy lead.
+  kl_threshold: 0.0
+  rewards_shaper_scale: 1.0    # Spot reference. Was 0.6. No reward scaling.
   time_limit_bootstrap: False
   experiment:
     directory: "harold_direct"
@@ -65,5 +67,5 @@ agent:
 
 trainer:
   class: SequentialTrainer
-  timesteps: 15000           # ~15-20 min experiments
+  timesteps: 10000
   environment_info: log

@@ -16,7 +16,8 @@ from isaaclab.terrains.height_field import HfRandomUniformTerrainCfg, HfPyramidS
 from isaaclab.terrains.trimesh import MeshPlaneTerrainCfg, MeshRandomGridTerrainCfg, MeshPyramidStairsTerrainCfg, MeshInvertedPyramidStairsTerrainCfg
 
 
-# Custom terrain configuration for Harold - balanced mix of upward and downward terrain
+# Rough terrain bank for the Direct rough task.
+# The generator keeps rows ordered by difficulty, but the task samples across the full span.
 HAROLD_GENTLE_TERRAINS_CFG = TerrainGeneratorCfg(
     size=(8.0, 8.0),
     border_width=20.0,
@@ -226,7 +227,7 @@ class DomainRandomizationCfg:
     randomize_per_step: bool = True           # Apply per-step randomization (noise)
     
     # === PHYSICS RANDOMIZATION ===
-    randomize_friction: bool = True           # Randomize ground/foot friction
+    randomize_friction: bool = True           # Randomize contact material friction on reset
     friction_range: tuple = (0.4, 1.0)        # Range for static/dynamic friction
                                               # Base: 0.7, Range allows slippery to grippy surfaces
     
@@ -366,7 +367,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
         prim_path="/World/ground",
         terrain_type="generator",
         terrain_generator=HAROLD_GENTLE_TERRAINS_CFG,  # Use our custom gentle terrain
-        max_init_terrain_level=2, #9  # Enable all terrain levels (0-9)
+    max_init_terrain_level=None,  # Sample the full generated terrain range; no progression schedule here.
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
@@ -387,7 +388,7 @@ class HaroldIsaacLabEnvCfg(DirectRLEnvCfg):
         prim_path="/World/envs/env_.*/Robot/body",
         update_period=0.05,
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 0.0)),
-        attach_yaw_only=True,
+        ray_alignment="yaw",
         pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=(0.25, 0.25)),
         debug_vis=False,
         mesh_prim_paths=["/World/ground"],

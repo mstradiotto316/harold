@@ -233,7 +233,7 @@ class HaroldRewardsCfg:
         func=spot_mdp.air_time_reward,
         weight=14,
         params={
-            "mode_time": 0.30,
+            "mode_time": 0.25,
             "velocity_threshold": 0.3,
             "asset_cfg": SceneEntityCfg("robot"),
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*calf"),

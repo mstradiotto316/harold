@@ -94,6 +94,7 @@ TASK_JOINT_LIMITS_BY_CATEGORY = {
     "pushup": MECHANICAL_JOINT_LIMITS_BY_CATEGORY,
     "sim_flat_v1": FLAT_JOINT_LIMITS_BY_CATEGORY,  # Spot uses USD soft limits; placeholder for CLI compat
     "sim_flat_v2": FLAT_JOINT_LIMITS_BY_CATEGORY,
+    "harold_mgr": FLAT_JOINT_LIMITS_BY_CATEGORY,
 }
 
 DEFAULT_RL_POSE = [

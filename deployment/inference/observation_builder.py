@@ -1,18 +1,16 @@
 """Observation Builder for Harold Robot.
 
-Constructs the 48D observation vector from hardware sensors:
-    - IMU: linear velocity, angular velocity, projected gravity
-    - Servo feedback: joint positions, joint velocities
-    - Control state: commands, previous targets
+Constructs the 48D observation vector from hardware sensors.
+Layout matches the manager-based training env (HaroldObservationsCfg in flat_env_cfg.py).
 
 Observation layout (48D):
-    [0:3]   root_lin_vel_b      - Body linear velocity (m/s)
+    [0:3]   root_lin_vel_b      - Body linear velocity (ZEROED — velocity-blind policy)
     [3:6]   root_ang_vel_b      - Body angular velocity (rad/s)
     [6:9]   projected_gravity_b - Gravity in body frame (normalized)
-    [9:21]  joint_pos_relative  - Joint angles - default pose (rad)
-    [21:33] joint_vel           - Joint velocities (rad/s)
-    [33:36] commands            - Velocity commands [vx, vy, yaw_rate]
-    [36:48] prev_target_delta   - Previous policy output
+    [9:12]  velocity_commands   - [vx, vy, yaw_rate] (m/s, rad/s)
+    [12:24] joint_pos_relative  - Joint angles - default pose (rad)
+    [24:36] joint_vel           - Joint velocities (rad/s)
+    [36:48] last_action         - Previous raw policy output (before EMA/scaling)
 """
 import time
 import sys
@@ -59,7 +57,7 @@ class ObservationConfig:
             self.joint_sign = np.array(JOINT_SIGN, dtype=np.float32)
 
         if self.default_commands is None:
-            # NOTE: Training used commands around 0.3 m/s (see running_mean[33])
+            # NOTE: Training used commands around 0.3 m/s (see running_mean[9])
             # Using 0.1 creates extreme normalized values
             self.default_commands = np.array([0.3, 0.0, 0.0], dtype=np.float32)
 
@@ -108,8 +106,8 @@ class ObservationBuilder:
         self._prev_time: Optional[float] = None
         self._joint_vel = np.zeros(12, dtype=np.float32)
 
-        # Previous targets (for observation)
-        self._prev_targets = np.zeros(12, dtype=np.float32)
+        # Previous raw policy output (for observation [36:48])
+        self._prev_raw_action = np.zeros(12, dtype=np.float32)
 
         self.last_imu_data: Optional[IMUData] = None
         self.last_telemetry: Optional[Telemetry] = None
@@ -138,22 +136,24 @@ class ObservationBuilder:
         imu_data = self.imu.read()
         self.last_imu_data = imu_data
 
-        # [0:3] Body linear velocity (m/s)
-        # VELOCITY-BLIND: Zeroed to match training (zero_lin_vel observation).
-        # Hardware IMU (MPU6050) dead-reckons velocity via accelerometer integration
-        # with 0.95 decay — produces noisy, drifting signal unsuitable for policy input.
-        # The policy was trained without velocity feedback (standard for low-cost quadrupeds).
+        # [0:3] Body linear velocity — ZEROED (velocity-blind policy).
+        # Hardware IMU (MPU6050) dead-reckons via accel integration with 0.95 decay,
+        # producing noisy, drifting signal. Policy trained without velocity feedback.
         obs[0:3] = np.zeros(3)
 
         # [3:6] Body angular velocity (rad/s)
         obs[3:6] = imu_data.gyro if imu_data.valid else np.zeros(3)
 
         # [6:9] Projected gravity (normalized)
-        # NOTE: Hardware IMU uses Z-up convention (+1 for level)
-        # Simulation uses Z-down convention (-1 for level)
-        # We must flip the sign to match training
+        # Hardware IMU: Z-up (+1 level), Sim: Z-down (-1 level) → flip sign
         projected_gravity = imu_data.projected_gravity if imu_data.valid else np.array([0, 0, 1])
-        obs[6:9] = -projected_gravity  # Flip sign for sim convention
+        obs[6:9] = -projected_gravity
+
+        # [9:12] Velocity commands
+        if commands is not None:
+            obs[9:12] = commands
+        else:
+            obs[9:12] = self.cfg.default_commands
 
         # Read servo telemetry
         telem = self.esp32.read_telemetry()
@@ -161,65 +161,37 @@ class ObservationBuilder:
         positions = telem.positions if telem.valid else np.zeros(12)
 
         # Convert hardware positions to RL-convention relative positions:
-        # 1. Compute relative position in hardware convention
-        # 2. Apply sign conversion: rl_relative = hw_relative * joint_sign
-        # This is needed because thighs/calves have opposite sign in RL vs hardware
+        # hw_relative → rl_relative via joint_sign (thighs/calves are inverted)
         hw_relative = positions - self.cfg.hw_default_pose
         rl_relative = hw_relative * self.cfg.joint_sign
 
-        # [9:21] Joint positions relative to default pose (RL convention)
-        # Optionally blend with training mean for smoother startup
+        # [12:24] Joint positions relative to default pose (RL convention)
         if training_mean is not None and joint_pos_blend < 1.0:
-            obs[9:21] = joint_pos_blend * rl_relative + (1 - joint_pos_blend) * training_mean[9:21]
+            obs[12:24] = joint_pos_blend * rl_relative + (1 - joint_pos_blend) * training_mean[12:24]
         else:
-            obs[9:21] = rl_relative
+            obs[12:24] = rl_relative
 
-        # [21:33] Joint velocities (estimated via differentiation)
-        # Also needs sign conversion since velocities are derived from HW positions
+        # [24:36] Joint velocities (estimated via differentiation, sign-corrected)
         hw_joint_vel = self._estimate_joint_velocities(positions, time_sec)
         rl_joint_vel = hw_joint_vel * self.cfg.joint_sign
-        obs[21:33] = rl_joint_vel
+        obs[24:36] = rl_joint_vel
 
-        # [33:36] Velocity commands
-        if commands is not None:
-            obs[33:36] = commands
-        else:
-            obs[33:36] = self.cfg.default_commands
-
-        # [36:48] Previous target deltas
-        obs[36:48] = self._prev_targets
+        # [36:48] Previous raw policy output (before EMA/scaling)
+        obs[36:48] = self._prev_raw_action
 
         return obs
 
-    def update_prev_target_delta(
-        self,
-        rl_targets: np.ndarray,
-        default_pose: np.ndarray,
-        training_mean: np.ndarray | None = None,
-        blend_factor: float = 0.3
-    ) -> None:
-        """Update previous target delta for next observation.
+    def update_prev_action(self, raw_action: np.ndarray) -> None:
+        """Store the raw policy output for the next observation's [36:48] slot.
 
-        IMPORTANT: Simulation stores prev_target_delta = processed_actions - default_pose
-        This is the final targets (in RL convention) minus the default pose.
-
-        To prevent feedback divergence, we blend actual values with training mean.
+        Training's mdp.last_action returns env.action_manager.action — the raw
+        network output BEFORE EMA smoothing, scaling, or offset. We must store
+        the same quantity here: the 12D ONNX 'mean' output, unprocessed.
 
         Args:
-            rl_targets: 12D final joint targets in RL convention
-            default_pose: 12D default pose (hw_default_pose, matches simulation)
-            training_mean: 12D training mean for prev_targets (optional, for blending)
-            blend_factor: How much to trust actual values vs training mean (0=all training, 1=all actual)
+            raw_action: 12D raw policy network output (ONNX 'mean')
         """
-        delta = (rl_targets - default_pose).astype(np.float32)
-
-        if training_mean is not None:
-            # Blend actual delta with training mean to prevent divergence
-            # This keeps normalized values closer to 0
-            self._prev_targets = blend_factor * delta + (1 - blend_factor) * training_mean
-        else:
-            # No blending - use actual values (may cause divergence)
-            self._prev_targets = delta
+        self._prev_raw_action = np.asarray(raw_action, dtype=np.float32)
 
     def _estimate_joint_velocities(
         self,
@@ -257,21 +229,21 @@ class ObservationBuilder:
 
         return self._joint_vel
 
-    def reset(self, prev_targets_init: np.ndarray | None = None) -> None:
+    def reset(self, prev_action_init: np.ndarray | None = None) -> None:
         """Reset observation builder state.
 
         Args:
-            prev_targets_init: Optional initial values for prev_targets.
-                              If None, uses zeros. For better stability,
-                              initialize to training mean values.
+            prev_action_init: Optional initial values for prev_raw_action [36:48].
+                             If None, uses zeros. For stability, initialize to
+                             training mean of last_action (running_mean[36:48]).
         """
         self._prev_positions = None
         self._prev_time = None
         self._joint_vel = np.zeros(12, dtype=np.float32)
-        if prev_targets_init is not None:
-            self._prev_targets = prev_targets_init.astype(np.float32)
+        if prev_action_init is not None:
+            self._prev_raw_action = prev_action_init.astype(np.float32)
         else:
-            self._prev_targets = np.zeros(12, dtype=np.float32)
+            self._prev_raw_action = np.zeros(12, dtype=np.float32)
 
 
 def normalize_observation(

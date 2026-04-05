@@ -270,24 +270,39 @@ def resolve_export_training_config(checkpoint_path: Path) -> ExportTrainingConfi
     )
 
 
-def load_reference_policy(checkpoint_path: Path) -> tuple[NormalizedPolicy, torch.Tensor, torch.Tensor, int]:
-    """Load the checkpoint and rebuild the normalized policy."""
+def load_reference_policy(checkpoint_path: Path) -> tuple[torch.nn.Module, torch.Tensor | None, torch.Tensor | None, int]:
+    """Load the checkpoint and rebuild the policy for export.
+
+    If the checkpoint contains state_preprocessor (running stats), wraps with
+    NormalizedPolicy so ONNX includes normalization internally.
+
+    If state_preprocessor is absent (state_preprocessor: null in training config),
+    returns the raw policy — the ONNX model will take raw observations directly.
+    """
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     policy_state = checkpoint["policy"]
-    running_mean = checkpoint["state_preprocessor"]["running_mean"].float()
-    running_var = checkpoint["state_preprocessor"]["running_variance"].float()
 
     obs_dim, hidden_dims, action_dim = infer_policy_dims(policy_state)
-    if running_mean.numel() != obs_dim:
-        raise ValueError(
-            f"Checkpoint normalization stats are {running_mean.numel()}D but the policy expects {obs_dim}D observations."
-        )
 
     base = SharedPolicyValue(obs_dim=obs_dim, hidden_dims=hidden_dims, action_dim=action_dim)
     base.load_state_dict(policy_state)
     base.eval()
-    wrapper = NormalizedPolicy(base, running_mean, running_var).eval()
-    return wrapper, running_mean, running_var, action_dim
+
+    if "state_preprocessor" in checkpoint:
+        running_mean = checkpoint["state_preprocessor"]["running_mean"].float()
+        running_var = checkpoint["state_preprocessor"]["running_variance"].float()
+        if running_mean.numel() != obs_dim:
+            raise ValueError(
+                f"Checkpoint normalization stats are {running_mean.numel()}D "
+                f"but the policy expects {obs_dim}D observations."
+            )
+        wrapper = NormalizedPolicy(base, running_mean, running_var).eval()
+        print(f"  Loaded normalized policy ({obs_dim}D obs, {action_dim}D action)")
+        return wrapper, running_mean, running_var, action_dim
+    else:
+        # No state preprocessor — policy takes raw observations
+        print(f"  Loaded raw policy (no normalization, {obs_dim}D obs, {action_dim}D action)")
+        return base, None, None, action_dim
 
 
 def _compute_effective_action_scale(training_cfg: ExportTrainingConfig) -> list[float]:
@@ -333,19 +348,31 @@ def _compute_effective_action_scale(training_cfg: ExportTrainingConfig) -> list[
 
 def build_policy_metadata(
     checkpoint_path: Path,
-    running_mean: torch.Tensor,
-    running_var: torch.Tensor,
+    running_mean: torch.Tensor | None,
+    running_var: torch.Tensor | None,
     log_std_parameter: torch.Tensor,
+    obs_dim: int,
 ) -> dict[str, object]:
     """Build deployment metadata from the active training configuration."""
     training_cfg = resolve_export_training_config(checkpoint_path)
     effective_scale = _compute_effective_action_scale(training_cfg)
+
+    # When state_preprocessor is null, there are no running stats.
+    # Store zeros/ones so downstream code can still index into them,
+    # but mark normalized=False so deployment knows not to normalize.
+    has_normalization = running_mean is not None
+    if running_mean is None:
+        running_mean = torch.zeros(obs_dim)
+    if running_var is None:
+        running_var = torch.ones(obs_dim)
+
     return {
         "schema_version": 3,
-        "observation_dim": int(running_mean.numel()),
+        "observation_dim": obs_dim,
         "action_dim": len(JOINT_ORDER),
         "action_scale": training_cfg.action_scale,
         "effective_action_scale": effective_scale,
+        "normalized": has_normalization,
         "joint_order": JOINT_ORDER,
         "default_joint_pos": load_rl_default_pose_dict(),
         "joint_range": training_cfg.joint_range,
@@ -365,17 +392,19 @@ def build_policy_metadata(
 
 def export_policy(checkpoint_path: Path, output_dir: Path) -> None:
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    wrapper, running_mean, running_var, _ = load_reference_policy(checkpoint_path)
+    model, running_mean, running_var, action_dim = load_reference_policy(checkpoint_path)
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    example = torch.zeros(1, running_mean.numel(), dtype=torch.float32)
+    # Infer obs_dim from the first layer weight
+    obs_dim = checkpoint["policy"]["net_container.0.weight"].shape[1]
+    example = torch.zeros(1, obs_dim, dtype=torch.float32)
 
-    traced = torch.jit.trace(wrapper, example)
+    traced = torch.jit.trace(model, example)
     traced.save(str(output_dir / "harold_policy.ts"))
 
     torch.onnx.export(
-        wrapper,
+        model,
         example,
         str(output_dir / "harold_policy.onnx"),
         input_names=["obs"],
@@ -394,8 +423,12 @@ def export_policy(checkpoint_path: Path, output_dir: Path) -> None:
         running_mean=running_mean,
         running_var=running_var,
         log_std_parameter=checkpoint["policy"]["log_std_parameter"],
+        obs_dim=obs_dim,
     )
-    policy_meta["running_count"] = int(checkpoint["state_preprocessor"]["current_count"].item())
+    if "state_preprocessor" in checkpoint:
+        policy_meta["running_count"] = int(checkpoint["state_preprocessor"]["current_count"].item())
+    else:
+        policy_meta["running_count"] = 0
     with open(output_dir / "policy_metadata.json", "w", encoding="utf-8") as handle:
         json.dump(policy_meta, handle, indent=2)
 

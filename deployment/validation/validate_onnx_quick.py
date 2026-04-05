@@ -47,19 +47,20 @@ def resolve_checkpoint_path() -> Path | None:
 def load_pytorch_model(checkpoint_path: Path):
     """Load PyTorch model from checkpoint."""
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-
-    # Extract running stats
-    running_mean = checkpoint["state_preprocessor"]["running_mean"].numpy()
-    running_var = checkpoint["state_preprocessor"]["running_variance"].numpy()
-
-    # Extract policy weights
     policy_state = checkpoint["policy"]
 
-    print(f"Loaded checkpoint: {checkpoint_path.name}")
-    print(f"  Running mean shape: {running_mean.shape}")
-    print(f"  Running var shape: {running_var.shape}")
-    print(f"  Policy keys: {list(policy_state.keys())}")
+    if "state_preprocessor" in checkpoint:
+        running_mean = checkpoint["state_preprocessor"]["running_mean"].numpy()
+        running_var = checkpoint["state_preprocessor"]["running_variance"].numpy()
+        print(f"Loaded checkpoint: {checkpoint_path.name} (with normalization)")
+        print(f"  Running mean shape: {running_mean.shape}")
+    else:
+        obs_dim = policy_state["net_container.0.weight"].shape[1]
+        running_mean = np.zeros(obs_dim, dtype=np.float32)
+        running_var = np.ones(obs_dim, dtype=np.float32)
+        print(f"Loaded checkpoint: {checkpoint_path.name} (raw, no normalization)")
 
+    print(f"  Policy keys: {list(policy_state.keys())}")
     return checkpoint, running_mean, running_var
 
 
@@ -212,11 +213,15 @@ def main():
     print(f"  ONNX output range: [{onnx_actions.min():.4f}, {onnx_actions.max():.4f}]")
 
     # Run PyTorch inference if available
-    # PyTorch model expects NORMALIZED observations (no normalization wrapper)
+    # When no normalization: PyTorch sees raw obs (same as ONNX)
+    # When normalized: PyTorch model has no wrapper, so needs normalized obs
+    has_normalization = "state_preprocessor" in checkpoint
     if pytorch_model is not None:
-        print("\n6. Running PyTorch inference (with NORMALIZED observations)...")
+        obs_for_pytorch = normalized_observations if has_normalization else raw_observations
+        label = "NORMALIZED" if has_normalization else "RAW"
+        print(f"\n6. Running PyTorch inference (with {label} observations)...")
         with torch.no_grad():
-            obs_tensor = torch.from_numpy(normalized_observations.astype(np.float32))
+            obs_tensor = torch.from_numpy(obs_for_pytorch.astype(np.float32))
             pytorch_actions = pytorch_model(obs_tensor).numpy()
 
         print(f"  PyTorch output shape: {pytorch_actions.shape}")

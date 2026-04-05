@@ -92,13 +92,7 @@ def main():
 
         # Send to robot
         esp32.send_targets(hw_targets)
-        prev_targets_training_mean = running_mean[36:48]
-        obs_builder.update_prev_target_delta(
-            rl_targets,
-            action_conv.get_hw_default_pose(),
-            training_mean=prev_targets_training_mean,
-            blend_factor=0.1,
-        )
+        obs_builder.update_prev_action(action_raw)
 
         loop_count += 1
 
@@ -106,7 +100,7 @@ def main():
         if loop_count % 10 == 0:
             # Key observations
             gravity_z = obs_norm[8]  # Gravity Z (should be ~-0.14)
-            joint_pos_0 = obs_norm[9]  # First joint pos
+            joint_pos_0 = obs_norm[12]  # First joint pos (now at [12:24])
 
             # Action stats
             action_min = action_raw.min()

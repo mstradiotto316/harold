@@ -276,7 +276,7 @@ class HaroldRewardsCfg:
     action_smoothness = RewardTermCfg(func=spot_mdp.action_smoothness_penalty, weight=-1.0)
     air_time_variance = RewardTermCfg(
         func=spot_mdp.air_time_variance_penalty,
-        weight=-0.3,
+        weight=-0.5,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*calf")},
     )
     base_motion = RewardTermCfg(

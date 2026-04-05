@@ -121,7 +121,8 @@ class HaroldObservationsCfg:
         velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
         joint_pos = ObsTerm(
             func=mdp.joint_pos_rel, params={"asset_cfg": SceneEntityCfg("robot")},
-            noise=Unoise(n_min=-0.05, n_max=0.05),
+            # Increased from ±0.05 to ±0.08 to cover ST3215 midpoint drift (~5°=0.087 rad)
+            noise=Unoise(n_min=-0.08, n_max=0.08),
         )
         joint_vel = ObsTerm(
             func=mdp.joint_vel_rel, params={"asset_cfg": SceneEntityCfg("robot")},
@@ -146,8 +147,9 @@ class HaroldEventCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-            "static_friction_range": (0.3, 1.0),
-            "dynamic_friction_range": (0.3, 0.8),
+            # Wider range for sim-to-real: carpet (high) vs hardwood (low)
+            "static_friction_range": (0.2, 1.2),
+            "dynamic_friction_range": (0.2, 1.0),
             "restitution_range": (0.0, 0.0),
             "num_buckets": 64,
         },
@@ -166,14 +168,16 @@ class HaroldEventCfg:
         },
     )
 
-    # reset
+    # interval — random external forces (lateral pushes, roll torques)
+    # Hardware testing showed lateral falls; train with sustained lateral forces.
     base_external_force_torque = EventTerm(
         func=mdp.apply_external_force_torque,
-        mode="reset",
+        mode="interval",
+        interval_range_s=(6.0, 12.0),
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*body"),
-            "force_range": (0.0, 0.0),
-            "torque_range": (-0.0, 0.0),
+            "force_range": (-2.0, 2.0),   # ~1g lateral force on 2kg robot
+            "torque_range": (-0.3, 0.3),  # Small roll/pitch torques
         },
     )
 
@@ -204,14 +208,15 @@ class HaroldEventCfg:
         },
     )
 
-    # interval
+    # interval — velocity perturbations (stronger lateral, more frequent)
+    # Hardware testing: robot fell sideways. Stronger Y perturbations force lateral recovery.
     push_robot = EventTerm(
         func=mdp.push_by_setting_velocity,
         mode="interval",
-        interval_range_s=(8.0, 12.0),
+        interval_range_s=(5.0, 10.0),
         params={
             "asset_cfg": SceneEntityCfg("robot"),
-            "velocity_range": {"x": (-0.4, 0.4), "y": (-0.4, 0.4)},
+            "velocity_range": {"x": (-0.5, 0.5), "y": (-0.6, 0.6)},
         },
     )
 

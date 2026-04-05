@@ -265,7 +265,7 @@ class HaroldRewardsCfg:
         params={
             "std": 0.1,
             "max_err": 0.2,
-            "velocity_threshold": 0.2,
+            "velocity_threshold": 0.3,
             "synced_feet_pair_names": (("fl_calf", "br_calf"), ("fr_calf", "bl_calf")),
             "asset_cfg": SceneEntityCfg("robot"),
             "sensor_cfg": SceneEntityCfg("contact_forces"),

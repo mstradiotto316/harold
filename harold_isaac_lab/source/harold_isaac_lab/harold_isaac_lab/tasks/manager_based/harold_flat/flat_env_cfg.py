@@ -255,7 +255,7 @@ class HaroldRewardsCfg:
         params={
             "std": 0.02,
             "tanh_mult": 2.0,
-            "target_height": 0.07,
+            "target_height": 0.08,
             "asset_cfg": SceneEntityCfg("robot", body_names=".*calf"),
         },
     )

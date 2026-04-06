@@ -30,7 +30,6 @@ from isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import Lo
 
 # Harold-specific MDP components
 from .mdp.actions import EMAJointPositionActionCfg
-from .mdp.observations import zero_lin_vel
 
 # Harold robot config
 from .harold import HAROLD_V4_CFG
@@ -102,13 +101,14 @@ class HaroldObservationsCfg:
         for sim-to-real robustness. enable_corruption=True applies noise per step.
         """
 
-        # Velocity-blind: zeros instead of true velocity.
-        # Hardware IMU (MPU6050) dead-reckons lin_vel via accelerometer integration
-        # with 0.95 decay — produces noisy, drifting, physically unrealistic signal.
-        # Training without velocity feedback is standard for low-cost quadrupeds.
-        # The velocity tracking REWARD still uses true physics velocity.
+        # Velocity feedback: true velocity with noise to match leg odometry accuracy.
+        # Previously zeroed (velocity-blind), but this prevented the policy from
+        # tracking velocity commands. Now uses ground-truth velocity + noise in sim;
+        # deployment provides velocity via leg odometry (FK + Jacobian from joint encoders).
+        # Noise range ±0.2 m/s covers expected leg odometry estimation error.
         base_lin_vel = ObsTerm(
-            func=zero_lin_vel, params={"asset_cfg": SceneEntityCfg("robot")},
+            func=mdp.base_lin_vel, params={"asset_cfg": SceneEntityCfg("robot")},
+            noise=Unoise(n_min=-0.2, n_max=0.2),
         )
         base_ang_vel = ObsTerm(
             func=mdp.base_ang_vel, params={"asset_cfg": SceneEntityCfg("robot")},

@@ -24,9 +24,10 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from common.policy_config import JOINT_SIGN, resolve_deployment_joint_sign
+from common.policy_config import JOINT_SIGN, DEFAULT_RL_POSE, resolve_deployment_joint_sign
 from drivers.imu_reader_rpi5 import IMUReaderRPi5, IMUData
 from drivers.esp32_serial import ESP32Interface, Telemetry
+from inference.leg_odometry import LegOdometry
 from inference.stance import load_hw_default_pose
 
 
@@ -101,6 +102,10 @@ class ObservationBuilder:
         self.esp32 = esp32
         self.cfg = config or ObservationConfig()
 
+        # Leg odometry for velocity estimation (replaces velocity-blind zeros)
+        self._leg_odom = LegOdometry()
+        self._rl_default_pose = np.array(DEFAULT_RL_POSE, dtype=np.float32)
+
         # State for velocity estimation
         self._prev_positions: Optional[np.ndarray] = None
         self._prev_time: Optional[float] = None
@@ -136,10 +141,10 @@ class ObservationBuilder:
         imu_data = self.imu.read()
         self.last_imu_data = imu_data
 
-        # [0:3] Body linear velocity — ZEROED (velocity-blind policy).
-        # Hardware IMU (MPU6050) dead-reckons via accel integration with 0.95 decay,
-        # producing noisy, drifting signal. Policy trained without velocity feedback.
-        obs[0:3] = np.zeros(3)
+        # [0:3] Body linear velocity via leg odometry.
+        # Computed from joint encoder FK + Jacobian during stance phases.
+        # Replaces the previous velocity-blind approach (zeros).
+        # Populated below after joint positions/velocities are computed.
 
         # [3:6] Body angular velocity (rad/s)
         obs[3:6] = imu_data.gyro if imu_data.valid else np.zeros(3)
@@ -175,6 +180,12 @@ class ObservationBuilder:
         hw_joint_vel = self._estimate_joint_velocities(positions, time_sec)
         rl_joint_vel = hw_joint_vel * self.cfg.joint_sign
         obs[24:36] = rl_joint_vel
+
+        # [0:3] Body linear velocity via leg odometry (uses joint pos + vel computed above)
+        # Convert rl_relative back to absolute RL angles for FK
+        rl_absolute = self._rl_default_pose + rl_relative
+        servo_loads = telem.loads if (telem.valid and telem.loads is not None) else None
+        obs[0:3] = self._leg_odom.update(rl_absolute, rl_joint_vel, servo_loads)
 
         # [36:48] Previous raw policy output (before EMA/scaling)
         obs[36:48] = self._prev_raw_action
@@ -240,6 +251,7 @@ class ObservationBuilder:
         self._prev_positions = None
         self._prev_time = None
         self._joint_vel = np.zeros(12, dtype=np.float32)
+        self._leg_odom.reset()
         if prev_action_init is not None:
             self._prev_raw_action = prev_action_init.astype(np.float32)
         else:

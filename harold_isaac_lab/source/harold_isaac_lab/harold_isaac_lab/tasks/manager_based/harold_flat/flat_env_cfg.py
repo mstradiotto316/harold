@@ -231,7 +231,7 @@ class HaroldRewardsCfg:
     # -- task rewards
     air_time = RewardTermCfg(
         func=spot_mdp.air_time_reward,
-        weight=16,
+        weight=14,
         params={
             "mode_time": 0.25,
             "velocity_threshold": 0.3,
@@ -241,7 +241,7 @@ class HaroldRewardsCfg:
     )
     base_angular_velocity = RewardTermCfg(
         func=spot_mdp.base_angular_velocity_reward,
-        weight=10,
+        weight=8,
         params={"std": 2.0, "asset_cfg": SceneEntityCfg("robot")},
     )
     base_linear_velocity = RewardTermCfg(
@@ -261,7 +261,7 @@ class HaroldRewardsCfg:
     )
     gait = RewardTermCfg(
         func=spot_mdp.GaitReward,
-        weight=20,
+        weight=22,
         params={
             "std": 0.1,
             "max_err": 0.2,

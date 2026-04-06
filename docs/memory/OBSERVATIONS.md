@@ -1,8 +1,8 @@
 # Harold Observations & Insights
 
-## 2026-04-05: Sim-to-real DR + reward tuning + duration — 10 KEEPs, reward 793.2
+## 2026-04-05: Sim-to-real DR + reward tuning + duration — 13 KEEPs, reward 854.6
 
-**Hardware-informed DR + reward tuning + training duration pushed Harold from EXP-875 (reward=701.4) to EXP-905 (reward=793.2, +13.1%) with much harder DR.**
+**Hardware-informed DR + reward tuning + training duration pushed Harold from EXP-875 (reward=701.4) to EXP-921 (reward=854.6, +21.8%) with much harder DR.**
 
 Key findings:
 - **Phase 1+2 DR only costs 2.9%**: Stronger pushes (Y±0.6), external forces (±2N), wider friction (0.2-1.2), obs noise (±0.08) — only dropped reward from 701.4 to 681.2.
@@ -17,8 +17,13 @@ Key findings:
 - **60-min training (EXP-905)**: +1.9% further. Gait 18.04/20 (near max), air_time 6.09 (best ever). No belly-shuffling — balanced rewards prevent degeneration that plagued old config.
 - **DISCARD insights**: smoothness -1.5 (over-penalized), foot_slip -0.5 (crouched stance), episode_length 30s (no benefit), learning_epochs 12 (overfit), clearance_weight 4 (orientation 2x worse), shaper 0.25 (orientation regression), clearance_target 0.08 (negligible benefit)
 - **Seed-robust**: seed 123 produces 756.6 vs seed 42's 752.6 (+0.5%) — config generalizes
+- **Clearance+orientation combo (EXP-918)**: clearance 3.5 + orientation -5.5 = reward 795.5. User's TensorBoard min-reward spike observation correctly predicted convergence after early stop.
+- **gait_weight 22 (EXP-919)**: +10% gait quality but -30% orientation. Forward pitch is structural to strong gait enforcement.
+- **velocity_weight 16 (EXP-921)**: BREAKTHROUGH — reward 854.6, velocity +13.4%, AND orientation fixed (+37%). Faster walking = better dynamic stability.
+- **Orientation -6.0 paradox**: Stronger orientation penalty with gait=22 produces *worse* final orientation (-0.278 vs -0.247). The policy fights through the penalty.
+- **Key insight**: Velocity is the lever that fixes orientation — not orientation penalty strength. Faster forward motion stabilizes the body dynamically.
 
-Current best config (EXP-905, 60-min training): gait=20, vel=14, angular=8, air_time=14, clearance=3.0, joint_pos=-0.4, smoothness=-1.0, orientation=-5.0, motion=-1.5, torques=-2e-3, shaper=0.3, entropy=0.005
+Current best config (EXP-921, 60-min training): gait=22, vel=16, angular=8, air_time=14, clearance=3.5, joint_pos=-0.4, smoothness=-1.0, orientation=-5.5, motion=-1.5, torques=-2e-3, shaper=0.3, entropy=0.005
 
 ## 2026-04-04: Reward weight tuning + PPO — 7 KEEPs, reward 701.4
 

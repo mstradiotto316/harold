@@ -1,8 +1,8 @@
 # Harold Observations & Insights
 
-## 2026-04-05: Sim-to-real DR + reward tuning + duration — 13 KEEPs, reward 854.6
+## 2026-04-05/06: Sim-to-real DR + reward scaling — 15 KEEPs, reward 854.6 (deploy) / 910.3 (sim max)
 
-**Hardware-informed DR + reward tuning + training duration pushed Harold from EXP-875 (reward=701.4) to EXP-921 (reward=854.6, +21.8%) with much harder DR.**
+**Hardware-informed DR + positive reward weight scaling pushed Harold from EXP-875 (reward=701.4) to EXP-921 (reward=854.6, +21.8% deploy candidate) and EXP-923 (reward=910.3, +29.8% sim max) with much harder DR. 38 experiments, 15 KEEPs.**
 
 Key findings:
 - **Phase 1+2 DR only costs 2.9%**: Stronger pushes (Y±0.6), external forces (±2N), wider friction (0.2-1.2), obs noise (±0.08) — only dropped reward from 701.4 to 681.2.

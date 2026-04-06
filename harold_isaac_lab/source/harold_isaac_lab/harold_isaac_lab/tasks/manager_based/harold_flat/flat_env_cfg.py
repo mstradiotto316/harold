@@ -261,7 +261,7 @@ class HaroldRewardsCfg:
     )
     gait = RewardTermCfg(
         func=spot_mdp.GaitReward,
-        weight=20,
+        weight=22,
         params={
             "std": 0.1,
             "max_err": 0.2,

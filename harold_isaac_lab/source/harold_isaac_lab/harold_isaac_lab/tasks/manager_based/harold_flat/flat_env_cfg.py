@@ -231,7 +231,7 @@ class HaroldRewardsCfg:
     # -- task rewards
     air_time = RewardTermCfg(
         func=spot_mdp.air_time_reward,
-        weight=14,
+        weight=5,
         params={
             "mode_time": 0.25,
             "velocity_threshold": 0.3,
@@ -251,7 +251,7 @@ class HaroldRewardsCfg:
     )
     foot_clearance = RewardTermCfg(
         func=spot_mdp.foot_clearance_reward,
-        weight=3.5,
+        weight=1.0,
         params={
             "std": 0.02,
             "tanh_mult": 2.0,
@@ -261,7 +261,7 @@ class HaroldRewardsCfg:
     )
     gait = RewardTermCfg(
         func=spot_mdp.GaitReward,
-        weight=22,
+        weight=10,
         params={
             "std": 0.1,
             "max_err": 0.2,

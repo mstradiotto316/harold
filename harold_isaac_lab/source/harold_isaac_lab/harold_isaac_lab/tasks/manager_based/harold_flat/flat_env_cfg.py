@@ -231,7 +231,7 @@ class HaroldRewardsCfg:
     # -- task rewards
     air_time = RewardTermCfg(
         func=spot_mdp.air_time_reward,
-        weight=5,
+        weight=8,
         params={
             "mode_time": 0.25,
             "velocity_threshold": 0.3,

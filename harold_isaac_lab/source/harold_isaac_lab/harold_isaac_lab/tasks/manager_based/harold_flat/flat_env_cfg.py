@@ -241,7 +241,7 @@ class HaroldRewardsCfg:
     )
     base_angular_velocity = RewardTermCfg(
         func=spot_mdp.base_angular_velocity_reward,
-        weight=7,
+        weight=6,
         params={"std": 2.0, "asset_cfg": SceneEntityCfg("robot")},
     )
     base_linear_velocity = RewardTermCfg(

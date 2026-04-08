@@ -1,5 +1,18 @@
 # Harold Observations & Insights
 
+## 2026-04-07/08: Servo drift DR + angular velocity tuning — 7+ KEEPs, reward 758.1
+
+**Servo drift domain randomization validated free from ±0.05 to ±0.15 rad, then angular velocity weight optimization pushed reward to 758.1. 7 consecutive KEEPs.**
+
+Key findings:
+- **Servo drift DR is completely free**: ±0.05, ±0.08, ±0.10, ±0.15 rad all produce identical reward (~724) with standard training. Settled at ±0.10 for deployment (covers hardware with 15% margin).
+- **Fast vs standard training**: Fast (15 min) with DR costs ~7% reward. Standard (60 min) fully recovers. DR requires longer training but the steady-state performance is identical.
+- **HaroldFlatEnv**: Custom env subclass adds displacement metrics (TensorBoard) + servo drift (per-episode random joint offsets). Entry point changed in `__init__.py`.
+- **angular_velocity_weight 4→5→6**: All KEEP, monotonic improvement. Yaw tracking +55% (3.39→5.27). Critical for hardware turning.
+- **Deployment candidate**: EXP-945 (reward 758.1, vel 22.54, yaw 5.27, drift ±0.10)
+
+Current best config: vel=25, gait=12, angular=6, air_time=8, clearance=1.0, orient=-3.0, joint_pos=-0.7, motion=-0.5, smoothness=-0.5, action_scale=0.4, servo_drift=0.10
+
 ## 2026-04-05/06: Sim-to-real DR + reward scaling — 15 KEEPs, reward 854.6 (deploy) / 910.3 (sim max)
 
 **Hardware-informed DR + positive reward weight scaling pushed Harold from EXP-875 (reward=701.4) to EXP-921 (reward=854.6, +21.8% deploy candidate) and EXP-923 (reward=910.3, +29.8% sim max) with much harder DR. 38 experiments, 15 KEEPs.**

@@ -15,7 +15,7 @@ from isaaclab.envs import ManagerBasedRLEnv
 
 # Servo drift range in radians. ST3215 servos lose their zero point on impact.
 # Hardware observation: ~5° (0.087 rad) drift after a fall on one knee.
-SERVO_DRIFT_RANGE = 0.05  # ±0.05 rad (~2.9°), conservative default
+SERVO_DRIFT_RANGE = 0.08  # ±0.08 rad (~4.6°), matches observed ST3215 drift
 
 
 class HaroldFlatEnv(ManagerBasedRLEnv):

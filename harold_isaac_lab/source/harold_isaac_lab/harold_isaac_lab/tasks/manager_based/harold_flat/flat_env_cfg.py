@@ -246,7 +246,7 @@ class HaroldRewardsCfg:
     )
     base_linear_velocity = RewardTermCfg(
         func=spot_mdp.base_linear_velocity_reward,
-        weight=27,
+        weight=25,
         params={"std": 1.0, "ramp_rate": 0.5, "ramp_at_vel": 1.0, "asset_cfg": SceneEntityCfg("robot")},
     )
     foot_clearance = RewardTermCfg(
@@ -261,7 +261,7 @@ class HaroldRewardsCfg:
     )
     gait = RewardTermCfg(
         func=spot_mdp.GaitReward,
-        weight=16,
+        weight=14,
         params={
             "std": 0.1,
             "max_err": 0.2,

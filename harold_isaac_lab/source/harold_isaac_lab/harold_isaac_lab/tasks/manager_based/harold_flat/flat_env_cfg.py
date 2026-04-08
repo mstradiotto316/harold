@@ -65,7 +65,7 @@ class HaroldActionsCfg:
     """
 
     joint_pos = EMAJointPositionActionCfg(
-        asset_name="robot", joint_names=[".*"], scale=0.3, use_default_offset=True,
+        asset_name="robot", joint_names=[".*"], scale=0.4, use_default_offset=True,
         ema_beta=0.2,
     )
 

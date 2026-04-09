@@ -251,7 +251,7 @@ class HaroldRewardsCfg:
     )
     foot_clearance = RewardTermCfg(
         func=spot_mdp.foot_clearance_reward,
-        weight=1.5,
+        weight=1.0,
         params={
             "std": 0.02,
             "tanh_mult": 2.0,

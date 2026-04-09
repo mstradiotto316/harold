@@ -369,7 +369,7 @@ class HaroldFlatEnvCfg(LocomotionVelocityRoughEnvCfg):
 
         # Timing — 500Hz physics, 20Hz control (matches deployment CONTROL_RATE_HZ=20)
         self.decimation = 25
-        self.episode_length_s = 25
+        self.episode_length_s = 20
         self.sim.dt = 0.002
         self.sim.render_interval = self.decimation
         self.sim.physics_material.static_friction = 1.0

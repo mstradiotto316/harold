@@ -315,7 +315,7 @@ class HaroldRewardsCfg:
     )
     joint_vel = RewardTermCfg(
         func=spot_mdp.joint_velocity_penalty,
-        weight=-0.005,
+        weight=-0.01,
         params={"asset_cfg": SceneEntityCfg("robot", joint_names=".*")},
     )
 

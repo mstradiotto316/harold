@@ -83,7 +83,7 @@ class HaroldCommandsCfg:
         debug_vis=True,
         ranges=mdp.UniformVelocityCommandCfg.Ranges(
             lin_vel_x=(-0.5, 1.0),
-            lin_vel_y=(-0.5, 0.5),
+            lin_vel_y=(-0.3, 0.3),
             ang_vel_z=(-1.0, 1.0),
         ),
     )

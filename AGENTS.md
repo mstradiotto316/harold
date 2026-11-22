@@ -4,7 +4,7 @@ This file is the primary agent quickstart and coordination guide for this reposi
 
 ## IMPORTANT: Instructions from the Operator
 
-**Video Recording is MANDATORY**: Every training run MUST include video recording (`--video` flag). Video is critical logging infrastructure for human review. Never disable it.
+**Video Recording is MANDATORY**: Every training run MUST include video recording (`--video` flag). `scripts/harold.py train` passes this flag to the trainer automatically. Video is critical logging infrastructure for human review. Never disable it.
 
 **Video Analysis Capability**: With the Opus 4.6 model and 1M token context window, you can now analyze training video footage frame-by-frame using multimodal vision. Use `docs/skills/video_annotation.md` for the full workflow (frame extraction, sampling strategy, annotation schema). Combine video analysis with TensorBoard metrics for the most complete picture -- metrics tell you *that* the robot is walking, video tells you *how*.
 
@@ -349,7 +349,7 @@ Machine-readable output includes:
 # Direct training (verbose output - avoid in agents)
 python harold_isaac_lab/scripts/skrl/train.py \
   --task=Harold-Velocity-Flat-v0 \
-  --num_envs 2048 --headless
+  --num_envs 2048 --headless --video
 
 # Play/evaluate a checkpoint
 python harold_isaac_lab/scripts/skrl/play.py \

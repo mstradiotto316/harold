@@ -332,3 +332,137 @@ if __name__ == "__main__":
     print("=" * 60)
     print("All tests passed!")
     print("=" * 60)
+
+
+def test_manager_action_filter_starts_at_zero_after_every_reset():
+    from inference.action_converter import ActionConfig, ActionConverter
+
+    config_dir = REPO_ROOT / "deployment/config"
+    cfg = ActionConfig.from_yaml(config_dir / "cpg.yaml", config_dir / "hardware.yaml",
+                                 metadata={"action_filter_beta": 0.2, "effective_action_scale": [0.4] * 12})
+    converter = ActionConverter(cfg)
+    action = np.linspace(-1.0, 1.0, 12, dtype=np.float32)
+    for _ in range(2):
+        first, wire = converter.compute_policy_targets(action)
+        np.testing.assert_allclose(first, cfg.rl_default_pose + 0.08 * action, atol=1e-6)
+        np.testing.assert_allclose(wire, cfg.hw_default_pose + 0.08 * action * cfg.joint_sign, atol=1e-6)
+        second, _ = converter.compute_policy_targets(action)
+        np.testing.assert_allclose(second, cfg.rl_default_pose + 0.144 * action, atol=1e-6)
+        converter.reset()
+
+
+@pytest.mark.parametrize("source", ["zero", "leg_odometry"])
+def test_policy_differentiates_each_encoder_packet_once(source):
+    from unittest.mock import Mock
+
+    from drivers.esp32_serial import Telemetry
+    from inference.observation_builder import ObservationBuilder, ObservationConfig
+
+    cfg = ObservationConfig(base_lin_vel_source=source, vel_filter_alpha=1.0)
+    esp, imu = Mock(), Mock()
+    imu.read.return_value = Mock(valid=True, gyro=np.array([0.1, 0.2, 0.3]),
+                                 projected_gravity=np.array([0., 0., 1.]))
+    builder = ObservationBuilder(imu, esp, cfg)
+    builder._leg_odom = Mock()
+    builder._leg_odom.update.return_value = np.array([0.1, 0.2, 0.3])
+    sample = Telemetry(valid=True, timestamp_ms=2**32 - 40, positions=cfg.hw_default_pose.copy())
+    sample.temperatures[:] = 26
+    esp.read_telemetry.return_value = sample
+    obs = builder.build(1.0)
+    np.testing.assert_array_equal(obs[24:36], 0.0)
+    sample.timestamp_ms = 60  # A 100 ms packet interval across the millis rollover
+    sample.positions = sample.positions + 0.1
+    obs = builder.build(1.2)
+    np.testing.assert_allclose(obs[24:36], cfg.joint_sign, atol=1e-5)
+    repeated = builder.build(1.25)
+    np.testing.assert_array_equal(repeated, obs)
+    if source == "leg_odometry":
+        assert builder._leg_odom.update.call_count == 2
+        np.testing.assert_array_equal(builder._leg_odom.update.call_args.kwargs["angular_velocity"], obs[3:6])
+        np.testing.assert_allclose(obs[:3], builder._leg_odom.update.return_value)
+    else:
+        builder._leg_odom.update.assert_not_called()
+        np.testing.assert_array_equal(obs[:3], 0.0)
+
+
+def test_hardware_csv_records_sensor_data_used_at_inference(tmp_path, monkeypatch):
+    import csv
+    from unittest.mock import Mock
+
+    from drivers.esp32_serial import Telemetry
+    from telemetry.session_logger import ControllerState, SessionLogger
+
+    monkeypatch.setattr("telemetry.session_logger.signal.signal", Mock())
+    logger = SessionLogger(tmp_path, fsync=False)
+    imu = Mock(valid=True, accel=[0.05, 0.0, 1.0], gyro=[0.0, 0.1, 0.0],
+               projected_gravity=[0.0, 0.0, 1.0], lin_vel=[0.0, 0.0, 0.2])
+    logger.log(Telemetry(timestamp_ms=123, valid=True),
+               ControllerState(imu=imu, base_velocity=[0.23, 0.0, -0.1]))
+    imu.valid = False
+    logger.log(Telemetry(), ControllerState(imu=imu))
+    logger.close()
+    with logger.session_path.open() as handle:
+        good, invalid = list(csv.DictReader(handle))
+    assert good["timestamp_ms"] == "123"
+    for column, value in (("imu_accel_g_x", 0.05), ("imu_gyro_y", 0.1),
+                          ("imu_proj_g_z", 1), ("imu_lin_vel_z", 0.2),
+                          ("policy_lin_vel_b_m_s_x", 0.23)):
+        assert float(good[column]) == value
+        assert np.isnan(float(invalid[column]))
+
+
+@pytest.mark.parametrize(("fault", "message", "expected_sends"), [
+    ("frozen", "stopped updating", 5),
+    ("imu", "Invalid encoder or IMU", 0),
+    ("negative_load", "Critical servo load", 0),
+    ("heat", "Servo temperature", 0),
+    ("no_packet", "stopped updating", 0),
+    ("substituted_position", "Missing servo feedback at joint indices", 0),
+])
+def test_policy_loop_stops_on_sensor_fault(fault, message, expected_sends, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from drivers.esp32_serial import ESP32Config, Telemetry
+    from inference import harold_controller as module
+    from inference.action_converter import ActionConverter
+    from inference.observation_builder import ObservationBuilder, ObservationConfig
+
+    clock = SimpleNamespace(now=0.0)
+    monkeypatch.setattr(module, "time", SimpleNamespace(
+        monotonic=lambda: clock.now,
+        sleep=lambda seconds: setattr(clock, "now", clock.now + seconds),
+    ))
+    monkeypatch.setattr(module.signal, "signal", Mock())
+    ctrl = module.HaroldController(None, None, None)
+    ctrl.manager_action_filter = True
+    ctrl.running_mean = np.zeros(48, dtype=np.float32)
+    ctrl.esp32 = Mock(cfg=ESP32Config())
+    ctrl.action_conv = ActionConverter()
+    ctrl.imu = Mock()
+    ctrl.imu.read.return_value = Mock(valid=fault != "imu", gyro=np.zeros(3),
+                                      projected_gravity=np.array([0., 0., 1.]))
+    ctrl.obs_builder = ObservationBuilder(ctrl.imu, ctrl.esp32, ObservationConfig(base_lin_vel_source="zero"))
+    telem = Telemetry(valid=fault != "no_packet", timestamp_ms=123, positions=ctrl.obs_builder.cfg.hw_default_pose)
+    telem.loads[4] = -900 if fault == "negative_load" else -899
+    telem.temperatures[:] = 28
+    telem.temperatures[5] = 50 if fault == "heat" else 49
+    if fault == "substituted_position":
+        telem.temperatures[11] = 0
+    ctrl.esp32.read_telemetry.return_value = telem
+    ctrl.policy = Mock()
+    ctrl.policy.run.return_value = [np.zeros((1, 12), dtype=np.float32)]
+    ctrl.logger = Mock()
+    ctrl._capture_diagnostics = Mock()
+
+    assert not ctrl.run(max_seconds=1.0, commands=np.array([0.1, 0.0, -0.2]))
+    assert message in str(ctrl._capture_diagnostics.call_args.args[1])
+    assert ctrl.esp32.send_targets.call_count == expected_sends
+    ctrl.esp32.stop_streaming.assert_called_once()
+    if fault == "substituted_position":
+        ctrl.policy.run.assert_not_called()
+    if expected_sends:
+        recorded_state = ctrl.logger.log.call_args.args[1]
+        np.testing.assert_allclose([recorded_state.command_vx, recorded_state.command_vy,
+                                    recorded_state.command_yaw], [0.1, 0.0, -0.2])
+        assert recorded_state.imu is ctrl.imu.read.return_value

@@ -56,9 +56,9 @@ Video recording adds ~2.3 GB GPU and ~10 GB RAM per 2x env increase.
 
 Without video, throughput scales linearly to 24576 envs (3.18M samples/s, 75% GPU, 23% RAM).
 
-## Two-Phase Training Approach
+## Historical Two-Phase Training Approach
 
-Based on these results, training now uses a two-phase approach:
+The March benchmark proposed this two-phase approach. Current experiments use mandatory inline recording through `harold train`.
 1. **Train** at 16384 envs without video (2.88M samples/s, 12.3 GB RAM)
 2. **Record** post-hoc via `harold record` from the best checkpoint at 1 env (~30-45s)
 

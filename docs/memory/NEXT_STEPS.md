@@ -1,16 +1,9 @@
 # Harold Next Steps
 
-## HIGH PRIORITY — Manager-Based Walking (EXP-785 baseline)
+## EXP-962 hardware validation
 
-1. **Export manager-based policy to ONNX** — Export the trained policy for hardware deployment. The existing export pipeline may need updates for the manager-based architecture (50Hz control rate, different obs/action scaling).
-2. **Run autoresearch to optimize walking gait** — Use the manager-based env (`harold_mgr`) as baseline. Tune reward weights, command ranges, and training hyperparameters to improve foot clearance, step length, and gait quality.
-
-## MEDIUM PRIORITY — Sim-to-Real Pipeline
-
-3. **Run real-world hardware test** — Deploy the manager-based policy on the robot off the test stand. Ensure IMU recording is active. Compare sim vs real joint positions, commands, and IMU data.
-4. **Sim-to-real alignment** — Compare hardware logs to simulated walking. Tune stiffness/damping if sim doesn't match real servo behavior. Add IMU noise if needed.
-5. **Review legacy deployment scripts** — Audit `deployment/test_*.py` and `deployment/debug_*` scripts. Migrate to 48D/raw-observation path or retire stale 50D/phase-based scripts.
-
-## LOW PRIORITY — Investigation
-
-6. **Debug DirectRLEnv standing trap** — The direct-env architecture doesn't walk despite fixing action clamping and joint penalty scope. Root cause unknown. Lower priority since manager-based works.
+1. Sync the approved bench branch to the clean Pi checkout. Check the inactive service, candidate hash, ONNX input/output and IMU.
+2. With Harold supported, use a small single-joint pulse and the operator's observation to verify anatomical pitch direction. Mirrored encoder round trips alone cannot distinguish an inverted physical response.
+3. Compare commanded and measured joints, IMU, voltage and load on a short supported policy test before choosing a floor trial.
+4. If the stand checks pass, evaluate a 0.2 m/s forward command and stop on level ground with the operator present. Use the session CSV and an external displacement observation to compare to the firmware-clamped simulation (0.181 m/s). Investigate yaw/lateral tracking and high-speed saturation using the verified mapping.
+5. Review remaining legacy deployment diagnostic scripts for stale 50D/phase assumptions. The deprecated direct-env standing trap remains lower priority.

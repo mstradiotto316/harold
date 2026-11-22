@@ -66,11 +66,14 @@ Paths below are relative to the deployment root (typically `<repo-root>/deployme
 4. Convert targets to hardware convention
 5. Send to ESP32 via serial
 
+In policy mode, `--command VX VY YAW` sets body-frame forward and left velocity in m/s and yaw rate in rad/s. The default is `0.3 0 0`. Use `--max-seconds` for a timed trial. When evaluating a staged export, pass both `--policy` and its matching `--metadata`.
+
 ## Safety Features
 
 - Watchdog timeout (configured in firmware)
-- Joint angle limits (conservative, configured in runtime)
-- Load monitoring with emergency stop (threshold configured in runtime)
+- The streaming firmware clamps physical joint angles after its sign conversion.
+- The controller requests STOP at the critical servo load or temperature in `config/hardware.yaml`. STOP commands the ready stance with torque enabled.
+- Policy inference requires a recent encoder packet and a valid IMU sample. A failed per-servo read appears as zero load, current, and temperature together. The controller stops before using its substituted position.
 - Keyboard interrupt = safe stance
 
 ## Configuration
@@ -104,5 +107,6 @@ python tests/test_inference.py
 ## Diagnostics
 
 - Session CSVs now flush every row by default to survive abrupt resets.
+- A 5 Hz row includes the sensor sample used for policy inference, or the current IMU sample during CPG playback. `imu_accel_g_*` is in g, `imu_gyro_*` is in rad/s, and `imu_proj_g_*` uses the Z-up IMU convention. Policy gravity uses the opposite sign. `imu_lin_vel_*` records the accelerometer-integrated estimate and `policy_lin_vel_b_m_s_*` records the actual body velocity input to the network.
 - Controller exceptions write to `logs/controller_diagnostics.log` with throttling + USB state.
 - To persist system logs across reboots, run `scripts/enable_persistent_journal.sh` on the Pi (requires sudo).

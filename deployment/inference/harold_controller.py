@@ -140,7 +140,7 @@ class HaroldController:
             if exc is not None:
                 lines.append(f"exception: {exc!r}")
                 lines.append("traceback:")
-                lines.append(traceback.format_exc().strip())
+                lines.append("".join(traceback.format_exception(exc)).strip())
 
             if self.logger is not None:
                 lines.append(f"session_path: {self.logger.session_path}")
@@ -204,6 +204,11 @@ class HaroldController:
         self.running_var = np.array(metadata["running_variance"], dtype=np.float32)
         obs_dim = len(self.running_mean)
         is_normalized = metadata.get("normalized", True)
+        self.manager_action_filter = metadata.get("action_filter_beta") is not None
+        trained_rate = metadata.get("policy_rate_hz")
+        if trained_rate is not None and not np.isclose(trained_rate, self.CONTROL_RATE_HZ):
+            print(f"ERROR: Policy expects {trained_rate} Hz. Controller runs at {self.CONTROL_RATE_HZ} Hz.")
+            return False
         print(f"Loaded policy metadata (dim={obs_dim}, normalized={is_normalized})")
         if obs_dim != ObservationBuilder.OBS_DIM:
             print(
@@ -298,15 +303,25 @@ class HaroldController:
         self,
         mode: str = "policy",
         max_seconds: float | None = None,
-    ) -> None:
+        commands: np.ndarray | None = None,
+    ) -> bool:
         """Run the main control loop.
 
         Args:
             mode: "cpg" for open-loop CPG playback, "policy" for direct policy mode.
             max_seconds: Optional auto-stop after this many seconds
+            commands: Optional policy velocity command [vx (m/s), vy (m/s), yaw (rad/s)].
+
+        Returns False after a controlled fault stop.
         """
         if mode not in ("cpg", "policy"):
             raise ValueError(f"Unknown mode '{mode}' (expected 'cpg' or 'policy').")
+        if commands is not None:
+            commands = np.asarray(commands, dtype=np.float32)
+            if mode != "policy" or commands.shape != (3,) or not np.isfinite(commands).all():
+                raise ValueError("Velocity commands require policy mode and three finite values")
+        if max_seconds is not None and (not np.isfinite(max_seconds) or max_seconds <= 0):
+            raise ValueError("max_seconds must be finite and positive")
 
         print("\n" + "=" * 60)
         print("Starting Control Loop")
@@ -319,24 +334,28 @@ class HaroldController:
 
         # Start streaming
         if not self.esp32.start_streaming():
-            print("ERROR: Failed to start streaming")
-            return
+            raise RuntimeError("ESP32 failed to acknowledge streaming start")
 
         self._running = True
-        self._start_time = time.time()
+        self._start_time = time.monotonic()
+        last_feedback_time = self._start_time
+        last_feedback_stamp = None
         self._loop_count = 0
         self._overrun_count = 0
 
         # Reset components
         if mode == "policy":
-            prev_action_init = self.running_mean[36:48].copy()
+            prev_action_init = None if self.manager_action_filter else self.running_mean[36:48].copy()
             self.obs_builder.reset(prev_action_init=prev_action_init)
         self.action_conv.reset()
 
+        fault = None
         try:
             while self._running:
-                loop_start = time.time()
+                loop_start = time.monotonic()
                 t = loop_start - self._start_time
+                if max_seconds is not None and t >= max_seconds:
+                    break
 
                 if mode == "cpg":
                     # Open-loop CPG playback
@@ -344,18 +363,34 @@ class HaroldController:
                     rl_targets, hw_targets = self.action_conv.convert_rl_targets(cpg_targets)
                     command_vx, command_vy, command_yaw = self.obs_builder.cfg.default_commands
                     cpg_phase = self.cpg.phase
+                    telemetry = self.esp32.read_telemetry()
                 else:
                     # Direct policy mode (no CPG)
                     obs = self.obs_builder.build(
                         t,
+                        commands=commands,
                         training_mean=self.running_mean,
                         joint_pos_blend=1.0,
                     )
+                    telemetry = self.obs_builder.last_telemetry
+                    if telemetry.valid and telemetry.timestamp_ms != last_feedback_stamp:
+                        last_feedback_time = loop_start
+                        last_feedback_stamp = telemetry.timestamp_ms
+                    if loop_start - last_feedback_time >= self.esp32.cfg.watchdog_ms / 1000.0:
+                        raise RuntimeError("ESP32 encoder telemetry stopped updating")
+                    if last_feedback_stamp is None:
+                        # Allow the first complete streaming packet before inference.
+                        time.sleep(0.005)
+                        continue
+                    if not telemetry.valid or not self.obs_builder.last_imu_data.valid or not np.isfinite(obs).all():
+                        raise RuntimeError("Invalid encoder or IMU observation")
                     outputs = self.policy.run(
                         ['mean'],
                         {'obs': obs.reshape(1, -1).astype(np.float32)}
                     )
                     action = outputs[0][0]  # [12]
+                    if not np.isfinite(action).all():
+                        raise RuntimeError("Nonfinite policy action")
                     rl_targets, hw_targets = self.action_conv.compute_policy_targets(action)
 
                     # Store raw policy output for next obs [36:48]
@@ -363,8 +398,12 @@ class HaroldController:
                     command_vx, command_vy, command_yaw = obs[9], obs[10], obs[11]
                     cpg_phase = 0.0
 
-                # Send HW targets to ESP32
-                self.esp32.send_targets(hw_targets)
+                # ST3215 load telemetry uses signed tenths of a percent.
+                if telemetry.valid:
+                    telemetry.check_servo_limits(self.esp32.cfg)
+
+                if not self.esp32.send_targets(hw_targets):
+                    raise RuntimeError("Sending servo targets failed")
 
                 # Log telemetry at 5 Hz (every 4th cycle)
                 self._log_counter += 1
@@ -377,25 +416,26 @@ class HaroldController:
                         command_vy=command_vy,
                         command_yaw=command_yaw,
                         cmd_positions=hw_targets,
+                        imu=(self.imu.read() if mode == "cpg" else self.obs_builder.last_imu_data),
+                        base_velocity=(obs[0:3] if mode == "policy" else None),
                     )
-                    self.logger.log(self.esp32.last_telemetry, state)
+                    self.logger.log(telemetry, state)
 
                 # Logging (every 20 loops = 1 second)
                 self._loop_count += 1
                 if self._loop_count % 20 == 0:
-                    elapsed = time.time() - self._start_time
+                    elapsed = time.monotonic() - self._start_time
                     rate = self._loop_count / elapsed
-                    telem = self.esp32.read_telemetry()
                     mode_str = "CPG_ONLY" if mode == "cpg" else "POLICY"
-                    if telem.valid:
+                    if telemetry.valid:
                         print(
                             f"t={t:.1f}s [{mode_str}] | rate={rate:.1f}Hz | "
                             f"phase={cpg_phase:.2f} | "
-                            f"pos[0:3]={telem.positions[:3]}"
+                            f"pos[0:3]={telemetry.positions[:3]}"
                         )
 
                 # Sleep to maintain control rate
-                elapsed = time.time() - loop_start
+                elapsed = time.monotonic() - loop_start
                 if elapsed < self.CONTROL_PERIOD:
                     time.sleep(self.CONTROL_PERIOD - elapsed)
                 else:
@@ -403,15 +443,13 @@ class HaroldController:
                     if self._overrun_count % 10 == 1:
                         print(f"WARNING: Loop overrun ({elapsed * 1000:.1f}ms > {self.CONTROL_PERIOD * 1000:.0f}ms)")
 
-                if max_seconds is not None and t >= max_seconds:
-                    self._running = False
-
-        except Exception as e:
-            print(f"ERROR: Control loop exception: {e}")
-            traceback.print_exc()
-            self._capture_diagnostics("control_loop_exception", e)
-
+        except Exception as error:
+            # Handle faults as controlled stops. The service's on-failure restart
+            # policy must not re-arm motion after an invalid sensor or overload.
+            print(f"Control loop stopped: {error}")
+            fault = error
         finally:
+            self._running = False
             # Stop streaming and return to safe stance
             print("\nStopping...")
             try:
@@ -419,6 +457,8 @@ class HaroldController:
             except Exception as e:
                 print(f"WARNING: stop_streaming failed: {e}")
                 self._capture_diagnostics("stop_streaming_exception", e)
+            if fault is not None:
+                self._capture_diagnostics("control_loop_exception", fault)
 
             # Close session logger
             if self.logger:
@@ -426,12 +466,14 @@ class HaroldController:
                 print(f"Session saved: {self.logger.session_path} ({self.logger.row_count} rows)")
 
             # Print summary
-            total_time = time.time() - self._start_time
+            total_time = time.monotonic() - self._start_time
             print(f"\nControl loop summary:")
             print(f"  Total time: {total_time:.1f}s")
             print(f"  Total loops: {self._loop_count}")
-            print(f"  Average rate: {self._loop_count / total_time:.1f} Hz")
+            if self._loop_count:
+                print(f"  Average rate: {self._loop_count / total_time:.1f} Hz")
             print(f"  Overruns: {self._overrun_count}")
+        return fault is None
 
 
 def main():
@@ -464,6 +506,14 @@ def main():
         "--cpg-only",
         action="store_true",
         help="Run open-loop CPG only (no policy)",
+    )
+    parser.add_argument(
+        "--command",
+        dest="commands",
+        type=float,
+        nargs=3,
+        metavar=("VX", "VY", "YAW"),
+        help="Policy velocity command (forward m/s, left m/s, yaw rad/s)",
     )
     parser.add_argument(
         "--calibrate",
@@ -501,6 +551,7 @@ def main():
         controller.run(
             mode=mode,
             max_seconds=args.max_seconds,
+            commands=args.commands,
         )
 
     finally:

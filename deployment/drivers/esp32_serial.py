@@ -53,6 +53,9 @@ class ESP32Config:
     port: str = "/dev/ttyUSB0"
     baud: int = 115200
     timeout_ms: int = 50
+    watchdog_ms: int = 250
+    load_critical_percent: float = 90.0
+    temperature_max_c: float = 50.0
 
     @classmethod
     def from_yaml(cls, path: Path) -> "ESP32Config":
@@ -60,10 +63,14 @@ class ESP32Config:
         with open(path) as f:
             data = yaml.safe_load(f)
         esp_cfg = data.get("esp32", {})
+        safety = data.get("safety", {})
         return cls(
             port=esp_cfg.get("port", "/dev/ttyUSB0"),
             baud=esp_cfg.get("baud", 115200),
             timeout_ms=esp_cfg.get("timeout_ms", 50),
+            watchdog_ms=safety.get("watchdog_ms", 250),
+            load_critical_percent=safety.get("load_critical", 90),
+            temperature_max_c=safety.get("temperature_max", 50),
         )
 
 
@@ -82,6 +89,24 @@ class Telemetry:
     def voltage_V(self) -> float:
         """Bus voltage in volts."""
         return self.voltage_dV / 10.0
+
+    @property
+    def missing_servo_indices(self) -> np.ndarray:
+        """Indices where firmware may have echoed a target in place of feedback.
+
+        Failed reads produce zero load, current and temperature without a validity
+        bit. An unloaded motor at exactly 0 C is conservatively treated the same.
+        """
+        return np.flatnonzero((self.loads == 0) & (self.currents == 0) & (self.temperatures == 0))
+
+    def check_servo_limits(self, config: ESP32Config) -> None:
+        """Raise on measured load or temperature at a configured stop threshold."""
+        peak_load = np.max(np.abs(self.loads)) / 10.0
+        if peak_load >= config.load_critical_percent:
+            raise RuntimeError(f"Critical servo load {peak_load:.1f}%")
+        peak_temp = np.max(self.temperatures)
+        if peak_temp >= config.temperature_max_c:
+            raise RuntimeError(f"Servo temperature reached {peak_temp} C")
 
 
 class ESP32Interface:
@@ -186,6 +211,7 @@ class ESP32Interface:
 
         self._buffer = ""  # Clear internal buffer
         self.serial.reset_input_buffer()
+        self.last_telemetry = Telemetry()
         self._write("START#")
 
         # Read a few lines looking for STATUS,STARTED
@@ -202,8 +228,8 @@ class ESP32Interface:
                 pass
         self.serial.timeout = old_timeout
         print(f"WARNING: START not acknowledged")
-        self._streaming = True  # Assume it worked anyway
-        return True
+        self._streaming = False
+        return False
 
     def stop_streaming(self) -> bool:
         """Disable command execution and return to safe pose.
@@ -231,7 +257,8 @@ class ESP32Interface:
             except Exception:
                 pass
         self.serial.timeout = old_timeout
-        return True  # STOP always works
+        print("WARNING: STOP not acknowledged")
+        return False
 
     def ping(self) -> bool:
         """Check ESP32 responsiveness.

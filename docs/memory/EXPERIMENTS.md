@@ -14,6 +14,18 @@ Each experiment entry contains:
 
 ## Experiments
 
+### 2026-11-21 — EXP-962 replay and export
+
+Three 540-step, four-environment Isaac Sim evaluations with seed 42 used the same nine commands. There were 2,076 post-warmup samples in each evaluation and zero fall terminations. The load input approximated firmware servo load using simulated torque. No training took place.
+
+| Evaluation | Forward estimate MAE (m/s) | Forward correlation | Measured vx at 0.2 / 0.5 / stop (m/s) |
+| --- | ---: | ---: | --- |
+| Native skrl, training velocity observation | 0.0849 | 0.8755 | 0.177 / 0.489 / 0.002 |
+| Exported ONNX, encoder velocity feedback | 0.0865 | 0.8807 | 0.180 / 0.502 / 0.001 |
+| Same ONNX with modeled firmware clamps | 0.0710 | 0.7313 | 0.181 / 0.225 / 0.008 |
+
+The clamped evaluation measured -0.181 m/s for a -0.2 command. For lateral ±0.15 m/s the results were +0.096/-0.053 m/s. For yaw ±0.5 rad/s they were +0.255/-0.218 rad/s. Shoulder saturation ranged from 4.5% to 10.6% of steps per joint. Raw ground-truth gyro and torque-derived loads approximate the hardware sensors. The physical response requires measurement.
+
 ### MAINT-2026-03-16: Export Metadata Fallback + Status Termination Tags
 - **Date**: 2026-03-16
 - **ID**: manifestless/non-flat export metadata fix, termination tag lookup fix

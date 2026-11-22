@@ -146,7 +146,7 @@ LOOP FOREVER:
   2. EDIT: config param (autoresearch.py apply) or flat_env_cfg.py code
   3. COMMIT: git commit -m "autoresearch: <hypothesis>"
   4. TRAIN: harold train --hypothesis "..." --tags "autoresearch,..." --duration fast
-     Training runs WITHOUT video at 2048 envs (manager-based OOMs at 4096).
+     The CLI records video during training. Use its default environment count.
   5. WAIT: harold status (check at 5 min, then every 5 min)
      Early stop: ep_len < 200 after 5 min -> harold stop, DISCARD
      Early stop: reward declining after 10 min -> harold stop, DISCARD

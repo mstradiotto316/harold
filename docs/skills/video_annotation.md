@@ -171,7 +171,7 @@ Where:
 - `<run_id>` is a timestamped directory (e.g., `2026-01-02_23-47-27_ppo_torch`) or a named run (e.g., `terrain_57`)
 - `<N>` is the training step at which the video was recorded
 - `<camera>` is one of: `side`, `front`, `top`, `iso`
-- Videos are recorded at intervals configured by `--video_interval` (default: every 3200 steps)
+- `harold train` records video automatically. Set the interval with `--video-interval`. Run `python scripts/harold.py train --help` for the current default.
 
 ## Comparing Across Training Steps
 

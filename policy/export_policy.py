@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -71,7 +72,7 @@ class NormalizedPolicy(torch.nn.Module):
         self.eps = 1.0e-8
 
     def forward(self, obs: torch.Tensor):
-        normalized_obs = (obs - self.running_mean) / torch.sqrt(self.running_var + self.eps)
+        normalized_obs = ((obs - self.running_mean) / (torch.sqrt(self.running_var) + self.eps)).clamp(-5.0, 5.0)
         mean, value, log_std = self.base(normalized_obs)
         return mean, value, log_std
 
@@ -87,6 +88,11 @@ class ExportTrainingConfig:
     joint_range: dict[str, float]
     joint_angle_min: dict[str, float]
     joint_angle_max: dict[str, float]
+    uniform_scale: bool = False
+    default_joint_pos: dict[str, float] | None = None
+    policy_rate_hz: float | None = None
+    action_filter_beta: float | None = None
+    base_lin_vel_source: str | None = None
 
 
 def infer_policy_dims(policy_state: dict[str, torch.Tensor]) -> tuple[int, tuple[int, int, int], int]:
@@ -119,13 +125,20 @@ def _read_json(path: Path) -> dict[str, Any] | None:
 
 def _read_env_snapshot(path: Path) -> dict[str, Any] | None:
     if yaml is None:
-        return None
+        raise RuntimeError(f"PyYAML is required to read {path}")
 
-    try:
-        data = yaml.full_load(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    return data if isinstance(data, dict) else None
+    # Isaac snapshots serialize tensor indices as slices. Read those and tuples
+    # as inert sequences, without constructing arbitrary Python objects.
+    class SnapshotLoader(yaml.SafeLoader):
+        pass
+
+    for tag in ("python/tuple", "python/object/apply:builtins.slice"):
+        SnapshotLoader.add_constructor(f"tag:yaml.org,2002:{tag}", SnapshotLoader.construct_sequence)
+    with path.open(encoding="utf-8") as handle:
+        data = yaml.load(handle, Loader=SnapshotLoader)
+    if not isinstance(data, dict):
+        raise ValueError(f"Expected an environment mapping in {path}")
+    return data
 
 
 def _find_run_manifest(checkpoint_path: Path) -> dict[str, Any] | None:
@@ -237,7 +250,36 @@ def resolve_export_training_config(checkpoint_path: Path) -> ExportTrainingConfi
 
     manifest = _find_run_manifest(checkpoint_path)
     env_snapshot = _find_env_snapshot(checkpoint_path)
-    config = _default_export_training_config(_manifest_task_key(manifest))
+    task = _manifest_task_key(manifest)
+    config = _default_export_training_config(task)
+    if task == "harold_mgr" or (env_snapshot and "actions" in env_snapshot):
+        if not env_snapshot or set(env_snapshot.get("actions", {})) != {"joint_pos"}:
+            raise ValueError("Manager-based exports require the run's joint_pos action configuration")
+        term = env_snapshot["actions"]["joint_pos"]
+        action_class = term["class_type"].split(":")[-1]
+        if (action_class not in {"EMAJointPositionAction", "JointPositionAction"}
+                or term.get("joint_names") != [".*"] or not term["use_default_offset"]
+                or term.get("clip") is not None or term["asset_name"] != "robot"):
+            raise ValueError("Unsupported manager joint action mapping")
+        scale = float(term["scale"])
+        beta = float(term["ema_beta"]) if action_class == "EMAJointPositionAction" else 1.0
+        dt = float(env_snapshot["sim"]["dt"]) * int(env_snapshot["decimation"])
+        if not (math.isfinite(scale) and 0.0 < beta <= 1.0 and math.isfinite(dt) and dt > 0.0):
+            raise ValueError("Invalid manager action scale, EMA coefficient or control period")
+        pose = env_snapshot["scene"]["robot"]["init_state"]["joint_pos"]
+        velocity = env_snapshot["observations"]["policy"]["base_lin_vel"]
+        velocity_function = velocity["func"].split(":")[-1]
+        if velocity_function not in {"base_lin_vel", "zero_lin_vel"} or velocity.get("scale") not in (None, 1):
+            raise ValueError("Unsupported base linear velocity observation")
+        return ExportTrainingConfig(
+            action_scale=scale, uniform_scale=True,
+            joint_range=config.joint_range, joint_angle_min=config.joint_angle_min,
+            joint_angle_max=config.joint_angle_max,
+            default_joint_pos={joint: float(pose[joint]) for joint in JOINT_ORDER},
+            policy_rate_hz=1.0 / dt,
+            action_filter_beta=beta,
+            base_lin_vel_source="leg_odometry" if velocity_function == "base_lin_vel" else "zero",
+        )
 
     action_scale = _manifest_action_scale(manifest)
     if action_scale is None and env_snapshot and "action_scale" in env_snapshot:
@@ -265,6 +307,7 @@ def resolve_export_training_config(checkpoint_path: Path) -> ExportTrainingConfi
     return ExportTrainingConfig(
         action_scale=config.action_scale if action_scale is None else action_scale,
         joint_range=joint_range,
+        uniform_scale=task in {"sim_flat_v1", "sim_flat_v2"},
         joint_angle_min=joint_angle_min,
         joint_angle_max=joint_angle_max,
     )
@@ -306,44 +349,10 @@ def load_reference_policy(checkpoint_path: Path) -> tuple[torch.nn.Module, torch
 
 
 def _compute_effective_action_scale(training_cfg: ExportTrainingConfig) -> list[float]:
-    """Compute the per-joint effective action scale used during training.
-
-    For manager-based envs (e.g. harold_mgr with scale=0.2), this is uniform:
-        effective_scale[i] = action_scale (0.2 for all joints)
-
-    For direct envs (e.g. flat with scale=0.5), this includes per-joint ranges:
-        effective_scale[i] = action_scale * joint_range[category_i]
-
-    The deployment pipeline should use this directly:
-        target = default_pose + action * effective_scale
-    """
-    scale = training_cfg.action_scale
-    joint_range = training_cfg.joint_range
-
-    # Check if joint_range is the default JOINT_RANGE_BY_CATEGORY.
-    # Manager-based envs use uniform scale (scale parameter IS the effective scale),
-    # while direct envs multiply scale * joint_range per category.
-    #
-    # Heuristic: if action_scale <= 0.25, it's likely a manager-based env where
-    # scale=0.2 is the full effective scale. If action_scale >= 0.5, it's a direct env
-    # where scale is multiplied by joint_range.
-    #
-    # To be safe, we always compute scale * joint_range when joint_range differs
-    # from the default, and use uniform scale when joint_range matches defaults.
-    is_default_range = all(
-        abs(joint_range.get(cat, JOINT_RANGE_BY_CATEGORY[cat]) - JOINT_RANGE_BY_CATEGORY[cat]) < 1e-6
-        for cat in JOINT_RANGE_BY_CATEGORY
-    )
-
-    if is_default_range and scale < 0.3:
-        # Manager-based env: scale IS the effective per-joint scale (uniform)
-        return [scale] * ACTION_DIM
-    else:
-        # Direct env: effective_scale = action_scale * joint_range_per_category
-        return [
-            scale * joint_range.get(JOINT_CATEGORIES[i], JOINT_RANGE_BY_CATEGORY[JOINT_CATEGORIES[i]])
-            for i in range(ACTION_DIM)
-        ]
+    """Compute the affine target coefficient from the task's action mapping."""
+    if training_cfg.uniform_scale:
+        return [training_cfg.action_scale] * ACTION_DIM
+    return [training_cfg.action_scale * training_cfg.joint_range[category] for category in JOINT_CATEGORIES]
 
 
 def build_policy_metadata(
@@ -366,7 +375,7 @@ def build_policy_metadata(
     if running_var is None:
         running_var = torch.ones(obs_dim)
 
-    return {
+    metadata = {
         "schema_version": 3,
         "observation_dim": obs_dim,
         "action_dim": len(JOINT_ORDER),
@@ -374,7 +383,7 @@ def build_policy_metadata(
         "effective_action_scale": effective_scale,
         "normalized": has_normalization,
         "joint_order": JOINT_ORDER,
-        "default_joint_pos": load_rl_default_pose_dict(),
+        "default_joint_pos": training_cfg.default_joint_pos or load_rl_default_pose_dict(),
         "joint_range": training_cfg.joint_range,
         "joint_angle_min": training_cfg.joint_angle_min,
         "joint_angle_max": training_cfg.joint_angle_max,
@@ -388,6 +397,13 @@ def build_policy_metadata(
         "log_std_parameter": log_std_parameter.tolist(),
         "checkpoint_path": str(checkpoint_path),
     }
+    if training_cfg.policy_rate_hz is not None:
+        metadata.update(
+            policy_rate_hz=training_cfg.policy_rate_hz,
+            action_filter_beta=training_cfg.action_filter_beta,
+            base_lin_vel_source=training_cfg.base_lin_vel_source,
+        )
+    return metadata
 
 
 def export_policy(checkpoint_path: Path, output_dir: Path) -> None:
@@ -399,6 +415,18 @@ def export_policy(checkpoint_path: Path, output_dir: Path) -> None:
     # Infer obs_dim from the first layer weight
     obs_dim = checkpoint["policy"]["net_container.0.weight"].shape[1]
     example = torch.zeros(1, obs_dim, dtype=torch.float32)
+
+    policy_meta = build_policy_metadata(
+        checkpoint_path=checkpoint_path,
+        running_mean=running_mean,
+        running_var=running_var,
+        log_std_parameter=checkpoint["policy"]["log_std_parameter"],
+        obs_dim=obs_dim,
+    )
+    if "state_preprocessor" in checkpoint:
+        policy_meta["running_count"] = int(checkpoint["state_preprocessor"]["current_count"].item())
+    else:
+        policy_meta["running_count"] = 0
 
     traced = torch.jit.trace(model, example)
     traced.save(str(output_dir / "harold_policy.ts"))
@@ -418,17 +446,6 @@ def export_policy(checkpoint_path: Path, output_dir: Path) -> None:
         },
     )
 
-    policy_meta = build_policy_metadata(
-        checkpoint_path=checkpoint_path,
-        running_mean=running_mean,
-        running_var=running_var,
-        log_std_parameter=checkpoint["policy"]["log_std_parameter"],
-        obs_dim=obs_dim,
-    )
-    if "state_preprocessor" in checkpoint:
-        policy_meta["running_count"] = int(checkpoint["state_preprocessor"]["current_count"].item())
-    else:
-        policy_meta["running_count"] = 0
     with open(output_dir / "policy_metadata.json", "w", encoding="utf-8") as handle:
         json.dump(policy_meta, handle, indent=2)
 

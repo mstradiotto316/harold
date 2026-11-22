@@ -50,6 +50,7 @@ def test_build_policy_metadata_uses_manifestless_env_snapshot_for_nonflat_export
         running_mean=torch.zeros(48),
         running_var=torch.ones(48),
         log_std_parameter=torch.zeros(12),
+        obs_dim=48,
     )
 
     assert metadata["action_scale"] == 1.0
@@ -79,3 +80,51 @@ def test_resolve_export_training_config_falls_back_to_manifest_task_defaults(tmp
     assert config.action_scale == 1.0
     assert config.joint_angle_min["thigh"] == -1.5708
     assert config.joint_angle_max["shoulder"] == 0.5236
+
+
+def test_manager_metadata_uses_run_action_term_and_pose(tmp_path):
+    export = _load_export_policy_module()
+    checkpoint = tmp_path / "checkpoints" / "best_agent.pt"
+    pose = dict.fromkeys(export.JOINT_ORDER, 0.12)
+    snapshot = {
+        "actions": {"joint_pos": {
+            "class_type": "harold.mdp:EMAJointPositionAction",
+            "asset_name": "robot",
+            "joint_names": [".*"],
+            "use_default_offset": True,
+            "scale": 0.4,
+            "ema_beta": 0.2,
+        }},
+        "scene": {"robot": {"init_state": {"joint_pos": pose}}},
+        "sim": {"dt": 0.002},
+        "decimation": 25,
+        "observations": {"policy": {"base_lin_vel": {
+            "func": "isaaclab.envs.mdp.observations:base_lin_vel",
+            "params": {"asset_cfg": {"joint_ids": slice(None)}},
+        }}},
+    }
+    params = tmp_path / "params"
+    params.mkdir()
+    (params / "env.yaml").write_text(yaml.dump(snapshot))
+    metadata = export.build_policy_metadata(checkpoint, None, None, torch.zeros(12), 48)
+    assert metadata["action_scale"] == 0.4
+    assert metadata["effective_action_scale"] == [0.4] * 12
+    assert metadata["default_joint_pos"] == pose
+    assert metadata["policy_rate_hz"] == 20.0
+    assert metadata["action_filter_beta"] == 0.2
+    assert metadata["base_lin_vel_source"] == "leg_odometry"
+    assert metadata["normalized"] is False
+
+
+def test_direct_flat_small_scale_keeps_category_ranges(tmp_path):
+    export = _load_export_policy_module()
+    checkpoint = tmp_path / "checkpoints" / "best_agent.pt"
+    _write_env_snapshot(
+        tmp_path / "params" / "env.yaml",
+        action_scale=0.2, joint_range=[0.3] * 4 + [0.9] * 8,
+        joint_angle_min=[-0.52] * 4 + [-1.57] * 8,
+        joint_angle_max=[0.52] * 4 + [1.57] * 8,
+    )
+    metadata = export.build_policy_metadata(checkpoint, None, None, torch.zeros(12), 48)
+    torch.testing.assert_close(torch.tensor(metadata["effective_action_scale"]), torch.tensor([0.06] * 4 + [0.18] * 8))
+    assert "base_lin_vel_source" not in metadata

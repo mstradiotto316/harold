@@ -1,5 +1,11 @@
 # Harold Observations & Insights
 
+## 2026-11-21 — EXP-962 command response
+
+The default manager evaluation with ground-truth velocity tracks a 0.5 m/s forward command at 0.489 m/s. With estimated velocity supplied to the ONNX policy, it reaches 0.502 m/s. Adding the current firmware target envelope cuts this to 0.225 m/s, while a 0.20 m/s request still achieves 0.181 m/s. This comparison assumes the deployed anatomical sign mapping. The stand direction test needs an observer because serial telemetry applies the inverse of the firmware's output transform.
+
+April 5 hardware logs contain encoder, load, voltage and target data, with no IMU readings. The last stance had max joint error 0.24°. On the subsequent policy run the same-row error averaged 8.91° across all joints and fell to 3.80° with a one-sample (0.2 s) lag. Those logs alone cannot establish whether joints turn the right way relative to the body.
+
 ## 2026-04-07/08: Servo drift DR + reward optimization — 9 KEEPs/6 DISCARDs, reward 805.9
 
 **Servo drift DR validated free (±0.05 to ±0.15), angular velocity + gait tuning pushed to 805.9. 15 experiments, config converged.**

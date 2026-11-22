@@ -4,7 +4,7 @@ Constructs the 48D observation vector from hardware sensors.
 Layout matches the manager-based training env (HaroldObservationsCfg in flat_env_cfg.py).
 
 Observation layout (48D):
-    [0:3]   root_lin_vel_b      - Body linear velocity (ZEROED — velocity-blind policy)
+    [0:3]   root_lin_vel_b      - Body linear velocity (leg odometry or zero, according to export)
     [3:6]   root_ang_vel_b      - Body angular velocity (rad/s)
     [6:9]   projected_gravity_b - Gravity in body frame (normalized)
     [9:12]  velocity_commands   - [vx, vy, yaw_rate] (m/s, rad/s)
@@ -12,7 +12,6 @@ Observation layout (48D):
     [24:36] joint_vel           - Joint velocities (rad/s)
     [36:48] last_action         - Previous raw policy output (before EMA/scaling)
 """
-import time
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,11 +23,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from common.policy_config import JOINT_SIGN, DEFAULT_RL_POSE, resolve_deployment_joint_sign
+from common.policy_config import JOINT_SIGN, resolve_deployment_joint_sign
 from drivers.imu_reader_rpi5 import IMUReaderRPi5, IMUData
 from drivers.esp32_serial import ESP32Interface, Telemetry
 from inference.leg_odometry import LegOdometry
-from inference.stance import load_hw_default_pose
+from inference.stance import load_hw_default_pose, load_rl_default_pose
 
 
 @dataclass
@@ -47,7 +46,15 @@ class ObservationConfig:
     # Joint velocity estimation
     vel_filter_alpha: float = 0.5  # Low-pass filter coefficient
 
+    base_lin_vel_source: str = "leg_odometry"
+    rl_default_pose: np.ndarray = None
+
     def __post_init__(self):
+        if self.base_lin_vel_source not in ("leg_odometry", "zero"):
+            raise ValueError(f"Unsupported base_lin_vel_source: {self.base_lin_vel_source}")
+        if self.rl_default_pose is None:
+            self.rl_default_pose = load_rl_default_pose()
+
         if self.hw_default_pose is None:
             # [shoulders(4), thighs(4), calves(4)]
             # Hardware convention - ready stance (from config/stance.yaml)
@@ -79,7 +86,12 @@ class ObservationConfig:
             dtype=np.float32,
         )
 
-        return cls(hw_default_pose=hw_default_pose, joint_sign=joint_sign)
+        return cls(
+            hw_default_pose=hw_default_pose,
+            rl_default_pose=load_rl_default_pose(cpg_path),
+            joint_sign=joint_sign,
+            base_lin_vel_source=(metadata or {}).get("base_lin_vel_source", "leg_odometry"),
+        )
 
 
 class ObservationBuilder:
@@ -104,11 +116,11 @@ class ObservationBuilder:
 
         # Leg odometry for velocity estimation (replaces velocity-blind zeros)
         self._leg_odom = LegOdometry()
-        self._rl_default_pose = np.array(DEFAULT_RL_POSE, dtype=np.float32)
+        self._base_velocity = np.zeros(3, dtype=np.float32)
 
         # State for velocity estimation
         self._prev_positions: Optional[np.ndarray] = None
-        self._prev_time: Optional[float] = None
+        self._prev_timestamp_ms: Optional[int] = None
         self._joint_vel = np.zeros(12, dtype=np.float32)
 
         # Previous raw policy output (for observation [36:48])
@@ -127,7 +139,7 @@ class ObservationBuilder:
         """Build 48D observation vector.
 
         Args:
-            time_sec: Current time in seconds (for velocity estimation)
+            time_sec: Controller elapsed time in seconds (retained for existing callers)
             commands: Optional [vx, vy, yaw_rate] commands
             training_mean: Optional 48D training mean for blending
             joint_pos_blend: Blend factor for joint positions (0=training mean, 1=actual)
@@ -163,6 +175,10 @@ class ObservationBuilder:
         # Read servo telemetry
         telem = self.esp32.read_telemetry()
         self.last_telemetry = telem
+        if telem.valid:
+            missing = telem.missing_servo_indices
+            if missing.size:
+                raise RuntimeError(f"Missing servo feedback at joint indices {missing.tolist()}")
         positions = telem.positions if telem.valid else np.zeros(12)
 
         # Convert hardware positions to RL-convention relative positions:
@@ -176,16 +192,19 @@ class ObservationBuilder:
         else:
             obs[12:24] = rl_relative
 
-        # [24:36] Joint velocities (estimated via differentiation, sign-corrected)
-        hw_joint_vel = self._estimate_joint_velocities(positions, time_sec)
-        rl_joint_vel = hw_joint_vel * self.cfg.joint_sign
-        obs[24:36] = rl_joint_vel
-
-        # [0:3] Body linear velocity via leg odometry (uses joint pos + vel computed above)
-        # Convert rl_relative back to absolute RL angles for FK
-        rl_absolute = self._rl_default_pose + rl_relative
-        servo_loads = telem.loads if (telem.valid and telem.loads is not None) else None
-        obs[0:3] = self._leg_odom.update(rl_absolute, rl_joint_vel, servo_loads)
+        # Differentiate once per ESP32 sample. Serial polling may repeat the
+        # last packet or skip one, independently of the Pi control-loop time.
+        if telem.valid and telem.timestamp_ms != self._prev_timestamp_ms:
+            hw_joint_vel = self._estimate_joint_velocities(positions, telem.timestamp_ms)
+            if self.cfg.base_lin_vel_source == "leg_odometry":
+                self._base_velocity = self._leg_odom.update(
+                    self.cfg.rl_default_pose + rl_relative,
+                    hw_joint_vel * self.cfg.joint_sign,
+                    telem.loads,
+                    angular_velocity=obs[3:6],
+                )
+        obs[24:36] = self._joint_vel * self.cfg.joint_sign
+        obs[0:3] = self._base_velocity
 
         # [36:48] Previous raw policy output (before EMA/scaling)
         obs[36:48] = self._prev_raw_action
@@ -207,25 +226,15 @@ class ObservationBuilder:
     def _estimate_joint_velocities(
         self,
         positions: np.ndarray,
-        time_sec: float,
+        timestamp_ms: int,
     ) -> np.ndarray:
-        """Estimate joint velocities via differentiation with low-pass filter.
-
-        Args:
-            positions: Current joint positions (12D)
-            time_sec: Current time in seconds
-
-        Returns:
-            Estimated joint velocities (12D, rad/s)
-        """
-        if self._prev_positions is None or self._prev_time is None:
+        """Differentiate encoder samples using the ESP32 unsigned millis clock."""
+        if self._prev_positions is None:
             self._prev_positions = positions.copy()
-            self._prev_time = time_sec
+            self._prev_timestamp_ms = timestamp_ms
             return self._joint_vel
 
-        dt = time_sec - self._prev_time
-        if dt < 1e-6:
-            return self._joint_vel
+        dt = ((timestamp_ms - self._prev_timestamp_ms) % (2**32)) / 1000.0
 
         # Compute raw velocity
         raw_vel = (positions - self._prev_positions) / dt
@@ -236,7 +245,7 @@ class ObservationBuilder:
 
         # Update state
         self._prev_positions = positions.copy()
-        self._prev_time = time_sec
+        self._prev_timestamp_ms = timestamp_ms
 
         return self._joint_vel
 
@@ -249,7 +258,8 @@ class ObservationBuilder:
                              training mean of last_action (running_mean[36:48]).
         """
         self._prev_positions = None
-        self._prev_time = None
+        self._prev_timestamp_ms = None
+        self._base_velocity.fill(0.0)
         self._joint_vel = np.zeros(12, dtype=np.float32)
         self._leg_odom.reset()
         if prev_action_init is not None:

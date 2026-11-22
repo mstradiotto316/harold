@@ -17,12 +17,13 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Sequence
 
 from .system_metrics import SystemMetricsCollector
 
 if TYPE_CHECKING:
     from drivers.esp32_serial import Telemetry
+    from drivers.imu_reader_rpi5 import IMUData
 
 
 # Joint names in RL order
@@ -51,6 +52,8 @@ class ControllerState:
     command_vy: float = 0.0
     command_yaw: float = 0.0
     cmd_positions: list[float] | None = None
+    imu: Optional["IMUData"] = None
+    base_velocity: Optional[Sequence[float]] = None
 
 
 class SessionLogger:
@@ -179,6 +182,9 @@ class SessionLogger:
 
         # Controller state
         header.extend(["mode", "cpg_phase", "cmd_vx", "cmd_vy", "cmd_yaw"])
+        # The sim playback logger uses imu_proj_g_* for Z-up IMU readings.
+        for prefix in ("imu_accel_g", "imu_gyro", "imu_proj_g", "imu_lin_vel", "policy_lin_vel_b_m_s"):
+            header.extend(f"{prefix}_{axis}" for axis in "xyz")
 
         self._writer.writerow(header)
 
@@ -283,6 +289,15 @@ class SessionLogger:
         else:
             row.extend(["UNKNOWN", "0.0", "0.0", "0.0", "0.0"])
 
+        imu = state.imu if state else None
+        if imu is not None and imu.valid:
+            row.extend(imu.accel)
+            row.extend(imu.gyro)
+            row.extend(imu.projected_gravity)
+            row.extend(imu.lin_vel)
+        else:
+            row.extend([math.nan] * 12)
+        row.extend(state.base_velocity if state and state.base_velocity is not None else [math.nan] * 3)
         return row
 
     def _flush(self) -> None:

@@ -2,7 +2,8 @@
 
 Computes body velocity by tracking foot positions via forward kinematics.
 During stance (foot on ground), the foot is stationary in the world frame,
-so body velocity = -(Jacobian * joint_velocities) in body frame.
+so body velocity is the negative sum of foot motion relative to the body and
+the rotational velocity of the foot about the body origin.
 
 This replaces the previous velocity-blind approach (zeros at obs[0:3])
 and provides the same signal the sim policy sees (ground-truth velocity + noise).
@@ -96,40 +97,14 @@ def foot_position(
     Returns:
         3D foot position in body frame [x, y, z] (meters)
     """
-    # Start at hip (shoulder joint position in body frame)
-    p = HIP_OFFSETS[leg].copy()
-
-    # Shoulder rotation (around X axis) affects the YZ plane
-    R_sh = _rot_x(shoulder_angle)
-
-    # Offset from shoulder to thigh joint (in shoulder frame)
-    offset_sh_to_th = SHOULDER_TO_THIGH[leg].copy()
-
-    # Thigh joint position in body frame
-    p += R_sh @ offset_sh_to_th
-
-    # Thigh link: extends downward (-Z in body frame) at thigh_angle from vertical
-    # Thigh rotates around Y axis. At angle=0, thigh points down (-Z).
-    # Positive angle = forward rotation (toward +X)
-    thigh_vec = np.array([
-        THIGH_LENGTH * np.sin(thigh_angle),
-        0.0,
-        -THIGH_LENGTH * np.cos(thigh_angle),
-    ])
-    # Apply shoulder rotation to the thigh plane
-    p += R_sh @ thigh_vec
-
-    # Calf link: net angle from vertical = thigh_angle + calf_angle
-    net_calf = thigh_angle + calf_angle
-    calf_vec = np.array([
-        CALF_LENGTH * np.sin(net_calf),
-        0.0,
-        -CALF_LENGTH * np.cos(net_calf),
-    ])
-    # Apply shoulder rotation
-    p += R_sh @ calf_vec
-
-    return p
+    # The USD uses right-handed +Y pitch axes. At neutral, a positive
+    # thigh rotation moves a downward-pointing link toward body -X.
+    side = 1 if leg.endswith("l") else -1
+    calf_origin = np.array([-0.0026, -side * 0.0008, -THIGH_LENGTH])
+    # Approximate the contact point at the middle of the distal foot pad.
+    foot_tip = np.array([0.00075, side * 0.0228, -CALF_LENGTH])
+    thigh_to_foot = _rot_y(thigh_angle) @ (calf_origin + _rot_y(calf_angle) @ foot_tip)
+    return HIP_OFFSETS[leg] + _rot_x(shoulder_angle) @ (SHOULDER_TO_THIGH[leg] + thigh_to_foot)
 
 
 def foot_jacobian(
@@ -150,7 +125,7 @@ def foot_jacobian(
     Returns:
         3x3 Jacobian matrix
     """
-    angles = np.array([shoulder_angle, thigh_angle, calf_angle])
+    angles = np.array([shoulder_angle, thigh_angle, calf_angle], dtype=float)
     J = np.zeros((3, 3))
 
     p0 = foot_position(leg, *angles)
@@ -167,7 +142,7 @@ class LegOdometry:
     """Estimates body velocity from joint encoder readings via leg kinematics.
 
     During stance phase, the foot is stationary on the ground.
-    Body velocity in body frame = -(Jacobian * joint_velocities) for stance legs.
+    Gyro compensation removes the contribution of body rotation at the foot.
     Averages across all detected stance legs for robustness.
 
     Usage:
@@ -185,7 +160,7 @@ class LegOdometry:
         Args:
             load_threshold: Servo load above which a leg is considered in stance.
             filter_alpha: Low-pass filter coefficient for velocity output.
-                          0 = no filtering (raw), 1 = full trust in new measurement.
+                          0 retains the previous estimate and 1 uses the raw measurement.
             min_stance_legs: Minimum legs in stance for a valid estimate.
                             If fewer, returns the previous filtered estimate.
         """
@@ -201,12 +176,14 @@ class LegOdometry:
         joint_pos_rl: np.ndarray,
         joint_vel_rl: np.ndarray,
         servo_loads: np.ndarray | None = None,
+        angular_velocity: np.ndarray | None = None,
     ) -> np.ndarray:
         """Compute body velocity estimate from joint state.
 
         Args:
             joint_pos_rl: 12D joint positions in RL convention (absolute, NOT relative).
             joint_vel_rl: 12D joint velocities in RL convention (rad/s).
+            angular_velocity: Body-frame gyro reading in rad/s.
             servo_loads: 12D servo load values (0-1000). If None, assumes all legs
                         are in stance (fallback when load data unavailable).
 
@@ -242,6 +219,8 @@ class LegOdometry:
             # Body velocity = -(J * q_dot) during stance
             # (foot is stationary, so body moves opposite to foot velocity in body frame)
             v_body = -(J @ q_dot)
+            if angular_velocity is not None:
+                v_body -= np.cross(angular_velocity, foot_position(leg, sh_angle, th_angle, ca_angle))
             vel_estimates.append(v_body)
 
         if len(vel_estimates) >= self.min_stance_legs:
@@ -252,7 +231,7 @@ class LegOdometry:
                 self.filter_alpha * raw_vel
                 + (1 - self.filter_alpha) * self._vel_filtered
             )
-        # If insufficient stance legs, keep previous filtered estimate (decays naturally)
+        # If insufficient stance legs, keep previous filtered estimate
 
         return self._vel_filtered.copy()
 

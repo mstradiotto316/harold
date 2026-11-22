@@ -53,7 +53,12 @@ class ActionConfig:
     # Safe joint limits (degrees, in hardware convention)
     safe_limits_deg: dict = None
 
+    # Manager-based training starts the action filter at zero after reset.
+    action_filter_beta: float | None = None
+
     def __post_init__(self):
+        if self.action_filter_beta is not None and not 0 < self.action_filter_beta <= 1:
+            raise ValueError("action_filter_beta must be in (0, 1]")
         if self.joint_range is None:
             self.joint_range = dict(JOINT_RANGE_BY_CATEGORY)
 
@@ -128,6 +133,7 @@ class ActionConfig:
             safe_limits_deg=safe_limits_deg,
             action_scale=float(metadata.get("action_scale", DEFAULT_ACTION_SCALE)),
             effective_action_scale=effective_action_scale,
+            action_filter_beta=metadata.get("action_filter_beta"),
         )
 
 
@@ -168,8 +174,8 @@ class ActionConverter:
         self._effective_action_scale: Optional[np.ndarray] = self.cfg.effective_action_scale
 
         # Action smoothing (EMA filter) — must match training (flat_env_cfg.py EMAJointPositionActionCfg)
-        self._smooth_action: Optional[np.ndarray] = None
-        self._action_beta = 0.2  # Filter coefficient (aligned with training ema_beta=0.2)
+        self._action_beta = self.cfg.action_filter_beta or 0.2
+        self.reset()
 
     def compute_policy_targets(
         self,
@@ -273,7 +279,10 @@ class ActionConverter:
 
     def reset(self) -> None:
         """Reset action smoothing state."""
-        self._smooth_action = None
+        # Older metadata used the first sample to initialize its deployment filter.
+        self._smooth_action = (
+            None if self.cfg.action_filter_beta is None else np.zeros(12, dtype=np.float32)
+        )
 
     def get_safe_stance(self) -> np.ndarray:
         """Get safe default stance (ready pose) in hardware convention.

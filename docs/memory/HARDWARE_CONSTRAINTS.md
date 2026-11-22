@@ -187,7 +187,7 @@ st.WritePosEx(ID, Position, Speed, ACC);
 
 ### Training Throughput (benchmarked 2026-03-19)
 
-**Two-phase approach**: Training runs without video at high envs; video captured post-hoc via `harold record` (~30-45s from best checkpoint at 1 env). This removes video as the RAM bottleneck.
+These historical throughput measurements used the direct environment with video disabled. Current training records video inline, which increases memory usage. Use the CLI's default environment count for manager-based training.
 
 | Envs | it/s | Samples/s | GPU | RAM | Status |
 |------|------|-----------|-----|-----|--------|

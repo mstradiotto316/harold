@@ -1,5 +1,6 @@
 import argparse
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -30,6 +31,41 @@ def _make_args(module):
         gait_scale=None,
         no_watchdog=False,
     )
+
+
+def test_compare_displays_manager_metrics_with_missing_values(tmp_path, capsys):
+    harold = _load_harold_cli_module()
+    runs = []
+    for alias, metrics in (("EXP-001", {"gait": 12.75}), ("EXP-002", {})):
+        path = tmp_path / alias
+        path.mkdir()
+        harold.save_manifest(path, {"alias": alias, "summary": {"final": metrics}})
+        runs.append(str(path))
+
+    assert harold.cmd_compare(argparse.Namespace(experiments=runs)) == 0
+    rows = capsys.readouterr().out.splitlines()
+    assert any(row.split() == ["EXP-001", "EXP-002"] for row in rows)
+    assert any(row.split() == ["gait", "12.750", "?"] for row in rows)
+
+
+@pytest.mark.parametrize("extra_args", [[], ["--video", "--video-interval", "100", "--video-length", "12"]])
+def test_train_cli_always_builds_video_command(monkeypatch, extra_args):
+    harold = _load_harold_cli_module()
+    command = []
+    build = harold.build_train_command
+
+    def capture(*args, **kwargs):
+        command.extend(build(*args, **kwargs))
+        return command
+
+    monkeypatch.setattr(sys, "argv", ["harold", "train", *extra_args])
+    monkeypatch.setattr(harold, "build_train_command", capture)
+    # Stop after command construction, before launching a simulator.
+    monkeypatch.setattr(harold, "is_training_running", lambda: harold.TrainingStatus(True, 123, 1.0))
+    assert harold.main() == 1
+    assert "--video" in command
+    assert command[command.index("--video_interval") + 1] == str(100 if extra_args else harold.TRAINING_DEFAULTS["video_interval"])
+    assert command[command.index("--video_length") + 1] == str(12 if extra_args else harold.TRAINING_DEFAULTS["video_length"])
 
 
 def test_cmd_train_rejects_active_run(monkeypatch, capsys):
@@ -84,6 +120,8 @@ def test_get_metrics_reads_termination_counters_with_info_prefix(tmp_path):
     writer = tensorboard.SummaryWriter(log_dir=str(tmp_path))
     writer.add_scalar("Info / Episode_Termination/orientation", 3.0, 1)
     writer.add_scalar("Info / Episode_Termination/body_contact", 5.0, 1)
+    writer.add_scalar("Info / Episode_Metric/termination_body_contact", 99.0, 1)
+    writer.add_scalar("Info / Episode_Metric/termination_height", 2.0, 1)
     writer.add_scalar("Info / Episode_Termination/time_out", 7.0, 1)
     writer.add_scalar("Info / Episode_Metric/vx_w_mean", 0.12, 1)
     writer.flush()
@@ -93,4 +131,6 @@ def test_get_metrics_reads_termination_counters_with_info_prefix(tmp_path):
 
     assert metrics["term_orientation"] == 3.0
     assert metrics["term_body_contact"] == 5.0
+    assert metrics["term_height"] == 2.0
+    assert "term_elbow_pose" not in metrics
     assert metrics["term_timeout"] == 7.0

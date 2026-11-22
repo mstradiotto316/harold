@@ -5,7 +5,7 @@ import re
 
 import numpy as np
 
-from common.policy_config import JOINT_CATEGORIES, resolve_deployment_joint_sign
+from common.policy_config import JOINT_CATEGORIES, policy_wire_sign, resolve_deployment_joint_sign
 from deployment.inference.stance import load_hw_default_pose, load_rl_default_pose
 
 
@@ -16,7 +16,7 @@ FIRMWARE = ROOT / "firmware/StreamingControl/HaroldStreamingControl/HaroldStream
 def manager_joint_target_limits(firmware_path: Path = FIRMWARE) -> tuple[np.ndarray, np.ndarray]:
     """Return absolute lower and upper RL joint targets in radians, before wire/tick rounding.
 
-    Uses the same stance and hardware signs as ActionConverter. StreamingControl
+    Uses the same stance and serial-target signs as ActionConverter. StreamingControl
     multiplies the serial target by JOINT_SIGN before clipping the physical angle.
     Its per-servo direction table is applied afterwards and does not affect the bounds.
     """
@@ -27,8 +27,9 @@ def manager_joint_target_limits(firmware_path: Path = FIRMWARE) -> tuple[np.ndar
     sign_literals = array[1].strip().rstrip(",").split(",")
     firmware_sign = np.array([float(s.strip().rstrip("fF")) for s in sign_literals])
     config_dir = ROOT / "deployment/config"
-    runtime_sign = np.asarray(resolve_deployment_joint_sign(hardware_path=config_dir / "hardware.yaml"))
-    for signs in (firmware_sign, runtime_sign):
+    physical_joint_sign = resolve_deployment_joint_sign(hardware_path=config_dir / "hardware.yaml")
+    wire_sign = np.asarray(policy_wire_sign(physical_joint_sign))
+    for signs in (firmware_sign, wire_sign):
         if signs.shape != (12,) or not np.isin(signs, [-1, 1]).all():
             raise ValueError("Expected 12 joint signs of +1 or -1")
 
@@ -46,6 +47,6 @@ def manager_joint_target_limits(firmware_path: Path = FIRMWARE) -> tuple[np.ndar
         raise ValueError("Invalid physical clamp interval")
 
     wire = physical / firmware_sign
-    manager = load_rl_default_pose() + (wire - load_hw_default_pose()) / runtime_sign
+    manager = load_rl_default_pose() + (wire - load_hw_default_pose()) / wire_sign
     lower, upper = np.sort(manager.astype(np.float32), axis=0)
     return lower, upper

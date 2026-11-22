@@ -19,7 +19,7 @@ joint_order:
   - calf_bl
   - calf_br
 
-# Hardware convention: servo encoder readings at ready stance.
+# Ready stance as sent on the StreamingControl wire and returned in telemetry.
 hw_default_pose:
   shoulders: 0.0
   thighs: 0.65

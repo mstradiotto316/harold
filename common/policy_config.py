@@ -200,6 +200,18 @@ def load_hardware_joint_sign(path: Path | None = None) -> list[float]:
     return expand_joint_sign(servos.get("joint_sign", {}), defaults=list(JOINT_SIGN))
 
 
+def policy_wire_sign(physical_joint_sign: list[float]) -> list[float]:
+    """Sign for both policy-to-wire and telemetry-to-policy *deltas*.
+
+    StreamingControl signs wire angles on write and physical angles on read.
+    JOINT_SIGN mirrors that firmware table. The configured policy-to-physical
+    sign composes with it; raw servo mounting directions stay in firmware.
+    """
+    if len(physical_joint_sign) != ACTION_DIM or any(value not in (-1, 1) for value in physical_joint_sign):
+        raise ValueError("Expected 12 physical joint signs of +1 or -1")
+    return [physical * firmware for physical, firmware in zip(physical_joint_sign, JOINT_SIGN)]
+
+
 def resolve_deployment_joint_sign(
     *,
     metadata: dict[str, Any] | None = None,

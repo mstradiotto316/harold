@@ -87,7 +87,8 @@ Note: `policy/policy_metadata.json` captures training-time defaults; do not edit
 ### Joint Sign Convention
 
 - High-level shoulder semantics are the same on all four legs. Do not mirror FR/BR shoulders in policy space.
-- Thigh and calf joints are sign-inverted between RL convention and hardware convention.
+- The YAML `joint_sign` maps policy angles to physical angles. StreamingControl applies its own matching shoulder/thigh/calf signs between serial and physical coordinates on both write and read. As a result, a positive policy delta requires a positive wire delta on all 12 joints. Center wire positions on `hw_default_pose` and model positions on `rl_default_pose`.
+- On the front left calf, a positive model pulse opens the knee. A +0.20 rad pulse moves the serial target from −1.13 to −0.93 rad. Before this correction, the −0.20 wire pulse made the supported knee bend farther. The open-loop CPG retains its bench-tuned serial waveform.
 - Right-side servo mounting is handled separately by `config/hardware.yaml` `direction` values and the ESP32 firmware `DIR_TABLE`.
 - Controller startup treats `config/hardware.yaml` as the source of truth and rejects exported metadata whose `joint_sign` disagrees with it.
 

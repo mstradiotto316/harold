@@ -345,7 +345,7 @@ def test_manager_action_filter_starts_at_zero_after_every_reset():
     for _ in range(2):
         first, wire = converter.compute_policy_targets(action)
         np.testing.assert_allclose(first, cfg.rl_default_pose + 0.08 * action, atol=1e-6)
-        np.testing.assert_allclose(wire, cfg.hw_default_pose + 0.08 * action * cfg.joint_sign, atol=1e-6)
+        np.testing.assert_allclose(wire, cfg.hw_default_pose + 0.08 * action, atol=1e-6)
         second, _ = converter.compute_policy_targets(action)
         np.testing.assert_allclose(second, cfg.rl_default_pose + 0.144 * action, atol=1e-6)
         converter.reset()
@@ -373,7 +373,8 @@ def test_policy_differentiates_each_encoder_packet_once(source):
     sample.timestamp_ms = 60  # A 100 ms packet interval across the millis rollover
     sample.positions = sample.positions + 0.1
     obs = builder.build(1.2)
-    np.testing.assert_allclose(obs[24:36], cfg.joint_sign, atol=1e-5)
+    np.testing.assert_allclose(obs[12:24], np.full(12, 0.1), atol=1e-5)
+    np.testing.assert_allclose(obs[24:36], np.ones(12), atol=1e-5)
     repeated = builder.build(1.25)
     np.testing.assert_array_equal(repeated, obs)
     if source == "leg_odometry":
@@ -466,3 +467,44 @@ def test_policy_loop_stops_on_sensor_fault(fault, message, expected_sends, monke
         np.testing.assert_allclose([recorded_state.command_vx, recorded_state.command_vy,
                                     recorded_state.command_yaw], [0.1, 0.0, -0.2])
         assert recorded_state.imu is ctrl.imu.read.return_value
+
+
+def test_positive_calf_policy_pulse_matches_firmware_and_foot_kinematics():
+    import re
+
+    from common.policy_config import JOINT_SIGN
+    from inference.action_converter import ActionConverter
+    from inference.leg_odometry import foot_position
+
+    # Check against the StreamingControl table that actually multiplies the
+    # serial target before clamping. Telemetry applies that table on return.
+    firmware = (REPO_ROOT / "firmware/StreamingControl/HaroldStreamingControl/HaroldStreamingControl.ino").read_text()
+    literals = re.search(r"const float JOINT_SIGN\[12\]\s*=\s*\{(.*?)\}", firmware, re.S)[1]
+    firmware_sign = np.array([float(v.strip().rstrip("f")) for v in literals.split(",")])
+    np.testing.assert_array_equal(firmware_sign, JOINT_SIGN)
+    assert "physical_rad = JOINT_SIGN[i] * input_rad[i]" in firmware
+    assert "d.pos_rad = rad * JOINT_SIGN[index]" in firmware
+    converter = ActionConverter()
+    q = converter.get_rl_default_pose()
+    wire_zero = converter.rl_to_hardware(q)
+    p0 = foot_position("fl", *q[[0, 4, 8]])
+    q[8] += 0.2
+    wire = converter.rl_to_hardware(q)
+    np.testing.assert_allclose(wire[8], -0.93, atol=1e-6)
+    physical_delta = firmware_sign * (wire - wire_zero)
+    np.testing.assert_allclose(physical_delta[8], -0.2, atol=1e-6)
+    np.testing.assert_array_equal(np.flatnonzero(physical_delta), [8])
+    p1 = foot_position("fl", *q[[0, 4, 8]])
+    assert p1[0] < p0[0] and p1[2] < p0[2]  # toe moves rearward and downward
+
+
+def test_open_loop_cpg_preserves_bench_tuned_wire_targets():
+    from inference.action_converter import ActionConverter
+    from inference.cpg_generator import CPGGenerator
+
+    converter, cpg = ActionConverter(), CPGGenerator()
+    for t in np.linspace(0.0, 2.0, 40):
+        target = cpg.compute(t)
+        _, wire = converter.convert_cpg_targets(target)
+        delta = target - converter.get_rl_default_pose()
+        np.testing.assert_allclose(wire, converter.get_hw_default_pose() + delta * np.repeat([1, -1, -1], 4))

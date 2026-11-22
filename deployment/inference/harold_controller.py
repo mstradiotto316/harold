@@ -360,7 +360,7 @@ class HaroldController:
                 if mode == "cpg":
                     # Open-loop CPG playback
                     cpg_targets = self.cpg.compute(t)
-                    rl_targets, hw_targets = self.action_conv.convert_rl_targets(cpg_targets)
+                    rl_targets, hw_targets = self.action_conv.convert_cpg_targets(cpg_targets)
                     command_vx, command_vy, command_yaw = self.obs_builder.cfg.default_commands
                     cpg_phase = self.cpg.phase
                     telemetry = self.esp32.read_telemetry()

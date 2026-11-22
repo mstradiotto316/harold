@@ -14,6 +14,10 @@ Each experiment entry contains:
 
 ## Experiments
 
+### 2026-11-21 — Supported front-left calf direction tests
+
+On the bench branch, the Pi applied one two-second pulse per test, then returned Harold to stance and stopped streaming. A +0.08 rad policy-coordinate pulse produced -0.0782 rad at the encoder. A +0.20 rad pulse produced -0.1963 rad. The sensor measures serial coordinates. Anatomical direction is a separate observation.
+
 ### 2026-11-21 — EXP-962 replay and export
 
 Three 540-step, four-environment Isaac Sim evaluations with seed 42 used the same nine commands. There were 2,076 post-warmup samples in each evaluation and zero fall terminations. The load input approximated firmware servo load using simulated torque. No training took place.

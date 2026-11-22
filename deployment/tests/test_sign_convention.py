@@ -8,10 +8,9 @@ firmware. An operator observes the supported leg to verify anatomical motion.
 Usage:
     python -m tests.test_sign_convention [--delta 0.1] [--port /dev/ttyUSB0]
 
-Expected behavior:
-    - FL shoulder +delta → servo position increases (joint_sign = +1)
-    - FL thigh +delta    → servo position DECREASES (joint_sign = -1)
-    - FL calf +delta     → servo position DECREASES (joint_sign = -1)
+The encoder telemetry delta should increase for each positive policy pulse.
+At the ready stance, the front left calf pulse should open the knee and move
+the toe rearward. Firmware applies the physical thigh and calf sign inversion.
 """
 import argparse
 import signal
@@ -94,7 +93,7 @@ def main():
         parser.error("Pulse or ready stance exceeds the configured firmware target envelope")
 
     print(f"Default pose (hw): {np.array2string(hw_default, precision=3)}")
-    print(f"Joint signs: {joint_sign}")
+    print(f"Policy-to-physical signs: {joint_sign}")
     print(f"RL delta: +{args.delta} rad")
 
     # Connect
@@ -132,7 +131,9 @@ def main():
             hw_delta = targets[joint_idx] - hw_default[joint_idx]
             expected_direction = "increase" if hw_delta > 0 else "decrease"
 
-            print(f"\n[{joint_idx:2d}] {name}: RL +{args.delta:.2f} → HW {hw_delta:+.3f} → expect {expected_direction}")
+            print(f"\n[{joint_idx:2d}] {name}: RL +{args.delta:.2f} → wire {hw_delta:+.3f} → expect encoder {expected_direction}")
+            if name == "FL_ca":
+                print("Watch the pulse: the knee should open and the toe should move rearward.")
             measured = hold_and_measure(esp32, targets, args.hold_time)
 
             actual_delta = measured[joint_idx] - baseline[joint_idx]
@@ -156,7 +157,7 @@ def main():
     print("\n" + "=" * 70)
     print("SIGN CONVENTION RESULTS")
     print("=" * 70)
-    print(f"\n{'Joint':10s}  {'Sign':>5s}  {'HW Delta':>10s}  {'Actual':>10s}  {'Result':>8s}")
+    print(f"\n{'Joint':10s}  {'Phys sign':>9s}  {'Wire delta':>10s}  {'Actual':>10s}  {'Result':>8s}")
     print(f"{'-'*10}  {'-'*5}  {'-'*10}  {'-'*10}  {'-'*8}")
 
     all_pass = len(results) == len(selected) and all(result[-1] for result in results)

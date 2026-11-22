@@ -23,7 +23,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from common.policy_config import JOINT_SIGN, resolve_deployment_joint_sign
+from common.policy_config import JOINT_SIGN, policy_wire_sign, resolve_deployment_joint_sign
 from drivers.imu_reader_rpi5 import IMUReaderRPi5, IMUData
 from drivers.esp32_serial import ESP32Interface, Telemetry
 from inference.leg_odometry import LegOdometry
@@ -36,8 +36,7 @@ class ObservationConfig:
     # Hardware default pose (ready stance in hardware convention)
     hw_default_pose: np.ndarray = None
 
-    # Joint sign for HW -> RL convention conversion
-    # rl_relative = hw_relative * joint_sign
+    # Policy to physical joint signs. The firmware has already signed telemetry.
     joint_sign: np.ndarray = None
 
     # Velocity commands [vx, vy, yaw_rate]
@@ -61,7 +60,6 @@ class ObservationConfig:
             self.hw_default_pose = load_hw_default_pose()
 
         if self.joint_sign is None:
-            # Sign conversion: rl_relative = hw_relative * joint_sign
             self.joint_sign = np.array(JOINT_SIGN, dtype=np.float32)
 
         if self.default_commands is None:
@@ -113,6 +111,7 @@ class ObservationBuilder:
         self.imu = imu
         self.esp32 = esp32
         self.cfg = config or ObservationConfig()
+        self._wire_sign = np.array(policy_wire_sign(self.cfg.joint_sign), dtype=np.float32)
 
         # Leg odometry for velocity estimation (replaces velocity-blind zeros)
         self._leg_odom = LegOdometry()
@@ -181,10 +180,9 @@ class ObservationBuilder:
                 raise RuntimeError(f"Missing servo feedback at joint indices {missing.tolist()}")
         positions = telem.positions if telem.valid else np.zeros(12)
 
-        # Convert hardware positions to RL-convention relative positions:
-        # hw_relative → rl_relative via joint_sign (thighs/calves are inverted)
+        # Center the firmware-signed telemetry at its wire ready stance.
         hw_relative = positions - self.cfg.hw_default_pose
-        rl_relative = hw_relative * self.cfg.joint_sign
+        rl_relative = hw_relative * self._wire_sign
 
         # [12:24] Joint positions relative to default pose (RL convention)
         if training_mean is not None and joint_pos_blend < 1.0:
@@ -199,11 +197,11 @@ class ObservationBuilder:
             if self.cfg.base_lin_vel_source == "leg_odometry":
                 self._base_velocity = self._leg_odom.update(
                     self.cfg.rl_default_pose + rl_relative,
-                    hw_joint_vel * self.cfg.joint_sign,
+                    hw_joint_vel * self._wire_sign,
                     telem.loads,
                     angular_velocity=obs[3:6],
                 )
-        obs[24:36] = self._joint_vel * self.cfg.joint_sign
+        obs[24:36] = self._joint_vel * self._wire_sign
         obs[0:3] = self._base_velocity
 
         # [36:48] Previous raw policy output (before EMA/scaling)

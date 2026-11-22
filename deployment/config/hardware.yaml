@@ -45,7 +45,7 @@ servos:
     - bl_calf
     - br_calf
 
-  # Sign correction: RL -> hardware
+  # Policy -> physical angles. StreamingControl also applies this sign to wire angles.
   # Shoulder semantics stay the same on every leg.
   # Right-side servo mirroring is handled by `direction`, not by flipping the
   # high-level shoulder sign convention.

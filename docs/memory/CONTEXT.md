@@ -48,7 +48,7 @@ Train a controllable walking gait for the Harold quadruped robot that can follow
 
 ## Current state (2026-11-21, EXP-962 bench preparation)
 
-EXP-962 is the latest retained manager-based flat walking policy on the leg-odometry branch. Its export lives in `deployment/policy/EXP-962/`. The model takes 48 inputs at 20 Hz. The action scale is 0.4 on each joint, with EMA beta 0.2. The default policy directory still contains EXP-875. The Pi is reachable as `harold-pi`. It started this session on a clean April checkout with the controller service inactive and disabled. Use NEXT_STEPS and the November 21 session log for the active bench work.
+EXP-962 is the latest retained manager-based flat walking policy on the leg-odometry branch. Its export lives in `deployment/policy/EXP-962/`. The model takes 48 inputs at 20 Hz. The action scale is 0.4 on each joint, with EMA beta 0.2. The default policy directory still contains EXP-875. The Pi is reachable as `harold-pi`. It started this session on a clean April checkout with the controller service inactive and disabled. On the stand both positive policy deltas turned in the opposite anatomical direction on the original FL thigh/calf serial mapping. Use NEXT_STEPS and the November 21 session log for the corrected-mapping bench work.
 
 ## Current State (2026-03-16, Desktop Review Follow-up)
 - Export metadata is now sourced from the training run itself for supported fallback cases:

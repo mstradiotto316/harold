@@ -20,8 +20,12 @@ def test_clipping_manager_targets_matches_streaming_control(monkeypatch):
     signs = np.repeat([1, -1, -1], 4)
     hard_min = np.deg2rad(np.repeat([-20, -55, -5], 4))
     hard_max = np.deg2rad(np.repeat([20, 5, 80], 4))
-    np.testing.assert_allclose(signs * converter.rl_to_hardware(lower), hard_min, atol=2e-7)
-    np.testing.assert_allclose(signs * converter.rl_to_hardware(upper), hard_max, atol=2e-7)
+    # Increasing any manager target increases its serial angle. StreamingControl
+    # inverts thighs and calves once, so their lower manager endpoints hit the upper stops.
+    physical_at_lower = np.where(signs > 0, hard_min, hard_max)
+    physical_at_upper = np.where(signs > 0, hard_max, hard_min)
+    np.testing.assert_allclose(signs * converter.rl_to_hardware(lower), physical_at_lower, atol=2e-7)
+    np.testing.assert_allclose(signs * converter.rl_to_hardware(upper), physical_at_upper, atol=2e-7)
 
     targets = np.stack([lower - 0.5, converter.get_rl_default_pose(), upper + 0.5])
     wire = converter.rl_to_hardware(targets)

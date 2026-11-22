@@ -23,6 +23,7 @@ from common.policy_config import (
     JOINT_RANGE_BY_CATEGORY,
     JOINT_SIGN,
     resolve_deployment_joint_sign,
+    policy_wire_sign,
 )
 from inference.stance import load_hw_default_pose, load_rl_default_pose
 
@@ -39,7 +40,7 @@ class ActionConfig:
     # RL default pose (ready stance in simulation convention)
     rl_default_pose: np.ndarray = None
 
-    # Joint sign correction (RL <-> hardware)
+    # Policy to physical angle signs, before firmware wire conversion.
     joint_sign: np.ndarray = None
 
     # Training-time action scale.
@@ -71,7 +72,7 @@ class ActionConfig:
             self.rl_default_pose = load_rl_default_pose()
 
         if self.joint_sign is None:
-            # Sign conversion: hw = hw_default + (rl - rl_default) * joint_sign
+            # Physical joint convention, independent of servo DIR_TABLE.
             self.joint_sign = np.array(JOINT_SIGN, dtype=np.float32)
 
         if self.safe_limits_deg is None:
@@ -156,6 +157,8 @@ class ActionConverter:
     def __init__(self, config: ActionConfig | None = None):
         self.cfg = config or ActionConfig()
 
+        self._wire_sign = np.array(policy_wire_sign(self.cfg.joint_sign), dtype=np.float32)
+
         # Convert limits to radians for efficiency
         self._limits_rad = {}
         for cat, (lo, hi) in self.cfg.safe_limits_deg.items():
@@ -214,8 +217,7 @@ class ActionConverter:
             scaled = self._smooth_action * self.cfg.action_scale * self._joint_ranges
         rl_targets = self.cfg.rl_default_pose + scaled
 
-        # Convert from RL convention to hardware convention
-        # Formula: hw = hw_default + (rl - rl_default) * joint_sign
+        # Convert the trained joint targets to StreamingControl wire angles.
         hw_targets = self.rl_to_hardware(rl_targets)
 
         return rl_targets.astype(np.float32), hw_targets.astype(np.float32)
@@ -245,21 +247,15 @@ class ActionConverter:
         return self.cfg.hw_default_pose.copy()
 
     def rl_to_hardware(self, rl_targets: np.ndarray) -> np.ndarray:
-        """Convert joint targets from RL convention to hardware convention.
-
-        The transformation handles both sign inversion and offset differences:
-            hw = hw_default + (rl - rl_default) * joint_sign
-
-        Args:
-            rl_targets: 12D joint targets in RL convention
-
-        Returns:
-            12D joint targets in hardware convention
-        """
+        """Map absolute policy coordinates to StreamingControl serial targets."""
         rl_relative = rl_targets - self.cfg.rl_default_pose
-        hw_relative = rl_relative * self.cfg.joint_sign
-        hw_targets = self.cfg.hw_default_pose + hw_relative
-        return hw_targets
+        return self.cfg.hw_default_pose + rl_relative * self._wire_sign
+
+    def convert_cpg_targets(self, targets: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Preserve the historical open-loop waveform tuned on the physical robot."""
+        delta = targets - self.cfg.rl_default_pose
+        wire = self.cfg.hw_default_pose + delta * self.cfg.joint_sign
+        return targets.astype(np.float32), wire.astype(np.float32)
 
     def _apply_limits(self, targets: np.ndarray) -> np.ndarray:
         """Apply safe joint limits.

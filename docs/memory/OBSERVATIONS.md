@@ -1,8 +1,12 @@
 # Harold Observations & Insights
 
+## 2026-11-21 — Supported anatomical direction checks
+
+On the original mapping, the operator saw the FL knee bend farther for a +0.20 rad calf pulse and the FL knee move toward the nose for a +0.20 rad thigh pulse. The simulator predicts an opening knee and a knee moving toward the tail, respectively. Encoder deltas were -0.1963 and -0.1994 rad. Both encoder sign tests passed despite both physical directions being reversed. StreamingControl already converts serial angles into physical angles. The policy must account for this protocol conversion on both targets and observations. Preserve the canonical physical signs, direction table, joint order, control rate and limits.
+
 ## 2026-11-21 — EXP-962 command response
 
-The default manager evaluation with ground-truth velocity tracks a 0.5 m/s forward command at 0.489 m/s. With estimated velocity supplied to the ONNX policy, it reaches 0.502 m/s. Adding the current firmware target envelope cuts this to 0.225 m/s, while a 0.20 m/s request still achieves 0.181 m/s. This comparison assumes the deployed anatomical sign mapping. The stand direction test needs an observer because serial telemetry applies the inverse of the firmware's output transform.
+The default manager evaluation with ground-truth velocity tracks a 0.5 m/s forward command at 0.489 m/s. With estimated velocity supplied to the ONNX policy, it reaches 0.502 m/s. Adding the pre-correction firmware target envelope cuts this to 0.225 m/s, while a 0.20 m/s request still achieves 0.181 m/s. This comparison assumes the deployed anatomical sign mapping. The stand direction test needs an observer because serial telemetry applies the inverse of the firmware's output transform.
 
 April 5 hardware logs contain encoder, load, voltage and target data, with no IMU readings. The last stance had max joint error 0.24°. On the subsequent policy run the same-row error averaged 8.91° across all joints and fell to 3.80° with a one-sample (0.2 s) lag. Those logs alone cannot establish whether joints turn the right way relative to the body.
 

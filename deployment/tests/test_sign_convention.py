@@ -28,6 +28,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 
 from drivers.esp32_serial import ESP32Interface, ESP32Config
 from inference.action_converter import ActionConfig, ActionConverter
+from deployment.validation.firmware_limits import manager_joint_target_limits
 
 
 JOINT_NAMES = [
@@ -76,8 +77,9 @@ def main():
     parser.add_argument("--hold-time", type=float, default=2.0, help="Hold duration per test (s)")
     parser.add_argument("--joint", choices=JOINT_NAMES, help="Test only this joint (default: all 12)")
     args = parser.parse_args()
-    if not 0.0 < args.delta <= 0.1 or not 0.1 <= args.hold_time <= 2.0:
-        parser.error("--delta must be in (0, 0.1] rad and --hold-time in [0.1, 2] seconds")
+    max_delta = 0.20 if args.joint else 0.10
+    if not 0.0 < args.delta <= max_delta or not 0.1 <= args.hold_time <= 2.0:
+        parser.error(f"--delta must be in (0, {max_delta}] rad and --hold-time in [0.1, 2] seconds")
 
     config_dir = _DEPLOY_DIR / "config"
     hw_path = config_dir / "hardware.yaml"
@@ -85,6 +87,11 @@ def main():
     hw_default = converter.get_hw_default_pose()
     joint_sign = converter.cfg.joint_sign
     selected = [JOINT_NAMES.index(args.joint)] if args.joint else range(len(JOINT_NAMES))
+
+    lower, upper = manager_joint_target_limits()
+    ready = converter.get_rl_default_pose()
+    if np.any(ready < lower) or np.any(ready > upper) or np.any(ready[selected] + args.delta > upper[selected]):
+        parser.error("Pulse or ready stance exceeds the configured firmware target envelope")
 
     print(f"Default pose (hw): {np.array2string(hw_default, precision=3)}")
     print(f"Joint signs: {joint_sign}")
